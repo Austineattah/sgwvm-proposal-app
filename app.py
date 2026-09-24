@@ -3,16 +3,15 @@ import io
 import os
 from pathlib import Path
 import sys
-from dotenv import load_dotenv
 
-# Safely load local .env file only if it exists (for local development)
-if Path(".env").is_file():
-    try:
+# Safely load local .env file only if python-dotenv is installed and file exists
+try:
+    from dotenv import load_dotenv
+
+    if Path(".env").is_file():
         load_dotenv()
-    except ImportError:
-        pass
-else:
-    load_dotenv()
+except ImportError:
+    pass
 
 import docx
 import fitz
@@ -22,8 +21,11 @@ import pytesseract
 from PIL import Image
 import streamlit as st
 
-# Point pytesseract to your Windows installation path
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+# Point pytesseract to your Windows installation path (if applicable locally)
+if os.path.exists(r"C:\Program Files\Tesseract-OCR\tesseract.exe"):
+    pytesseract.pytesseract.tesseract_cmd = (
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    )
 
 
 # =========================================================================
@@ -33,7 +35,7 @@ def insert_proposal(
     tracking_code,
     vendor_name,
     email,
-    phone_number,  # <-- Ensure phone_number is included here
+    phone_number,
     category,
     cac_number,
     ai_summary,
@@ -43,7 +45,6 @@ def insert_proposal(
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # Make sure your SQL query includes the phone_number column
     cur.execute(
         """
         INSERT INTO proposals (
@@ -167,16 +168,6 @@ st.set_page_config(
 
 apply_custom_theme()
 
-# =========================================================================
-# HARDENED COMPONENT CARD STYLING & PROFESSIONAL VISUAL OVERRIDE
-# =========================================================================
-st.markdown(
-    """
-
-""",
-    unsafe_allow_html=True,
-)
-
 logo_file = (
     "assets/logo.png"
     if os.path.exists("assets/logo.png")
@@ -240,7 +231,6 @@ with tab1:
         "Submit vendor proposal documentation below for real-time CAC verification and AI analysis."
     )
 
-    # Added Submission Channel Feature
     submission_channel = st.radio(
         "Select Submission Channel:",
         [
