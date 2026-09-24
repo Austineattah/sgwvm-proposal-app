@@ -1,10 +1,18 @@
 from concurrent.futures import ThreadPoolExecutor
 import io
 import os
+from pathlib import Path
 import sys
 from dotenv import load_dotenv
 
-load_dotenv()
+# Safely load local .env file only if it exists (for local development)
+if Path(".env").is_file():
+    try:
+        load_dotenv()
+    except ImportError:
+        pass
+else:
+    load_dotenv()
 
 import docx
 import fitz
