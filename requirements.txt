@@ -4,3 +4,9 @@ pandas
 openai
 PyMuPDF
 requests
+python-dotenv
+pytesseract
+Pillow
+python-docx
+openpyxl
+SQLAlchemy
