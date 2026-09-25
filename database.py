@@ -1,22 +1,39 @@
 import os
 import re
 import psycopg2
+import streamlit as st
 from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
 from sqlalchemy import create_engine
 
-# Load environment variables
+# Load environment variables for local development
 load_dotenv()
 
-# Database Connection Details
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_NAME = os.getenv("DB_NAME", "sgwvm_db")
-DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASSWORD = os.getenv("DB_PASSWORD", os.getenv("DB_PASS", "admin"))
-DB_PORT = os.getenv("DB_PORT", "5432")
 
-# Construct PostgreSQL Connection String
-DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+# Database Connection Details (Checking Streamlit Secrets first, then fallback to environment variables/defaults)
+def get_secret(key, default=None):
+    try:
+        if key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return os.getenv(key, default)
+
+
+DB_HOST = get_secret("DB_HOST", "localhost")
+DB_NAME = get_secret("DB_NAME", "sgwvm_db")
+DB_USER = get_secret("DB_USER", "postgres")
+DB_PASSWORD = get_secret("DB_PASSWORD", get_secret("DB_PASS", "admin"))
+DB_PORT = get_secret("DB_PORT", "5432")
+
+# Construct PostgreSQL Connection String with explicit psycopg2 driver mapping
+DATABASE_URL = get_secret("DATABASE_URL")
+if not DATABASE_URL:
+    DATABASE_URL = (
+        f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    )
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 # Create the SQLAlchemy Engine for Pandas and ORM/Bulk Operations
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
