@@ -12,3 +12,4 @@ Pillow
 python-docx
 openpyxl
 SQLAlchemy
+twilio
