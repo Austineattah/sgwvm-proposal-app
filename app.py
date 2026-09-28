@@ -33,11 +33,11 @@ credentials = {
     "usernames": {
         "admin": {
             "name": "Admin User",
-            "password": "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW",
+            "password": "$2b$12$UrURqgm1.iRsg2WWUXfU9uciTan7zVVIvV2u40PXTZH.p/s4MVzXe",
         },
         "reviewer": {
             "name": "Reviewer",
-            "password": "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW",
+            "password": "$2b$12$UrURqgm1.iRsg2WWUXfU9uciTan7zVVIvV2u40PXTZH.p/s4MVzXe",
         },
     }
 }
@@ -88,7 +88,7 @@ elif authentication_status == True:
         cur.execute(
             """
             INSERT INTO proposals (
-                tracking_code, vendor_name, email, phone_number, category, 
+                tracking_code, vendor_name, email, phone_number, category,
                 cac_number, ai_summary, budget, is_flagged
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
             """,
@@ -214,7 +214,7 @@ elif authentication_status == True:
     # Opening app display title
     st.title("SGWVM TECHNOLOGGIES Enterprise Proposal Intake Portal")
     st.markdown("""
-    This system streamlines corporate proposal submissions, performs automated **CAC/KYB verification**, 
+    This system streamlines corporate proposal submissions, performs automated **CAC/KYB verification**,
     and uses **AI extraction** to summarize content and identify risk factors across multiple document formats.
     """)
 
@@ -480,8 +480,8 @@ elif authentication_status == True:
         try:
             engine = get_db_engine()
             query = """
-                SELECT 
-                    id, tracking_code, vendor_name, email, phone_number, category, 
+                SELECT
+                    id, tracking_code, vendor_name, email, phone_number, category,
                     cac_number, ai_summary, budget, is_flagged, is_high_priority
                 FROM proposals ORDER BY id DESC;
             """
