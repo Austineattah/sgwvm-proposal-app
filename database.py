@@ -3,14 +3,13 @@ import re
 import psycopg2
 import streamlit as st
 from dotenv import load_dotenv
-from psycopg2.extras import RealDictCursor
 from sqlalchemy import create_engine
 
 # Load environment variables for local development
 load_dotenv()
 
 
-# Database Connection Details (Checking Streamlit Secrets first, then fallback to environment variables/defaults)
+# --- SECURE DATABASE CONFIGURATION ---
 def get_secret(key, default=None):
     try:
         if key in st.secrets:
@@ -20,15 +19,16 @@ def get_secret(key, default=None):
     return os.getenv(key, default)
 
 
-DB_HOST = get_secret("DB_HOST", "localhost")
-DB_NAME = get_secret("DB_NAME", "sgwvm_db")
-DB_USER = get_secret("DB_USER", "postgres")
-DB_PASSWORD = get_secret("DB_PASSWORD", get_secret("DB_PASS", "admin"))
-DB_PORT = get_secret("DB_PORT", "5432")
-
-# Construct PostgreSQL Connection String with explicit psycopg2 driver mapping
+# Pull explicit connection URL or construct it using the hardened least-privileged user
 DATABASE_URL = get_secret("DATABASE_URL")
+
 if not DATABASE_URL:
+    DB_HOST = get_secret("DB_HOST", "localhost")
+    DB_NAME = get_secret("DB_NAME", "sgwvm_db")
+    DB_USER = get_secret("DB_USER", "sgwvm_app_user")
+    DB_PASSWORD = get_secret("DB_PASSWORD", "YourStrongSecurePasswordHere123!")
+    DB_PORT = get_secret("DB_PORT", "5432")
+
     DATABASE_URL = (
         f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     )
@@ -45,13 +45,9 @@ def get_db_engine():
 
 
 def get_db_connection():
-    """Returns a raw psycopg2 PostgreSQL database connection."""
+    """Returns a raw psycopg2 PostgreSQL database connection using the connection URL."""
     return psycopg2.connect(
-        host=DB_HOST,
-        dbname=DB_NAME,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        port=DB_PORT,
+        DATABASE_URL.replace("postgresql+psycopg2://", "postgresql://")
     )
 
 
@@ -147,8 +143,8 @@ def clear_legacy_or_test_proposals():
     query = """
         DELETE FROM proposals 
         WHERE ai_summary LIKE '%AI processing skipped%' 
-           OR tracking_code LIKE 'TRK-TEST%' 
-           OR vendor_name = 'nan';
+            OR tracking_code LIKE 'TRK-TEST%' 
+            OR vendor_name = 'nan';
     """
     conn = get_db_connection()
     cur = conn.cursor()

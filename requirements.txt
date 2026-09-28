@@ -1,4 +1,5 @@
-streamlit>=1.30.0
+﻿streamlit>=1.30.0
+streamlit-authenticator
 psycopg2-binary
 psycopg
 pandas
