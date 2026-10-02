@@ -9,3 +9,4 @@ venv/
 env/
 uploads/*
 !uploads/.gitkeep
+.aider*

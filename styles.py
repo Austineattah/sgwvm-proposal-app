@@ -1,4 +1,5 @@
 import streamlit as st
+from html import escape
 
 
 def apply_custom_theme():
@@ -63,16 +64,19 @@ def apply_custom_theme():
     )
 
 
-def render_header(logo_path_or_url="https://via.placeholder.com/150x50.png?text=LOGO"):
+def render_header(
+    logo_path_or_url="https://via.placeholder.com/150x50.png?text=LOGO",
+    organization_name="SGWVM Technology",
+):
     """Renders a consistent corporate header with logo across portal pages."""
     col1, col2 = st.columns([1, 4])
     with col1:
         st.image(logo_path_or_url, width=120)
     with col2:
         st.markdown(
-            """
+            f"""
             <div style="padding-top: 5px;">
-                <h2 style="margin:0; padding:0; color:#f8fafc;">Enterprise Proposal Intake Portal</h2>
+                <h2 style="margin:0; padding:0; color:#f8fafc;">{escape(organization_name)} Enterprise Proposal Intake Portal</h2>
                 <p style="margin:0; color:#94a3b8; font-size: 0.9rem;">Automated AI Triage & KYB Verification System</p>
             </div>
             """,

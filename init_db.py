@@ -28,7 +28,7 @@ def initialize_database():
                 submitter_name VARCHAR(255) NOT NULL,
                 submitter_email VARCHAR(255) NOT NULL,
                 submission_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                status VARCHAR(50) DEFAULT 'Received',
+                status VARCHAR(20) NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Pending', 'Approved')),
                 raw_payload TEXT
             );
             """,
@@ -55,6 +55,16 @@ def initialize_database():
         # Execute table creation commands
         for command in commands:
             cursor.execute(command)
+
+        cursor.execute("""
+            ALTER TABLE proposals
+            ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'Draft';
+            """)
+        cursor.execute("""
+            UPDATE proposals
+            SET status = 'Draft'
+            WHERE status IS NULL OR status = '' OR status NOT IN ('Draft', 'Pending', 'Approved');
+            """)
 
         print(
             "All tables (`proposals`, `tracking_logs`, `audit_logs`) created successfully!"
