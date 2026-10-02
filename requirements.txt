@@ -10,6 +10,7 @@ requests
 python-dotenv
 pytesseract
 Pillow
+qrcode[pil]
 python-docx
 openpyxl
 SQLAlchemy

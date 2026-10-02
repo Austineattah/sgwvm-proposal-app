@@ -51,6 +51,55 @@ def get_db_connection():
     )
 
 
+VALID_PROPOSAL_STATUSES = ("Draft", "Pending", "Approved")
+
+
+def normalize_proposal_status(status):
+    """Validates a proposal status and falls back to Draft when an invalid value is passed."""
+    if status is None:
+        return "Draft"
+
+    normalized = str(status).strip()
+    return normalized if normalized in VALID_PROPOSAL_STATUSES else "Draft"
+
+
+def ensure_proposal_status_column():
+    """Ensures older proposal tables gain the status field and normalizes legacy values."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'proposals' AND column_name = 'status';
+            """)
+        if cur.fetchone() is None:
+            cur.execute(
+                "ALTER TABLE proposals ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'Draft';"
+            )
+
+        cur.execute("""
+            UPDATE proposals
+            SET status = 'Draft'
+            WHERE status IS NULL OR status = '' OR status NOT IN ('Draft', 'Pending', 'Approved');
+            """)
+        cur.execute("ALTER TABLE proposals ALTER COLUMN status SET DEFAULT 'Draft';")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+try:
+    ensure_proposal_status_column()
+except Exception:
+    pass
+
+
 def sanitize_budget(budget_val):
     """Converts string budget values to float, or None (SQL NULL) if invalid or non-numeric."""
     if isinstance(budget_val, (int, float)):
@@ -74,9 +123,11 @@ def insert_proposal(
     ai_summary,
     budget,
     is_flagged=False,
+    status="Draft",
 ):
     """Inserts a new proposal record into PostgreSQL with sanitized budget and automated high-priority tagging."""
     safe_budget = sanitize_budget(budget)
+    normalized_status = normalize_proposal_status(status)
 
     # Calculate high-priority status based on the threshold (e.g., >= 50,000,000)
     is_high_priority = bool(safe_budget is not None and safe_budget >= 50000000.0)
@@ -91,8 +142,9 @@ def insert_proposal(
             ai_summary, 
             budget, 
             is_flagged,
-            is_high_priority
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
+            is_high_priority,
+            status
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
     """
 
     conn = get_db_connection()
@@ -111,8 +163,28 @@ def insert_proposal(
                 safe_budget,
                 is_flagged,
                 is_high_priority,
+                normalized_status,
             ),
         )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
+def update_proposal_status(proposal_id, status):
+    """Updates a proposal's lifecycle status, allowing Draft, Pending, or Approved."""
+    normalized_status = normalize_proposal_status(status)
+    query = "UPDATE proposals SET status = %s WHERE id = %s;"
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        cur.execute(query, (normalized_status, proposal_id))
         conn.commit()
     except Exception as e:
         conn.rollback()
