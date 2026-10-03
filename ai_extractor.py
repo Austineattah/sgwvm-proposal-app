@@ -8,6 +8,13 @@ from PIL import Image
 from google import genai
 from google.genai import types
 
+try:
+    import streamlit as st
+    from streamlit.errors import StreamlitSecretNotFoundError
+except ImportError:
+    st = None
+    StreamlitSecretNotFoundError = KeyError
+
 # Point pytesseract to your Windows installation path if needed
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
@@ -42,6 +49,18 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
     return extracted_text.strip()
 
 
+def get_gemini_api_key():
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        return api_key
+    if st is not None:
+        try:
+            return st.secrets["GEMINI_API_KEY"]
+        except (KeyError, StreamlitSecretNotFoundError):
+            pass
+    return None
+
+
 def analyze_proposal_with_ai(content) -> dict:
     """Processes PDF bytes or text with Google Gemini, including automatic retry for rate limits and server spikes."""
     print("[AI Extractor] 🚀 STARTING LIVE GEMINI REQUEST...")
@@ -58,13 +77,11 @@ def analyze_proposal_with_ai(content) -> dict:
         )
 
     # Securely load the API key from environment variables (.env / Streamlit Secrets)
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = get_gemini_api_key()
     if not api_key:
         print(
             "[AI Extractor] ⚠️ Warning: GEMINI_API_KEY environment variable is not set."
         )
-    else:
-        print(f"[AI Extractor] Using Key Preview: {api_key[:10]}...")
 
     truncated_text = raw_text[:12000]
 

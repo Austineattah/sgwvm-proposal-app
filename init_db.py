@@ -1,80 +1,35 @@
-import psycopg2
+from sqlalchemy import text
+
+from database import get_db_engine, initialize_database as initialize_models
 
 
 def initialize_database():
-    # Connection parameters
-    db_params = {
-        "dbname": "sgwvm_db",
-        "user": "postgres",
-        "password": "admin",
-        "host": "localhost",
-        "port": 5432,
-    }
-
-    try:
-        # Connect to the PostgreSQL database
-        print("Connecting to the database...")
-        conn = psycopg2.connect(**db_params)
-        conn.autocommit = True
-        cursor = conn.cursor()
-        print("Connected successfully!")
-
-        # DDL statements for tables
-        commands = [
-            """
-            CREATE TABLE IF NOT EXISTS proposals (
-                id SERIAL PRIMARY KEY,
-                proposal_reference VARCHAR(100) UNIQUE NOT NULL,
-                submitter_name VARCHAR(255) NOT NULL,
-                submitter_email VARCHAR(255) NOT NULL,
-                submission_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                status VARCHAR(20) NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Pending', 'Approved')),
-                raw_payload TEXT
-            );
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS tracking_logs (
-                id SERIAL PRIMARY KEY,
-                proposal_id INT REFERENCES proposals(id) ON DELETE CASCADE,
-                stage VARCHAR(100) NOT NULL,
-                status_message TEXT,
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-            );
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS audit_logs (
-                id SERIAL PRIMARY KEY,
-                action_performed VARCHAR(255) NOT NULL,
-                performed_by VARCHAR(100) DEFAULT 'system',
-                timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                details TEXT
-            );
-            """,
-        ]
-
-        # Execute table creation commands
-        for command in commands:
-            cursor.execute(command)
-
-        cursor.execute("""
-            ALTER TABLE proposals
-            ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'Draft';
+    """Initialize the application ORM schema and supporting PostgreSQL tables."""
+    initialize_models()
+    engine = get_db_engine()
+    with engine.begin() as connection:
+        connection.execute(
+            text("""
+                CREATE TABLE IF NOT EXISTS tracking_logs (
+                    id SERIAL PRIMARY KEY,
+                    proposal_id INT REFERENCES proposals(id) ON DELETE CASCADE,
+                    stage VARCHAR(100) NOT NULL,
+                    status_message TEXT,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
             """)
-        cursor.execute("""
-            UPDATE proposals
-            SET status = 'Draft'
-            WHERE status IS NULL OR status = '' OR status NOT IN ('Draft', 'Pending', 'Approved');
-            """)
-
-        print(
-            "All tables (`proposals`, `tracking_logs`, `audit_logs`) created successfully!"
         )
-
-        cursor.close()
-        conn.close()
-
-    except Exception as e:
-        print(f"Error connecting or creating tables: {e}")
+        connection.execute(
+            text("""
+                CREATE TABLE IF NOT EXISTS audit_logs (
+                    id SERIAL PRIMARY KEY,
+                    action_performed VARCHAR(255) NOT NULL,
+                    performed_by VARCHAR(100) DEFAULT 'system',
+                    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    details TEXT
+                )
+            """)
+        )
 
 
 if __name__ == "__main__":
