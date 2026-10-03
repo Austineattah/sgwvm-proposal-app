@@ -19,14 +19,14 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
-def get_secret(key: str) -> Optional[str]:
+def get_secret(key: str, default: Optional[str] = None) -> Optional[str]:
     """Read database configuration from environment variables or Streamlit secrets."""
     value = os.getenv(key)
     if value:
@@ -34,33 +34,49 @@ def get_secret(key: str) -> Optional[str]:
     try:
         return st.secrets[key]
     except (KeyError, StreamlitSecretNotFoundError):
-        return None
+        return default
 
 
-DATABASE_URL = get_secret("DATABASE_URL")
-engine: Optional[Engine] = None
-if DATABASE_URL:
-    if DATABASE_URL.startswith(("postgres://", "postgresql://")):
-        DATABASE_URL = DATABASE_URL.replace(
-            DATABASE_URL.split("://", maxsplit=1)[0] + "://",
-            "postgresql+psycopg2://",
-            1,
-        )
-    elif DATABASE_URL.startswith("postgresql+psycopg://"):
-        DATABASE_URL = DATABASE_URL.replace(
-            "postgresql+psycopg://", "postgresql+psycopg2://", 1
-        )
-    elif not DATABASE_URL.startswith("postgresql+psycopg2://"):
-        raise ValueError("DATABASE_URL must use a PostgreSQL driver.")
-    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-else:
+DATABASE_URL = str(
+    get_secret("DATABASE_URL", "sqlite:///proposals.db") or "sqlite:///proposals.db"
+)
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+IS_STREAMLIT_CLOUD = (
+    os.getenv("STREAMLIT_RUNTIME_ENV", "").lower() == "cloud"
+    or os.getenv("IS_STREAMLIT_CLOUD", "").lower() in {"1", "true", "yes"}
+)
+
+connect_args = (
+    {"check_same_thread": False}
+    if DATABASE_URL.startswith("sqlite:")
+    else {}
+)
+engine: Engine = create_engine(
+    DATABASE_URL,
+    connect_args=connect_args,
+    pool_pre_ping=not DATABASE_URL.startswith("sqlite:"),
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+if IS_STREAMLIT_CLOUD and DATABASE_URL.startswith("sqlite:"):
     logging.warning(
-        "PostgreSQL is not configured. Set DATABASE_URL in the environment "
-        "or Streamlit secrets; proposal database features will be unavailable."
+        "Streamlit Cloud is using SQLite. Set DATABASE_URL to a persistent "
+        "PostgreSQL URL because local SQLite storage may not persist across deployments."
     )
 
 
 Base = declarative_base()
+
+
+def get_db():
+    """Yield a SQLAlchemy session and always close it after use."""
+    db: Session = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 class TenantConfig(Base):
@@ -102,23 +118,18 @@ VALID_PROPOSAL_STATUSES = ("Draft", "Pending", "Approved")
 
 
 def get_db_engine() -> Engine:
-    """Return the configured SQLAlchemy engine or explain the missing configuration."""
-    if engine is None:
-        raise RuntimeError(
-            "PostgreSQL is unavailable. Configure DATABASE_URL in the environment "
-            "or Streamlit secrets."
-        )
+    """Return the configured SQLAlchemy engine."""
     return engine
 
 
 def get_db_connection():
-    """Return a pooled DB-API connection for existing PostgreSQL query helpers."""
-    return get_db_engine().raw_connection()
+    """Return a DB-API connection for existing raw cursor-based call sites."""
+    return engine.raw_connection()
 
 
 def ensure_proposal_status_column() -> None:
     """Add and normalize the lifecycle status field on existing proposal tables."""
-    db_engine = get_db_engine()
+    db_engine = engine
     columns = {column["name"] for column in inspect(db_engine).get_columns("proposals")}
     with db_engine.begin() as connection:
         if "status" not in columns:
@@ -136,24 +147,27 @@ def ensure_proposal_status_column() -> None:
                    OR status NOT IN ('Draft', 'Pending', 'Approved')
             """)
         )
-        connection.execute(
-            text("ALTER TABLE proposals ALTER COLUMN status SET DEFAULT 'Draft'")
-        )
+        if db_engine.dialect.name == "postgresql":
+            connection.execute(
+                text("ALTER TABLE proposals ALTER COLUMN status SET DEFAULT 'Draft'")
+            )
+
+
+def init_db() -> None:
+    """Create ORM tables and bring the proposal status field up to date."""
+    Base.metadata.create_all(bind=engine)
+    ensure_proposal_status_column()
 
 
 def initialize_database() -> None:
     """Create new ORM tables and apply the existing additive proposal-status migration."""
-    db_engine = get_db_engine()
-    Base.metadata.create_all(bind=db_engine)
-    ensure_proposal_status_column()
+    init_db()
 
 
 def save_tenant_config(config: dict) -> None:
     """Persist the single active tenant's non-secret onboarding settings."""
-    initialize_database()
-    db_engine = get_db_engine()
-    session_factory = sessionmaker(bind=db_engine)
-    with session_factory.begin() as session:
+    init_db()
+    with SessionLocal.begin() as session:
         tenant = session.get(TenantConfig, 1)
         if tenant is None:
             tenant = TenantConfig(id=1)
@@ -201,97 +215,66 @@ def insert_proposal(
     budget,
     is_flagged=False,
     status="Draft",
+    phone_number=None,
 ):
     """Insert a proposal while retaining the existing PostgreSQL table contract."""
     safe_budget = sanitize_budget(budget)
     normalized_status = normalize_proposal_status(status)
-    is_high_priority = bool(
-        safe_budget is not None and safe_budget >= 50000000.0
+    proposal = Proposal(
+        tracking_code=tracking_code,
+        vendor_name=vendor_name,
+        email=email,
+        phone_number=phone_number,
+        category=category,
+        cac_number=cac_number,
+        ai_summary=ai_summary,
+        budget=safe_budget,
+        is_flagged=is_flagged,
+        is_high_priority=bool(
+            safe_budget is not None and safe_budget >= 50000000.0
+        ),
+        status=normalized_status,
     )
-    query = """
-        INSERT INTO proposals (
-            tracking_code, vendor_name, email, category, cac_number, ai_summary,
-            budget, is_flagged, is_high_priority, status
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
-    """
-    conn = get_db_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            query,
-            (
-                tracking_code,
-                vendor_name,
-                email,
-                category,
-                cac_number,
-                ai_summary,
-                safe_budget,
-                is_flagged,
-                is_high_priority,
-                normalized_status,
-            ),
-        )
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cur.close()
-        conn.close()
+    with SessionLocal.begin() as session:
+        session.add(proposal)
 
 
 def update_proposal_status(proposal_id, status):
     """Update one proposal's lifecycle status."""
-    conn = get_db_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            "UPDATE proposals SET status = %s WHERE id = %s;",
-            (normalize_proposal_status(status), proposal_id),
+    with SessionLocal.begin() as session:
+        session.execute(
+            text("UPDATE proposals SET status = :status WHERE id = :proposal_id"),
+            {
+                "status": normalize_proposal_status(status),
+                "proposal_id": proposal_id,
+            },
         )
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cur.close()
-        conn.close()
 
 
 def delete_proposal_by_id(proposal_id):
     """Delete one proposal by its primary key."""
-    conn = get_db_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute("DELETE FROM proposals WHERE id = %s;", (proposal_id,))
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cur.close()
-        conn.close()
+    with SessionLocal.begin() as session:
+        session.execute(
+            text("DELETE FROM proposals WHERE id = :proposal_id"),
+            {"proposal_id": proposal_id},
+        )
 
 
 def clear_legacy_or_test_proposals():
     """Delete proposals matching the application's existing test-data rules."""
-    query = """
+    query = text("""
         DELETE FROM proposals
-        WHERE ai_summary LIKE %s
-           OR tracking_code LIKE %s
-           OR vendor_name = %s;
-    """
-    conn = get_db_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute(query, ("%AI processing skipped%", "TRK-TEST%", "nan"))
-        deleted_count = cur.rowcount
-        conn.commit()
-        return deleted_count
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cur.close()
-        conn.close()
+        WHERE ai_summary LIKE :summary_pattern
+           OR tracking_code LIKE :tracking_pattern
+           OR vendor_name = :vendor_name
+    """)
+    with SessionLocal.begin() as session:
+        result = session.execute(
+            query,
+            {
+                "summary_pattern": "%AI processing skipped%",
+                "tracking_pattern": "TRK-TEST%",
+                "vendor_name": "nan",
+            },
+        )
+        return result.rowcount
