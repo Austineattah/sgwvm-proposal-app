@@ -1,3 +1,4 @@
+import logging
 import os
 import json
 import smtplib
@@ -11,36 +12,27 @@ from twilio.rest import Client
 # Try loading Streamlit safely to check st.secrets in deployed environments
 try:
     import streamlit as st
+    from streamlit.errors import StreamlitSecretNotFoundError
 except ImportError:
     st = None
+    StreamlitSecretNotFoundError = KeyError
 
 
 def get_secret(key, default=None):
-    """Safely retrieves a secret from Streamlit Cloud Secrets first, falling back to OS environment variables."""
-    if st and hasattr(st, "secrets") and key in st.secrets:
-        return st.secrets[key]
-    return os.getenv(key, default)
+    """Retrieve a setting from the environment or Streamlit secrets."""
+    value = os.getenv(key)
+    if value:
+        return value
+    if st:
+        try:
+            return st.secrets[key]
+        except (KeyError, StreamlitSecretNotFoundError):
+            pass
+    return default
 
-
-# --- CONFIGURATION ENGINE ---
-SMTP_SERVER = get_secret("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(get_secret("SMTP_PORT", 587))
-
-SENDER_EMAIL = get_secret("SENDER_EMAIL", get_secret("EMAIL_USER"))
-SENDER_PASSWORD = get_secret("SENDER_PASSWORD", get_secret("EMAIL_PASS"))
-
-# Twilio Credentials (Supports both standard Auth Token and API Key SID/Secret)
-TWILIO_ACCOUNT_SID = get_secret("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = get_secret("TWILIO_AUTH_TOKEN")
-TWILIO_API_KEY_SID = get_secret("TWILIO_API_KEY_SID")
-TWILIO_API_SECRET = get_secret("TWILIO_API_SECRET")
-TWILIO_PHONE_NUMBER = get_secret("TWILIO_PHONE_NUMBER", "+1234567890")
 
 # Executive leadership distribution list for high-priority or flagged proposals
-raw_execs = get_secret(
-    "EXECUTIVE_EMAILS",
-    "exec.director@sgwvm-portal.com,compliance.head@sgwvm-portal.com",
-)
+raw_execs = get_secret("EXECUTIVE_EMAILS", "")
 EXECUTIVE_EMAILS = (
     [e.strip() for e in raw_execs.split(",") if e.strip()]
     if isinstance(raw_execs, str)
@@ -49,6 +41,29 @@ EXECUTIVE_EMAILS = (
 
 # High-priority budget threshold for executive escalation
 HIGH_PRIORITY_THRESHOLD = float(get_secret("HIGH_PRIORITY_THRESHOLD", 50000000.0))
+
+
+def get_smtp_settings():
+    settings = {
+        "SMTP_SERVER": get_secret("SMTP_SERVER"),
+        "SMTP_PORT": get_secret("SMTP_PORT"),
+        "SENDER_EMAIL": get_secret("SENDER_EMAIL"),
+        "SENDER_PASSWORD": get_secret("SENDER_PASSWORD"),
+    }
+    missing = [key for key, value in settings.items() if not value]
+    if missing:
+        logging.warning(
+            "Email notification skipped; configure these environment variables "
+            "or Streamlit secrets: %s",
+            ", ".join(missing),
+        )
+        return None
+    try:
+        settings["SMTP_PORT"] = int(settings["SMTP_PORT"])
+    except (TypeError, ValueError):
+        logging.warning("Email notification skipped; SMTP_PORT must be an integer.")
+        return None
+    return settings
 
 
 def get_org_branding():
@@ -103,12 +118,11 @@ def send_credentials_email(
     recipient_email: str, recipient_name: str, username: str, plaintext_password: str
 ):
     """Sends account login credentials to a newly provisioned user via SMTP."""
-    sender_email = get_secret("SENDER_EMAIL", SENDER_EMAIL)
-    sender_password = get_secret("SENDER_PASSWORD", SENDER_PASSWORD)
-
-    if not sender_email or not sender_password:
-        print("[Notifier] ❌ SMTP credentials missing. Skipping credentials email.")
+    smtp_settings = get_smtp_settings()
+    if smtp_settings is None:
         return False
+    sender_email = smtp_settings["SENDER_EMAIL"]
+    sender_password = smtp_settings["SENDER_PASSWORD"]
 
     org_name, logo_data = get_org_branding()
     msg = MIMEMultipart("related")
@@ -142,8 +156,8 @@ def send_credentials_email(
 
     try:
         with smtplib.SMTP(
-            get_secret("SMTP_SERVER", SMTP_SERVER),
-            int(get_secret("SMTP_PORT", SMTP_PORT)),
+            smtp_settings["SMTP_SERVER"],
+            smtp_settings["SMTP_PORT"],
         ) as server:
             server.starttls()
             # Remove any whitespace in passwords (e.g. Google App Passwords)
@@ -164,12 +178,11 @@ def send_auto_email(
     budget: float = 0.0,
 ):
     """Sends confirmation to vendor and alerts senior leadership if flagged or high priority."""
-    sender_email = get_secret("SENDER_EMAIL", SENDER_EMAIL)
-    sender_password = get_secret("SENDER_PASSWORD", SENDER_PASSWORD)
-
-    if not sender_email or not sender_password:
-        print("[Notifier] ❌ SMTP credentials missing. Skipping email dispatch.")
+    smtp_settings = get_smtp_settings()
+    if smtp_settings is None:
         return False
+    sender_email = smtp_settings["SENDER_EMAIL"]
+    sender_password = smtp_settings["SENDER_PASSWORD"]
 
     org_name, logo_data = get_org_branding()
     is_high_priority = budget >= HIGH_PRIORITY_THRESHOLD
@@ -177,8 +190,8 @@ def send_auto_email(
 
     try:
         with smtplib.SMTP(
-            get_secret("SMTP_SERVER", SMTP_SERVER),
-            int(get_secret("SMTP_PORT", SMTP_PORT)),
+            smtp_settings["SMTP_SERVER"],
+            smtp_settings["SMTP_PORT"],
         ) as server:
             server.starttls()
             server.login(sender_email, sender_password.replace(" ", ""))
@@ -295,10 +308,11 @@ def send_executive_summary_email(
     tracking_code: str,
     qr_image_bytes: bytes,
 ):
-    sender_email = get_secret("SENDER_EMAIL", SENDER_EMAIL)
-    sender_password = get_secret("SENDER_PASSWORD", SENDER_PASSWORD)
-    if not sender_email or not sender_password:
-        return False, "SMTP credentials are missing."
+    smtp_settings = get_smtp_settings()
+    if smtp_settings is None:
+        return False, "SMTP configuration is missing or invalid."
+    sender_email = smtp_settings["SENDER_EMAIL"]
+    sender_password = smtp_settings["SENDER_PASSWORD"]
 
     budget_text = f"{budget:,.2f}" if budget is not None else "Not provided"
     safe_summary = escape(ai_summary).replace("\n", "<br>")
@@ -342,8 +356,8 @@ def send_executive_summary_email(
 
     try:
         with smtplib.SMTP(
-            get_secret("SMTP_SERVER", SMTP_SERVER),
-            int(get_secret("SMTP_PORT", SMTP_PORT)),
+            smtp_settings["SMTP_SERVER"],
+            smtp_settings["SMTP_PORT"],
         ) as server:
             server.starttls()
             server.login(sender_email, sender_password.replace(" ", ""))
@@ -357,11 +371,11 @@ def send_executive_summary_email(
 def send_auto_sms(recipient_phone: str, vendor_name: str, tracking_code: str):
     """Sends an automated SMS notification via Twilio using either API Key or Auth Token."""
     org_name, _ = get_org_branding()
-    account_sid = get_secret("TWILIO_ACCOUNT_SID", TWILIO_ACCOUNT_SID)
-    api_key_sid = get_secret("TWILIO_API_KEY_SID", TWILIO_API_KEY_SID)
-    api_secret = get_secret("TWILIO_API_SECRET", TWILIO_API_SECRET)
-    auth_token = get_secret("TWILIO_AUTH_TOKEN", TWILIO_AUTH_TOKEN)
-    from_number = get_secret("TWILIO_PHONE_NUMBER", TWILIO_PHONE_NUMBER)
+    account_sid = get_secret("TWILIO_ACCOUNT_SID")
+    api_key_sid = get_secret("TWILIO_API_KEY_SID")
+    api_secret = get_secret("TWILIO_API_SECRET")
+    auth_token = get_secret("TWILIO_AUTH_TOKEN")
+    from_number = get_secret("TWILIO_PHONE_NUMBER")
 
     if (
         not recipient_phone
@@ -370,7 +384,9 @@ def send_auto_sms(recipient_phone: str, vendor_name: str, tracking_code: str):
         or not from_number
     ):
         print(
-            "[Notifier] ⚠️ Twilio credentials or recipient phone missing/invalid. Skipping SMS."
+            "[Notifier] ⚠️ Twilio settings or recipient phone missing/invalid. "
+            "Configure TWILIO_ACCOUNT_SID, TWILIO_PHONE_NUMBER, and an auth token "
+            "or API key in environment variables or Streamlit secrets."
         )
         return False
 

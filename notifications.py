@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import smtplib
 from email.mime.image import MIMEImage
@@ -10,6 +11,48 @@ from twilio.rest import Client
 from dotenv import load_dotenv
 
 load_dotenv()
+
+try:
+    import streamlit as st
+    from streamlit.errors import StreamlitSecretNotFoundError
+except ImportError:
+    st = None
+    StreamlitSecretNotFoundError = KeyError
+
+
+def get_setting(name):
+    value = os.getenv(name)
+    if value:
+        return value
+    if st is not None:
+        try:
+            return st.secrets[name]
+        except (KeyError, StreamlitSecretNotFoundError):
+            pass
+    return None
+
+
+def get_smtp_settings():
+    settings = {
+        "SMTP_SERVER": get_setting("SMTP_SERVER"),
+        "SMTP_PORT": get_setting("SMTP_PORT"),
+        "SENDER_EMAIL": get_setting("SENDER_EMAIL"),
+        "SENDER_PASSWORD": get_setting("SENDER_PASSWORD"),
+    }
+    missing = [key for key, value in settings.items() if not value]
+    if missing:
+        logging.warning(
+            "Email notification skipped; configure these environment variables "
+            "or Streamlit secrets: %s",
+            ", ".join(missing),
+        )
+        return None
+    try:
+        settings["SMTP_PORT"] = int(settings["SMTP_PORT"])
+    except (TypeError, ValueError):
+        logging.warning("Email notification skipped; SMTP_PORT must be an integer.")
+        return None
+    return settings
 
 
 def get_org_branding():
@@ -44,10 +87,13 @@ def get_org_branding():
 def send_email_notification(subject: str, body: str, recipient_email: str):
     """Sends an email notification via Gmail SMTP."""
     try:
-        server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-        port = int(os.getenv("SMTP_PORT", 587))
-        sender = os.getenv("SENDER_EMAIL")
-        password = os.getenv("SENDER_PASSWORD")
+        settings = get_smtp_settings()
+        if settings is None:
+            return False, "SMTP configuration is missing or invalid."
+        server = settings["SMTP_SERVER"]
+        port = settings["SMTP_PORT"]
+        sender = settings["SENDER_EMAIL"]
+        password = settings["SENDER_PASSWORD"]
 
         org_name, logo_data = get_org_branding()
         msg = MIMEMultipart("related")
@@ -91,9 +137,16 @@ def send_email_notification(subject: str, body: str, recipient_email: str):
 def send_sms_notification(body: str, recipient_phone: str):
     """Sends an SMS notification via Twilio."""
     try:
-        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
-        twilio_number = os.getenv("TWILIO_PHONE_NUMBER")
+        account_sid = get_setting("TWILIO_ACCOUNT_SID")
+        auth_token = get_setting("TWILIO_AUTH_TOKEN")
+        twilio_number = get_setting("TWILIO_PHONE_NUMBER")
+        if not all((account_sid, auth_token, twilio_number)):
+            logging.warning(
+                "SMS notification skipped; configure TWILIO_ACCOUNT_SID, "
+                "TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER in environment "
+                "variables or Streamlit secrets."
+            )
+            return False, "Twilio configuration is missing."
 
         client = Client(account_sid, auth_token)
         message = client.messages.create(
