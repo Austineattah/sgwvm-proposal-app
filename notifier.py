@@ -31,16 +31,22 @@ def get_secret(key, default=None):
     return default
 
 
-# Executive leadership distribution list for high-priority or flagged proposals
-raw_execs = get_secret("EXECUTIVE_EMAILS", "")
-EXECUTIVE_EMAILS = (
-    [e.strip() for e in raw_execs.split(",") if e.strip()]
-    if isinstance(raw_execs, str)
-    else raw_execs
-)
+def get_executive_emails():
+    raw_execs = get_secret("EXECUTIVE_EMAILS", "")
+    if isinstance(raw_execs, str):
+        return [email.strip() for email in raw_execs.split(",") if email.strip()]
+    return raw_execs if isinstance(raw_execs, list) else []
 
-# High-priority budget threshold for executive escalation
-HIGH_PRIORITY_THRESHOLD = float(get_secret("HIGH_PRIORITY_THRESHOLD", 50000000.0))
+
+def get_high_priority_threshold():
+    raw_threshold = get_secret("HIGH_PRIORITY_THRESHOLD", "50000000")
+    try:
+        return float(raw_threshold)
+    except (TypeError, ValueError):
+        logging.warning(
+            "HIGH_PRIORITY_THRESHOLD is invalid; using the built-in threshold."
+        )
+        return 50000000.0
 
 
 def get_smtp_settings():
@@ -185,8 +191,9 @@ def send_auto_email(
     sender_password = smtp_settings["SENDER_PASSWORD"]
 
     org_name, logo_data = get_org_branding()
-    is_high_priority = budget >= HIGH_PRIORITY_THRESHOLD
+    is_high_priority = budget >= get_high_priority_threshold()
     needs_executive_attention = is_flagged or is_high_priority
+    executive_emails = get_executive_emails()
 
     try:
         with smtplib.SMTP(
@@ -239,7 +246,7 @@ Best regards,
                 )
 
             # 2. Escalation: Alert executive leadership if high-priority or risk-flagged
-            if needs_executive_attention and EXECUTIVE_EMAILS:
+            if needs_executive_attention and executive_emails:
                 reasons = []
                 if is_flagged:
                     reasons.append("Compliance Risk Flagged")
@@ -247,7 +254,7 @@ Best regards,
                     reasons.append(f"Top Executive Priority Budget ({budget:,.2f})")
                 reason_summary = " & ".join(reasons)
 
-                for exec_email in EXECUTIVE_EMAILS:
+                for exec_email in executive_emails:
                     msg_exec = MIMEMultipart("related")
                     alternative = MIMEMultipart("alternative")
                     msg_exec.attach(alternative)

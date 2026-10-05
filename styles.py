@@ -13,6 +13,18 @@ def apply_custom_theme():
             color: #f8fafc;
         }
 
+        .sgwvm-brand-title {
+            margin: 0;
+            padding: 0;
+            color: #f8fafc;
+        }
+
+        .sgwvm-brand-tagline {
+            margin: 0;
+            color: #94a3b8;
+            font-size: 0.9rem;
+        }
+
         /* 2. Glassmorphism Form Container */
         div[data-testid="stForm"] {
             background: rgba(30, 41, 59, 0.7) !important;
@@ -76,8 +88,8 @@ def render_header(
         st.markdown(
             f"""
             <div style="padding-top: 5px;">
-                <h2 style="margin:0; padding:0; color:#f8fafc;">{escape(organization_name)} Enterprise Proposal Intake Portal</h2>
-                <p style="margin:0; color:#94a3b8; font-size: 0.9rem;">Automated AI Triage & KYB Verification System</p>
+                <h2 class="sgwvm-brand-title">{escape(organization_name)} Enterprise Proposal Intake Portal</h2>
+                <p class="sgwvm-brand-tagline">Automated AI Triage & KYB Verification System</p>
             </div>
             """,
             unsafe_allow_html=True,

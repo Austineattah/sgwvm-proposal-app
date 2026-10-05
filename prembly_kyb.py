@@ -1,9 +1,19 @@
 import os
 import requests
+import streamlit as st
+from streamlit.errors import StreamlitSecretNotFoundError
 
-PREMBLY_APP_ID = os.getenv("PREMBLY_APP_ID", "")
-PREMBLY_SECRET_KEY = os.getenv("PREMBLY_SECRET_KEY", "")
 PREMBLY_BASE_URL = "https://api.prembly.com/identitypass/verification/cac"
+
+
+def _get_credential(name):
+    value = os.getenv(name)
+    if value:
+        return value
+    try:
+        return st.secrets[name]
+    except (KeyError, StreamlitSecretNotFoundError):
+        return ""
 
 
 def verify_cac_company(rc_number):
@@ -14,17 +24,18 @@ def verify_cac_company(rc_number):
     if not rc_number or not rc_number.strip():
         return {"status": False, "message": "No RC Number provided."}
 
-    if not PREMBLY_APP_ID or not PREMBLY_SECRET_KEY:
-        # Mock fallback for sandbox/testing when API keys are not set
+    app_id = _get_credential("PREMBLY_APP_ID")
+    secret_key = _get_credential("PREMBLY_SECRET_KEY")
+    if not app_id or not secret_key:
         return {
-            "status": True,
-            "company_name": f"Mock Verified Entity ({rc_number})",
-            "message": "API key missing. Returned mock verification success.",
+            "status": False,
+            "company_name": None,
+            "message": "Prembly API credentials are not configured; verification was not performed.",
         }
 
     headers = {
-        "x-api-key": PREMBLY_SECRET_KEY,
-        "app-id": PREMBLY_APP_ID,
+        "x-api-key": secret_key,
+        "app-id": app_id,
         "Content-Type": "application/json",
     }
 
