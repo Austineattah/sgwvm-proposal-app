@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import smtplib
+from collections.abc import Mapping
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -26,7 +27,14 @@ def get_setting(name):
         return value
     if st is not None:
         try:
-            return st.secrets[name]
+            smtp_settings = st.secrets.get("smtp", {})
+            if isinstance(smtp_settings, Mapping):
+                smtp_value = smtp_settings.get(name)
+                if smtp_value is None:
+                    smtp_value = smtp_settings.get(name.lower())
+                if smtp_value:
+                    return smtp_value
+            return st.secrets.get(name)
         except (KeyError, StreamlitSecretNotFoundError):
             pass
     return None
