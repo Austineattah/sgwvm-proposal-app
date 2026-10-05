@@ -152,7 +152,7 @@ def init_session_state():
 
 def main():
     st.set_page_config(
-        page_title="SGWVM TECHNOLOGIES Enterprise Proposal Intake Portal",
+        page_title="SGWVM TECHNOLOGIES AI Enterprise Proposal Intake Portal",
         layout="wide",
     )
     init_session_state()
@@ -649,7 +649,7 @@ try:
         )
 
     st.sidebar.markdown("### SGWVM TECHNOLOGIES")
-    st.sidebar.caption("Enterprise Proposal Intake Portal")
+    st.sidebar.caption("AI Enterprise Proposal Intake Portal")
     portal_view = st.sidebar.radio(
         "Choose a portal",
         [

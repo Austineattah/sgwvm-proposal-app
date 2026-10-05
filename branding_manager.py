@@ -1,7 +1,7 @@
 import streamlit as st
 
 
-PORTAL_TITLE = "SGWVM TECHNOLOGIES Enterprise Proposal Intake Portal"
+PORTAL_TITLE = "SGWVM TECHNOLOGIES AI Enterprise Proposal Intake Portal"
 
 
 def render_portal_header():
