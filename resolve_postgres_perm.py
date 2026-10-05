@@ -7,7 +7,7 @@ import streamlit as st
 db_url = st.secrets.get("DATABASE_URL", "")
 
 if not db_url:
-    print("❌ DATABASE_URL not found in .streamlit/secrets.toml")
+    print("ERROR: DATABASE_URL not found in .streamlit/secrets.toml")
     exit(1)
 
 parsed = urlparse(db_url)
@@ -39,9 +39,9 @@ try:
     cursor.execute(f"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"{db_user}\";")
     cursor.execute(f"GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO \"{db_user}\";")
 
-    print(f"\n✅ Permissions granted! '{db_user}' is now the owner of schema 'public'.")
+    print(f"\nSUCCESS: '{db_user}' is now the owner of schema 'public'.")
     cursor.close()
     conn.close()
 
 except Exception as e:
-    print(f"\n❌ Failed to update permissions: {e}")
+    print(f"\nERROR: Failed to update permissions: {e}")

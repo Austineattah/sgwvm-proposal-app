@@ -42,7 +42,7 @@ DATABASE_URL = "{db_url}"
 with open(secrets_path, "w", encoding="utf-8") as f:
     f.write(secrets_content)
 
-print("\n✅ Saved ADMIN_PASSWORD_HASH and DATABASE_URL to .streamlit/secrets.toml!")
+print("\nSUCCESS: Saved ADMIN_PASSWORD_HASH and DATABASE_URL to .streamlit/secrets.toml.")
 
 # Attempt schema privilege grant on PostgreSQL
 print("\n--- [3] GRANTING SCHEMA PUBLIC PERMISSIONS ---")
@@ -65,10 +65,9 @@ try:
     cursor.execute(f'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "{db_user}";')
     cursor.execute(f'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "{db_user}";')
 
-    print("✅ Permissions updated on schema 'public' successfully!")
+    print("SUCCESS: Permissions updated on schema 'public'.")
     cursor.close()
     conn.close()
 except Exception as e:
-    print(f"❌ Could not update permissions automatically: {e}")
+    print(f"ERROR: Could not update permissions automatically: {e}")
     print("If you are using the default 'postgres' user as your DB user, permissions are already sufficient.")
-

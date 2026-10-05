@@ -169,10 +169,10 @@ def send_credentials_email(
             # Remove any whitespace in passwords (e.g. Google App Passwords)
             server.login(sender_email, sender_password.replace(" ", ""))
             server.sendmail(sender_email, recipient_email, msg.as_string())
-        print(f"[Notifier] ✅ Credentials email successfully sent to {recipient_email}")
+        print(f"[Notifier] Credentials email successfully sent to {recipient_email}")
         return True
     except Exception as e:
-        print(f"[Notifier] ❌ Failed to send credentials email: {e}")
+        print(f"[Notifier] Failed to send credentials email: {e}")
         return False
 
 
@@ -242,7 +242,7 @@ Best regards,
                 attach_org_logo(msg_vendor, logo_data)
                 server.send_message(msg_vendor)
                 print(
-                    f"[Notifier] ✅ Confirmation email sent to vendor: {recipient_email.strip()}"
+                    f"[Notifier] Confirmation email sent to vendor: {recipient_email.strip()}"
                 )
 
             # 2. Escalation: Alert executive leadership if high-priority or risk-flagged
@@ -259,7 +259,7 @@ Best regards,
                     alternative = MIMEMultipart("alternative")
                     msg_exec.attach(alternative)
                     msg_exec["Subject"] = (
-                        f"👑 URGENT EXECUTIVE PRIORITY ALERT: {reason_summary}"
+                        f"URGENT EXECUTIVE PRIORITY ALERT: {reason_summary}"
                         f" ({tracking_code})"
                     )
                     msg_exec["From"] = f"{org_name} <{sender_email}>"
@@ -296,12 +296,12 @@ Best regards,
                     server.send_message(msg_exec)
 
                 print(
-                    f"[Notifier] ✅ Executive escalation alerts successfully dispatched for: {reason_summary}"
+                    f"[Notifier] Executive escalation alerts successfully dispatched for: {reason_summary}"
                 )
 
         return True
     except Exception as e:
-        print(f"[Notifier] ❌ Failed to send email notification: {e}")
+        print(f"[Notifier] Failed to send email notification: {e}")
         return False
 
 
@@ -371,7 +371,7 @@ def send_executive_summary_email(
             server.send_message(message)
         return True, "Email sent successfully."
     except Exception as exc:
-        print(f"[Notifier] ❌ Failed to send executive summary: {exc}")
+        print(f"[Notifier] Failed to send executive summary: {exc}")
         return False, str(exc)
 
 
@@ -391,7 +391,7 @@ def send_auto_sms(recipient_phone: str, vendor_name: str, tracking_code: str):
         or not from_number
     ):
         print(
-            "[Notifier] ⚠️ Twilio settings or recipient phone missing/invalid. "
+            "[Notifier] Twilio settings or recipient phone missing/invalid. "
             "Configure TWILIO_ACCOUNT_SID, TWILIO_PHONE_NUMBER, and an auth token "
             "or API key in environment variables or Streamlit secrets."
         )
@@ -404,7 +404,7 @@ def send_auto_sms(recipient_phone: str, vendor_name: str, tracking_code: str):
         elif auth_token:
             client = Client(account_sid, auth_token)
         else:
-            print("[Notifier] ❌ Neither Twilio API Key nor Auth Token is available.")
+            print("[Notifier] Neither Twilio API Key nor Auth Token is available.")
             return False
 
         message_body = (
@@ -418,8 +418,8 @@ def send_auto_sms(recipient_phone: str, vendor_name: str, tracking_code: str):
             from_=from_number,
             to=recipient_phone.strip(),
         )
-        print(f"[Notifier] ✅ SMS sent successfully. SID: {message.sid}")
+        print(f"[Notifier] SMS sent successfully. SID: {message.sid}")
         return True
     except Exception as e:
-        print(f"[Notifier] ❌ Failed to send SMS: {e}")
+        print(f"[Notifier] Failed to send SMS: {e}")
         return False

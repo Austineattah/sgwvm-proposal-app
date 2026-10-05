@@ -78,7 +78,7 @@ def apply_custom_theme():
 
 def render_header(
     logo_path_or_url="https://via.placeholder.com/150x50.png?text=LOGO",
-    organization_name="SGWVM Technology",
+    organization_name="SGWVM TECHNOLOGIES",
 ):
     """Renders a consistent corporate header with logo across portal pages."""
     col1, col2 = st.columns([1, 4])

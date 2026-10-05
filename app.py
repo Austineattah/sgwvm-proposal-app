@@ -152,10 +152,8 @@ def init_session_state():
 
 def main():
     st.set_page_config(
-        page_title=f"Submit Proposal | {ORG_CONFIG['org_name']}",
-        page_icon="",
+        page_title="SGWVM TECHNOLOGIES Enterprise Proposal Intake Portal",
         layout="wide",
-        initial_sidebar_state="expanded",
     )
     init_session_state()
     from styles import apply_custom_theme
@@ -391,7 +389,8 @@ try:
 
 
     def render_setup_wizard():
-        st.title("Client Installation & Setup Wizard")
+        render_portal_header()
+        st.header("Client Installation & Setup Wizard")
         st.markdown(
             "Configure your organization details and branding before opening the portal."
         )
@@ -432,7 +431,7 @@ try:
                 if setup_logo is not None:
                     st.image(setup_logo, width=280, caption="Logo preview")
                 save_setup = st.form_submit_button(
-                    "💾 Save & Initialize Client System",
+                    "Save & Initialize Client System",
                     type="primary",
                     key="setup_save",
                 )
@@ -494,7 +493,7 @@ try:
                         st.rerun()
 
         if st.button(
-            "⏩ Skip & Continue with Existing / Demo Environment",
+            "Skip & Continue with Existing / Demo Environment",
             key="skip_client_setup",
         ):
             mark_setup_skipped()
@@ -649,19 +648,20 @@ try:
             r"C:\Program Files\Tesseract-OCR\tesseract.exe"
         )
 
-    st.sidebar.title(f"{ORG_CONFIG['org_name']} Portal Access")
+    st.sidebar.markdown("### SGWVM TECHNOLOGIES")
+    st.sidebar.caption("Enterprise Proposal Intake Portal")
     portal_view = st.sidebar.radio(
         "Choose a portal",
         [
             "Public Vendor Portal",
             "Internal Admin Portal",
-            "🧙‍♂️ Organization Onboarding Wizard",
+            "Organization Onboarding Wizard",
         ],
         index=0,
         key="portal_view_selector",
     )
 
-    if portal_view == "🧙‍♂️ Organization Onboarding Wizard":
+    if portal_view == "Organization Onboarding Wizard":
         st.session_state["show_wizard"] = True
         render_setup_wizard()
         st.stop()
@@ -921,7 +921,7 @@ try:
             if (ROOT_DIR / ORG_CONFIG["logo_path"]).is_file()
             else "https://via.placeholder.com/250x80.png?text=PORTAL+LOGO"
         )
-        render_header(logo_file, ORG_CONFIG["org_name"])
+        render_header(logo_file, "SGWVM TECHNOLOGIES")
 
         if st.button("Launch Client Setup Wizard", key="launch_setup_wizard_header"):
             st.session_state["show_wizard"] = True
@@ -1094,9 +1094,9 @@ try:
             tab1, tab2, tab3, tab4 = st.tabs(
                 [
                     "Submit Proposal",
-                    "📊 Dashboard Overview",
-                    "🧠 AI Extractor",
-                    "👑 Executive Dispatch & Action Center",
+                    "Dashboard Overview",
+                    "AI Extractor",
+                    "Executive Dispatch & Action Center",
                 ]
             )
 
@@ -1193,7 +1193,7 @@ try:
                         )
                     elif not phone_number.strip():
                         st.warning(
-                            "⚠️ Please provide a valid phone number before submitting."
+                            "Please provide a valid phone number before submitting."
                         )
                     elif uploaded_file is None:
                         st.warning(
@@ -1315,18 +1315,18 @@ try:
                                 res_col1, res_col2 = st.columns(2)
 
                                 with res_col1:
-                                    st.subheader("🏢 KYB Verification")
+                                    st.subheader("KYB Verification")
                                     is_verified = kyb_status.get(
                                         "status"
                                     ) or kyb_status.get("verified", False)
                                     if is_verified:
                                         st.success(
-                                            "✅ **CAC Verified:**"
+                                            "**CAC Verified:**"
                                             f" {kyb_status.get('company_name', submitter)}"
                                         )
                                     else:
                                         st.error(
-                                            "⚠️ **KYB Warning:**"
+                                            "**KYB Warning:**"
                                             f" {kyb_status.get('message', 'Verification pending manual review')}"
                                         )
                                     if past_contract_count:
@@ -1340,13 +1340,13 @@ try:
                                         )
 
                                 with res_col2:
-                                    st.subheader("🤖 AI Triage Status")
+                                    st.subheader("AI Triage Status")
                                     risk_flag = ai_results.get("flagged_risk", False)
                                     if risk_flag:
-                                        st.error("⚠️ **Risk Flagged:** Review Required")
+                                        st.error("**Risk Flagged:** Review Required")
                                     else:
                                         st.success(
-                                            "✅ **AI Risk Check Passed:** Low Compliance Risk"
+                                            "**AI Risk Check Passed:** Low Compliance Risk"
                                         )
 
                             except Exception as e:
@@ -1360,13 +1360,13 @@ try:
                 if proposal_processed and proposal_ai_summary:
                     st.markdown("---")
                     st.markdown(
-                        f"### 📝 AI Executive Brief for: `{last_proposal_filename}`"
+                        f"### AI Executive Brief for: `{last_proposal_filename}`"
                     )
                     with st.container(border=True):
                         st.write(proposal_ai_summary)
 
             with tab2:
-                st.header("📊 Enterprise Proposal Dashboard & Management")
+                st.header("Enterprise Proposal Dashboard & Management")
                 st.markdown(
                     "Inspect, filter, and manage all ingested vendor proposals stored in `sgwvm_db`."
                 )
@@ -1391,7 +1391,7 @@ try:
                         filter_col1, filter_col2 = st.columns([2, 2])
                         with filter_col1:
                             show_only_executive_focus = st.checkbox(
-                                "👑 Filter: Show Top Executive Priority & Flagged Risks Only",
+                                "Filter: Show Top Executive Priority & Flagged Risks Only",
                                 key="dashboard_executive_focus_filter",
                             )
 
@@ -1417,20 +1417,20 @@ try:
                                 )
                             )
 
-                            icons = []
+                            status_labels = []
                             if risk_flagged:
-                                icons.append("⚠️ [Risk]")
+                                status_labels.append("[Risk]")
                             if high_priority:
-                                icons.append("👑 [High Priority]")
+                                status_labels.append("[High Priority]")
 
-                            status_prefix = " ".join(icons) if icons else "✅"
+                            status_prefix = " ".join(status_labels) if status_labels else "Standard"
                             card_label = f"{status_prefix} ID #{row['id']} | {row['vendor_name']} — [{row['tracking_code']}]"
                             st.markdown(f"#### {card_label}")
                 except (RuntimeError, SQLAlchemyError) as exc:
                     st.error(f"Could not load proposal dashboard: {exc}")
 
             with tab4:
-                st.header("👑 Executive Dispatch & Action Center")
+                st.header("Executive Dispatch & Action Center")
                 st.caption(
                     "Review the deterministic Executive Action Brief, verification status, "
                     "prior intake history, and take a recorded action."
