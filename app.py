@@ -31,6 +31,7 @@ from PIL import Image
 import streamlit as st
 import streamlit_authenticator as stauth
 
+from branding_manager import render_portal_header
 from executive_brief import generate_executive_action_brief
 from executive_dispatch import render_executive_company_logo
 from database import (
@@ -669,7 +670,7 @@ try:
         public_logo_path = ROOT_DIR / ORG_CONFIG["logo_path"]
         if public_logo_path.is_file():
             st.image(str(public_logo_path), width=150)
-        st.title(f"{ORG_CONFIG['org_name']} Enterprise Proposal Intake Portal")
+        render_portal_header()
         st.header("Public Vendor Proposal Submission")
         st.markdown(
             "Submit your proposal details and upload a PDF. This vendor portal is open "
@@ -928,7 +929,7 @@ try:
             st.stop()
 
         # Opening app display title
-        st.title(f"{ORG_CONFIG['org_name']} Enterprise Proposal Intake Portal")
+        render_portal_header()
         st.markdown("""
         This system streamlines corporate proposal submissions, performs automated **CAC/KYB verification**,
         and uses **AI extraction** to summarize content and identify risk factors across multiple document formats.
