@@ -15,3 +15,5 @@ proposals.db
 .streamlit/secrets.toml
 
 .vscode/
+
+security_logs.db
