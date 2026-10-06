@@ -98,12 +98,11 @@ def render_admin_login():
     return False
 
 
-if __name__ == "__main__":
-    if not st.session_state.get("is_admin_authenticated", False):
-        render_admin_login()
-    else:
-        st.title("🔒 Internal Admin Dashboard")
-        st.write("Welcome, System Administrator.")
-        if st.button("Log Out"):
-            st.session_state.is_admin_authenticated = False
-            st.rerun()
+if not st.session_state.get("is_admin_authenticated", False):
+    render_admin_login()
+else:
+    st.title("🔒 Internal Admin Dashboard")
+    st.write("Welcome, System Administrator.")
+    if st.button("Log Out"):
+        st.session_state.is_admin_authenticated = False
+        st.rerun()

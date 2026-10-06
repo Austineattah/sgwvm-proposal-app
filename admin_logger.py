@@ -12,7 +12,6 @@ def init_security_db():
     """Initializes SQLite database tables for access logs and reset tokens."""
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
-        # Access logs table
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS admin_access_logs (
@@ -23,7 +22,6 @@ def init_security_db():
             )
         """
         )
-        # Reset tokens table
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS reset_tokens (
