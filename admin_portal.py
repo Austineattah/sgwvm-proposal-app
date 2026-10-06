@@ -26,6 +26,7 @@ def render_admin_login():
 
     st.subheader("🔒 Internal Admin Portal")
 
+    # 1. SYSTEM BLOCKED / LOCKOUT VIEW
     if is_blocked:
         st.error("🚨 SYSTEM BLOCKED: Maximum 3 attempts exceeded. Access Restricted.")
         st.warning("Please contact the Administrator or reset security settings below.")
@@ -36,20 +37,21 @@ def render_admin_login():
             "An administrator can request a verification code sent to the registered email address to restore access."
         )
 
-        with st.form("reset_request_form"):
+        with st.form("admin_reset_request_form_unique"):
             recovery_email = st.text_input("Registered Admin Email", placeholder="admin@domain.com")
             submit_recovery = st.form_submit_button("Send Security Recovery Code")
 
         if submit_recovery:
-            if recovery_email.strip().lower() == ADMIN_EMAIL.strip().lower():
-                code = generate_reset_token(ADMIN_EMAIL)
+            active_admin_email = st.secrets.get("ADMIN_EMAIL", ADMIN_EMAIL)
+            if recovery_email.strip().lower() == active_admin_email.strip().lower():
+                code = generate_reset_token(active_admin_email)
                 subject = "Security Alert: Admin Portal Reset Code"
                 body = (
                     f"A security lockout was triggered on the Internal Admin Portal.\n\n"
                     f"Your 6-digit Security Verification Code is: {code}\n\n"
                     f"This code will expire in 10 minutes. Use this code to unblock access."
                 )
-                success, msg = send_email_notification(subject, body, ADMIN_EMAIL)
+                success, msg = send_email_notification(subject, body, active_admin_email)
                 if success:
                     st.success("Verification code sent to your registered email!")
                     st.session_state.reset_mode = True
@@ -60,12 +62,13 @@ def render_admin_login():
 
         if st.session_state.get("reset_mode", False):
             st.divider()
-            with st.form("verify_code_form"):
+            with st.form("admin_verify_code_form_unique"):
                 entered_code = st.text_input("Enter 6-Digit Verification Code", type="password")
                 submit_code = st.form_submit_button("Verify Code & Reset Access")
 
             if submit_code:
-                if verify_reset_token(ADMIN_EMAIL, entered_code):
+                active_admin_email = st.secrets.get("ADMIN_EMAIL", ADMIN_EMAIL)
+                if verify_reset_token(active_admin_email, entered_code):
                     log_access_attempt(status="RESET_SUCCESS")
                     st.session_state.reset_mode = False
                     st.success("Security settings verified! System unblocked. Please try logging in.")
@@ -75,10 +78,11 @@ def render_admin_login():
 
         return False
 
+    # 2. STANDARD LOGIN FORM
     remaining_attempts = MAX_ATTEMPTS - failed_count
     st.info(f"Access restricted to internal admin portal. Remaining attempts: {remaining_attempts}")
 
-    with st.form("admin_login_form", clear_on_submit=True):
+    with st.form("admin_login_portal_form_v2", clear_on_submit=True):
         input_password = st.text_input("Admin Password", type="password")
         submit_button = st.form_submit_button("Access Portal")
 
@@ -98,11 +102,12 @@ def render_admin_login():
     return False
 
 
-if not st.session_state.get("is_admin_authenticated", False):
-    render_admin_login()
-else:
-    st.title("🔒 Internal Admin Dashboard")
-    st.write("Welcome, System Administrator.")
-    if st.button("Log Out"):
-        st.session_state.is_admin_authenticated = False
-        st.rerun()
+if __name__ == "__main__":
+    if not st.session_state.get("is_admin_authenticated", False):
+        render_admin_login()
+    else:
+        st.title("🔒 Internal Admin Dashboard")
+        st.write("Welcome, System Administrator.")
+        if st.button("Log Out"):
+            st.session_state.is_admin_authenticated = False
+            st.rerun()
