@@ -1544,3 +1544,24 @@ try:
                             st.rerun()
 except Exception as e:
     st.error(f"Application Error on Launch: {e}")
+
+# ---------------------------------------------------------
+# INTERNAL ADMIN ACCESS CONTROL GATE
+# ---------------------------------------------------------
+from admin_portal import render_admin_login
+
+def show_admin_section():
+    if not st.session_state.get("is_admin_authenticated", False):
+        render_admin_login()
+    else:
+        st.title("🔒 Internal Admin Dashboard")
+        st.write("Welcome, System Administrator.")
+        
+        # Internal admin controls & management views go here
+        
+        if st.button("Log Out"):
+            st.session_state.is_admin_authenticated = False
+            st.rerun()
+
+if __name__ == "__main__":
+    show_admin_section()
