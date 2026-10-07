@@ -2,6 +2,8 @@ import io
 import json
 import os
 import sqlite3
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 import re
@@ -22,7 +24,6 @@ except ImportError:
     pass
 
 import docx
-import pymupdf as fitz
 import openpyxl
 import pandas as pd
 import pytesseract
@@ -33,8 +34,11 @@ import streamlit as st
 import streamlit_authenticator as stauth
 
 from branding_manager import render_portal_header
+from document_processing import extract_pdf_text as extract_pdf_document_text
 from executive_brief import generate_executive_action_brief
 from executive_dispatch import render_executive_company_logo
+from kyb_verifier import render_kyb_summary_card, verify_company_kyb
+from proposal_evaluation import assess_budget, is_critical_kyb_result
 from database import (
     clear_legacy_or_test_proposals,
     delete_proposal_by_id,
@@ -45,7 +49,6 @@ from database import (
 from logo_handler import process_company_logo, render_logo_uploader
 from notifications import send_email_notification, send_sms_notification
 from onboarding_wizard import render_step1_company_logo
-from prembly_kyb import verify_cac_number
 
 ROOT_DIR = Path(__file__).resolve().parent
 PROPOSALS_DB_PATH = ROOT_DIR / "proposals.db"
@@ -234,35 +237,6 @@ try:
             return None
 
 
-    def _extract_budget_evidence(extracted_text):
-        budget_labels = re.compile(
-            r"^\s*(?:(?:estimated|proposed|project)\s+)*"
-            r"(?:budget|cost|price|amount|financial\s+terms)"
-            r"\s*[:\-]\s*(.+?)\s*$",
-            re.IGNORECASE,
-        )
-        for line in extracted_text.splitlines():
-            match = budget_labels.search(line)
-            if match and match.group(1).strip():
-                return match.group(1).strip()
-        return ""
-
-
-    def _has_explicit_budget_amount(value):
-        return bool(
-            re.search(
-                r"(?:[$₦€£]\s*|"
-                r"\b(?:USD|NGN|GBP|EUR)\s*)"
-                r"\d[\d,]*(?:\.\d+)?"
-                r"|\d[\d,]*(?:\.\d+)?\s*"
-                r"\b(?:USD|NGN|GBP|EUR)\b",
-                value,
-                re.IGNORECASE,
-            )
-            or re.fullmatch(r"\s*\d[\d,]*(?:\.\d+)?\s*", value)
-        )
-
-
     def _format_executive_brief(brief_data):
         return "\n".join(
             (
@@ -276,6 +250,96 @@ try:
                 f"Executive Assessment: {brief_data['executive_assessment']}",
             )
         )
+
+
+    KYB_REPORT_MARKER = "\n\nKYB_VERIFICATION_JSON:"
+
+
+    def attach_kyb_result_to_brief(brief_data, kyb_data):
+        """Add registry verification to the report and apply critical-risk triage."""
+        if not isinstance(kyb_data, dict):
+            raise TypeError("KYB verification must return a dictionary.")
+        critical_risk = is_critical_kyb_result(kyb_data)
+        brief_data["kyb_result"] = kyb_data
+        brief_data["critical_risk"] = critical_risk
+        brief_data["risk_flagged"] = (
+            brief_data["risk_flagged"]
+            or critical_risk
+            or bool(kyb_data.get("flagged"))
+        )
+        risk_label = str(kyb_data.get("risk_label", "Not assessed"))
+        status_label = str(kyb_data.get("company_status", "UNKNOWN"))
+        critical_label = (
+            "🚨 CRITICAL RISK: CAC Status INACTIVE"
+            if critical_risk
+            else "No inactive company status detected"
+        )
+        brief_data["summary"] = (
+            f"{brief_data['summary']}\n\n"
+            "KYB VERIFICATION RESULT\n"
+            f"Company Status: {status_label}\n"
+            f"Risk Assessment: {risk_label}\n"
+            f"Triage: {critical_label}"
+            f"{KYB_REPORT_MARKER}{json.dumps(kyb_data, ensure_ascii=False)}"
+        )
+        return brief_data
+
+
+    def extract_kyb_result_from_report(report):
+        if not isinstance(report, str) or KYB_REPORT_MARKER not in report:
+            return None
+        kyb_data = json.loads(report.split(KYB_REPORT_MARKER, 1)[1].strip())
+        if not isinstance(kyb_data, dict):
+            raise ValueError("Stored KYB verification data is not an object.")
+        return kyb_data
+
+
+    def visible_proposal_report(report):
+        if not isinstance(report, str):
+            return ""
+        return report.split(KYB_REPORT_MARKER, 1)[0].rstrip()
+
+
+    def build_audit_record(brief_data, kyb_data):
+        inactive = brief_data.get("critical_risk", False)
+        legal_risk_flags = (
+            ["CAC registry reports an inactive company"]
+            if inactive
+            else []
+        )
+        compliance_gaps = []
+        if not brief_data.get("has_budget", False):
+            compliance_gaps.append("No explicit numeric proposal budget")
+        if kyb_data.get("flagged") and not inactive:
+            compliance_gaps.append(
+                str(kyb_data.get("risk_label") or "KYB verification requires review")
+            )
+        risk_score = (
+            100.0
+            if inactive
+            else 60.0
+            if brief_data.get("risk_flagged")
+            else 0.0
+        )
+        return {
+            "feasibility_rating": brief_data["feasibility_rating"],
+            "risk_score": risk_score,
+            "legal_risk_flags": legal_risk_flags,
+            "compliance_gaps": compliance_gaps,
+            "raw_ai_json": brief_data,
+        }
+
+
+    def get_verification_status_from_kyb(kyb_data):
+        is_verified = (
+            kyb_data.get("status") == "SUCCESS"
+            and kyb_data.get("is_active") is True
+        )
+        return {
+            "verified": is_verified,
+            "company_name": kyb_data.get("company_name"),
+            "message": kyb_data.get("message") or kyb_data.get("risk_label"),
+        }
 
 
     def generate_ai_executive_brief(
@@ -297,33 +361,18 @@ try:
             budget=None,
             proposed_timeline=proposed_timeline,
         )
-        budget_evidence = _extract_budget_evidence(document_text)
-        fallback_has_budget = _has_explicit_budget_amount(budget_evidence)
-        usable_budget_note = budget_evidence.strip()
-        if usable_budget_note.lower() in {
-            "",
-            "n/a",
-            "na",
-            "none",
-            "not provided",
-            "not specified",
-            "to be determined",
-        }:
-            usable_budget_note = ""
+        fallback_has_budget, fallback_budget_display, missing_rating = assess_budget(
+            document_text
+        )
         fallback_data = {
             "company_name": fallback["company"],
             "rc_number": fallback["rc_number"] or "Not identified",
             "has_budget": fallback_has_budget,
-            "budget_display": (
-                budget_evidence
-                if fallback_has_budget
-                else usable_budget_note
-                or "⚠️ No explicit budget found in document"
-            ),
+            "budget_display": fallback_budget_display,
             "feasibility_rating": (
                 fallback["feasibility_rating"]
                 if fallback_has_budget
-                else "Conditional"
+                else missing_rating
             ),
             "scope": fallback["scope"] or "Not identified",
             "timeline": fallback["timeline"] or "Not provided",
@@ -440,27 +489,14 @@ Proposal document text:
             fallback_data["summary"] = _format_executive_brief(fallback_data)
             return fallback_data
 
-        model_budget_display = model_data["budget_display"].strip()
-        model_has_amount = _has_explicit_budget_amount(model_budget_display)
-        has_budget = model_data["has_budget"] and model_has_amount
-        if has_budget:
-            budget_display = model_budget_display
-        elif model_has_amount:
-            budget_display = (
-                usable_budget_note
-                if usable_budget_note
-                and not _has_explicit_budget_amount(usable_budget_note)
-                else "⚠️ No explicit budget found in document"
-            )
-        else:
-            budget_display = (
-                model_budget_display
-                or usable_budget_note
-                or "⚠️ No explicit budget found in document"
-            )
+        has_budget, budget_display, missing_rating = assess_budget(
+            document_text,
+            model_has_budget=model_data["has_budget"],
+            model_budget_display=model_data["budget_display"],
+        )
         feasibility_rating = model_data["feasibility_rating"].strip()
         if not has_budget:
-            feasibility_rating = "Conditional"
+            feasibility_rating = missing_rating
         brief_data = {
             "company_name": model_data["company_name"].strip()
             or fallback_data["company_name"],
@@ -543,22 +579,7 @@ Proposal document text:
 
 
     def extract_pdf_text(uploaded_file):
-        bytes_data = uploaded_file.read()
-        uploaded_file.seek(0)
-        doc = fitz.open(stream=bytes_data, filetype="pdf")
-        extracted_text = ""
-
-        for page in doc:
-            text = page.get_text()
-            if text.strip():
-                extracted_text += text + "\n"
-            else:
-                pix = page.get_pixmap(dpi=150)
-                img = Image.open(io.BytesIO(pix.tobytes("png")))
-                ocr_text = pytesseract.image_to_string(img)
-                extracted_text += ocr_text + "\n"
-
-        return extracted_text
+        return extract_pdf_document_text(uploaded_file.getvalue())
 
 
     def extract_image_text(uploaded_file):
@@ -608,6 +629,56 @@ Proposal document text:
             return extract_excel_text(uploaded_file)
         else:
             return ""
+
+
+    @st.cache_resource
+    def get_extraction_executor():
+        return ThreadPoolExecutor(
+            max_workers=4,
+            thread_name_prefix="proposal-extraction",
+        )
+
+
+    def _extract_uploaded_content(filename, file_bytes):
+        upload_stream = io.BytesIO(file_bytes)
+        upload_stream.name = filename
+        return extract_universal_text(upload_stream)
+
+
+    def extract_uploaded_text_with_progress(uploaded_file):
+        """Run CPU-bound extraction in a worker and keep the Streamlit status live."""
+        future = get_extraction_executor().submit(
+            _extract_uploaded_content,
+            uploaded_file.name,
+            uploaded_file.getvalue(),
+        )
+        started_at = time.monotonic()
+        with st.status(
+            "Extracting proposal text; OCR fallback runs for sparse multi-page PDFs.",
+            expanded=True,
+        ) as status:
+            progress = st.progress(
+                0.0,
+                text="Searching document text and checking scan quality",
+            )
+            while not future.done():
+                elapsed = time.monotonic() - started_at
+                progress.progress(
+                    min(0.95, 0.05 + elapsed / 60),
+                    text="Text extraction and OCR are running in the background",
+                )
+                time.sleep(0.25)
+
+            extracted_text = future.result()
+            progress.progress(1.0, text="Document extraction complete")
+            status.update(
+                label=(
+                    "Document extraction complete "
+                    f"({len(extracted_text.split())} words)"
+                ),
+                state="complete",
+            )
+        return extracted_text
 
 
     def clear_admin_session():
@@ -1030,7 +1101,9 @@ Proposal document text:
                     try:
                         pdf_path.write_bytes(pdf_bytes)
                         try:
-                            extracted_text = extract_universal_text(uploaded_pdf)
+                            extracted_text = extract_uploaded_text_with_progress(
+                                uploaded_pdf
+                            )
                             extraction_warning = ""
                         except Exception as exc:
                             extracted_text = ""
@@ -1049,7 +1122,13 @@ Proposal document text:
                                 "the entered CAC number; verification and history checks "
                                 "will use the extracted number."
                             )
-                        kyb_status = verify_cac_number(verified_rc_number)
+                        kyb_data = verify_company_kyb(verified_rc_number)
+                        brief_data = attach_kyb_result_to_brief(
+                            brief_data,
+                            kyb_data,
+                        )
+                        audit_record = build_audit_record(brief_data, kyb_data)
+                        kyb_status = get_verification_status_from_kyb(kyb_data)
                         past_contract_count = get_past_contract_history(
                             verified_rc_number
                         )
@@ -1066,6 +1145,13 @@ Proposal document text:
                             ai_summary=brief_data["summary"],
                             budget=budget,
                             is_flagged=brief_data["risk_flagged"],
+                            filename=safe_upload_name,
+                            feasibility_rating=audit_record["feasibility_rating"],
+                            risk_score=audit_record["risk_score"],
+                            kyb_data=kyb_data,
+                            legal_risk_flags=audit_record["legal_risk_flags"],
+                            compliance_gaps=audit_record["compliance_gaps"],
+                            raw_ai_json=audit_record["raw_ai_json"],
                             cac_verification_status=verification_label,
                             past_contract_count=past_contract_count,
                             company_logo_base64=company_logo_base64,
@@ -1165,8 +1251,15 @@ Proposal document text:
             cac_verification_status="Not checked",
             past_contract_count=0,
             company_logo_base64="",
+            filename="",
+            feasibility_rating="Not assessed",
+            risk_score=None,
+            kyb_data=None,
+            legal_risk_flags=None,
+            compliance_gaps=None,
+            raw_ai_json=None,
         ):
-            insert_proposal_record(
+            return insert_proposal_record(
                 tracking_code=tracking_code,
                 vendor_name=vendor_name,
                 email=email,
@@ -1180,6 +1273,13 @@ Proposal document text:
                 cac_verification_status=cac_verification_status,
                 past_contract_count=past_contract_count,
                 company_logo_base64=company_logo_base64,
+                filename=filename,
+                feasibility_rating=feasibility_rating,
+                risk_score=risk_score,
+                kyb_data=kyb_data,
+                legal_risk_flags=legal_risk_flags,
+                compliance_gaps=compliance_gaps,
+                raw_ai_json=raw_ai_json,
             )
 
         # 1. Path Resolution
@@ -1237,7 +1337,8 @@ Proposal document text:
                 budget = st.number_input(
                     "Optional Budget (₦)",
                     min_value=0.0,
-                    value=0.0,
+                    value=None,
+                    placeholder="Not provided",
                     step=1000.0,
                     key="legacy_public_budget",
                 )
@@ -1500,7 +1601,9 @@ Proposal document text:
                             store_processed_proposal(file_bytes, safe_upload_name)
 
                             try:
-                                extracted_text = extract_universal_text(uploaded_file)
+                                extracted_text = extract_uploaded_text_with_progress(
+                                    uploaded_file
+                                )
                                 extraction_warning = ""
                             except Exception as exc:
                                 extracted_text = ""
@@ -1521,7 +1624,13 @@ Proposal document text:
                                     "from the entered CAC number; verification and "
                                     "history checks will use the extracted number."
                                 )
-                            kyb_status = verify_cac_number(verified_rc_number)
+                            kyb_data = verify_company_kyb(verified_rc_number)
+                            brief_data = attach_kyb_result_to_brief(
+                                brief_data,
+                                kyb_data,
+                            )
+                            audit_record = build_audit_record(brief_data, kyb_data)
+                            kyb_status = get_verification_status_from_kyb(kyb_data)
                             past_contract_count = get_past_contract_history(
                                 verified_rc_number
                             )
@@ -1564,6 +1673,19 @@ Proposal document text:
                                     cac_verification_status=verification_label,
                                     past_contract_count=past_contract_count,
                                     company_logo_base64=company_logo_base64,
+                                    filename=safe_upload_name,
+                                    feasibility_rating=audit_record[
+                                        "feasibility_rating"
+                                    ],
+                                    risk_score=audit_record["risk_score"],
+                                    kyb_data=kyb_data,
+                                    legal_risk_flags=audit_record[
+                                        "legal_risk_flags"
+                                    ],
+                                    compliance_gaps=audit_record[
+                                        "compliance_gaps"
+                                    ],
+                                    raw_ai_json=audit_record["raw_ai_json"],
                                 )
                                 insert_vendor_submission(
                                     company_name=submitter,
@@ -1728,6 +1850,7 @@ Proposal document text:
                         """
                         SELECT id, tracking_code, vendor_name, email, phone_number,
                                category, cac_number, ai_summary, budget, status,
+                               filename, feasibility_rating, risk_score, timestamp,
                                cac_verification_status, past_contract_count,
                                company_logo_base64, is_flagged, is_high_priority
                         FROM proposals
@@ -1764,10 +1887,35 @@ Proposal document text:
                         )
                         st.write(f"**Current status:** {selected_proposal['status']}")
                         st.markdown("#### Executive Action Brief")
+                        proposal_report = selected_proposal["ai_summary"]
+                        if not isinstance(proposal_report, str):
+                            proposal_report = ""
                         st.code(
-                            selected_proposal["ai_summary"] or "No brief is available.",
+                            visible_proposal_report(proposal_report)
+                            or "No brief is available.",
                             language="text",
                         )
+                        if selected_proposal["feasibility_rating"]:
+                            st.caption(
+                                "Feasibility: "
+                                f"{selected_proposal['feasibility_rating']} | "
+                                f"Risk score: {selected_proposal['risk_score']}"
+                            )
+                        try:
+                            stored_kyb_data = extract_kyb_result_from_report(
+                                proposal_report
+                            )
+                        except (json.JSONDecodeError, ValueError) as exc:
+                            st.error(
+                                f"Could not read stored KYB data: {exc}"
+                            )
+                        else:
+                            if stored_kyb_data is not None:
+                                render_kyb_summary_card(stored_kyb_data)
+                            else:
+                                st.info(
+                                    "No KYB result is stored for this proposal."
+                                )
 
                         cac_status = str(
                             selected_proposal["cac_verification_status"] or "Not checked"
