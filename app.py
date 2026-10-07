@@ -5,6 +5,7 @@ import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+import logging
 from pathlib import Path
 import re
 import sys
@@ -37,8 +38,10 @@ from branding_manager import render_portal_header
 from document_processing import extract_pdf_text as extract_pdf_document_text
 from executive_brief import generate_executive_action_brief
 from executive_dispatch import render_executive_company_logo
+from email_notifier import send_vendor_acknowledgment
 from kyb_verifier import render_kyb_summary_card, verify_company_kyb
 from proposal_evaluation import assess_budget, is_critical_kyb_result
+from report_generator import generate_pdf_audit_report
 from database import (
     clear_legacy_or_test_proposals,
     delete_proposal_by_id,
@@ -639,6 +642,70 @@ Proposal document text:
         )
 
 
+    def _log_acknowledgment_result(future):
+        try:
+            success, message = future.result()
+        except Exception:
+            logging.exception("Vendor acknowledgment task failed.")
+            return
+        if not success:
+            logging.warning("Vendor acknowledgment was not sent: %s", message)
+
+
+    def queue_vendor_acknowledgment(vendor_email, vendor_name, proposal_id):
+        """Queue email outside the Streamlit request path and track its outcome."""
+        if not vendor_email or not vendor_email.strip():
+            return
+
+        try:
+            future = get_extraction_executor().submit(
+                send_vendor_acknowledgment,
+                vendor_email,
+                vendor_name,
+                proposal_id,
+            )
+            future.add_done_callback(_log_acknowledgment_result)
+            pending = st.session_state.setdefault(
+                "vendor_acknowledgment_futures",
+                {},
+            )
+            pending[str(proposal_id)] = future
+        except Exception:
+            logging.exception("Could not queue vendor acknowledgment email.")
+            st.warning("Vendor acknowledgment could not be queued.")
+            return
+
+        if future.done():
+            _render_acknowledgment_result(str(proposal_id), future)
+        else:
+            st.caption("Vendor receipt acknowledgment is being sent in the background.")
+
+
+    def _render_acknowledgment_result(proposal_id, future):
+        pending = st.session_state.get("vendor_acknowledgment_futures", {})
+        pending.pop(proposal_id, None)
+        try:
+            success, message = future.result()
+        except Exception:
+            logging.exception(
+                "Vendor acknowledgment task failed for proposal %s.",
+                proposal_id,
+            )
+            st.warning("Vendor acknowledgment could not be sent.")
+            return
+        if success:
+            st.caption("Vendor acknowledgment email sent.")
+        else:
+            st.warning(message)
+
+
+    def render_pending_vendor_acknowledgments():
+        pending = st.session_state.get("vendor_acknowledgment_futures", {})
+        for proposal_id, future in list(pending.items()):
+            if future.done():
+                _render_acknowledgment_result(proposal_id, future)
+
+
     def _extract_uploaded_content(filename, file_bytes):
         upload_stream = io.BytesIO(file_bytes)
         upload_stream.name = filename
@@ -996,6 +1063,7 @@ Proposal document text:
 
     st.sidebar.markdown("### SGWVM TECHNOLOGIES")
     st.sidebar.caption("AI Enterprise Proposal Intake Portal")
+    render_pending_vendor_acknowledgments()
     portal_view = st.sidebar.radio(
         "Choose a portal",
         [
@@ -1135,7 +1203,7 @@ Proposal document text:
                         tracking_code = generate_unique_tracking_code("SUB")
                         verification_label = get_cac_verification_label(kyb_status)
                         initialize_database()
-                        insert_proposal_record(
+                        proposal_id = insert_proposal_record(
                             tracking_code=tracking_code,
                             vendor_name=company_name.strip(),
                             email=contact_email.strip(),
@@ -1175,6 +1243,11 @@ Proposal document text:
                             phone=contact_phone.strip(),
                             company_name=company_name.strip(),
                             tracking_code=tracking_code,
+                        )
+                        queue_vendor_acknowledgment(
+                            contact_email.strip(),
+                            company_name.strip(),
+                            proposal_id,
                         )
                     except Exception as exc:
                         if pdf_path.exists():
@@ -1414,7 +1487,7 @@ Proposal document text:
 
                     tracking_code = generate_unique_tracking_code("TRK")
                     try:
-                        insert_proposal(
+                        proposal_id = insert_proposal(
                             tracking_code=tracking_code,
                             vendor_name=company_name,
                             email=contact_email,
@@ -1711,6 +1784,11 @@ Proposal document text:
                                     company_name=submitter,
                                     tracking_code=tracking_code,
                                 )
+                                queue_vendor_acknowledgment(
+                                    email.strip(),
+                                    submitter,
+                                    proposal_id,
+                                )
                                 if extraction_warning:
                                     st.warning(extraction_warning)
 
@@ -1901,6 +1979,7 @@ Proposal document text:
                                 f"{selected_proposal['feasibility_rating']} | "
                                 f"Risk score: {selected_proposal['risk_score']}"
                             )
+                        stored_kyb_data = None
                         try:
                             stored_kyb_data = extract_kyb_result_from_report(
                                 proposal_report
@@ -1909,13 +1988,80 @@ Proposal document text:
                             st.error(
                                 f"Could not read stored KYB data: {exc}"
                             )
+                            stored_kyb_data = None
+                        if stored_kyb_data is None:
+                            stored_kyb_data = {
+                                "company_name": str(
+                                    selected_proposal["vendor_name"] or "N/A"
+                                ),
+                                "rc_number": str(
+                                    selected_proposal["cac_number"] or "N/A"
+                                ),
+                                "company_status": str(
+                                    selected_proposal["cac_verification_status"]
+                                    or "UNKNOWN"
+                                ),
+                                "tin": "Not available",
+                                "directors": [],
+                                "flagged": bool(selected_proposal["is_flagged"]),
+                                "risk_label": str(
+                                    selected_proposal["cac_verification_status"]
+                                    or "KYB details were not stored."
+                                ),
+                            }
+                            st.info(
+                                "Detailed KYB data is unavailable; the report "
+                                "will include the stored verification status."
+                            )
+                        render_kyb_summary_card(stored_kyb_data)
+
+                        budget_display = "Not provided"
+                        if pd.notna(selected_proposal["budget"]):
+                            budget_display = f"{float(selected_proposal['budget']):,.2f}"
                         else:
-                            if stored_kyb_data is not None:
-                                render_kyb_summary_card(stored_kyb_data)
-                            else:
-                                st.info(
-                                    "No KYB result is stored for this proposal."
-                                )
+                            budget_line = next(
+                                (
+                                    line.split(":", 1)[1].strip()
+                                    for line in visible_proposal_report(
+                                        proposal_report
+                                    ).splitlines()
+                                    if line.startswith("Budget:")
+                                ),
+                                None,
+                            )
+                            if budget_line:
+                                budget_display = budget_line
+
+                        proposal_data = {
+                            "proposal_id": selected_id,
+                            "filename": selected_proposal["filename"],
+                            "company_name": selected_proposal["vendor_name"],
+                            "rc_number": selected_proposal["cac_number"],
+                            "budget_display": budget_display,
+                            "feasibility_rating": selected_proposal[
+                                "feasibility_rating"
+                            ],
+                            "risk_score": selected_proposal["risk_score"],
+                            "risk_flagged": bool(
+                                selected_proposal["is_flagged"]
+                            ),
+                            "executive_summary": visible_proposal_report(
+                                proposal_report
+                            ),
+                        }
+                        report_filename = Path(
+                            str(selected_proposal["filename"] or "proposal")
+                        ).stem
+                        st.download_button(
+                            "📄 Download 1-Click Executive Audit Report (PDF)",
+                            data=generate_pdf_audit_report(
+                                proposal_data,
+                                stored_kyb_data,
+                            ),
+                            file_name=f"{report_filename}_executive_audit.pdf",
+                            mime="application/pdf",
+                            key=f"download_executive_audit_{selected_id}",
+                        )
 
                         cac_status = str(
                             selected_proposal["cac_verification_status"] or "Not checked"
