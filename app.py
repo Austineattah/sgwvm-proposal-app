@@ -1,6 +1,10 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
 import io
 import json
-import os
 import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
