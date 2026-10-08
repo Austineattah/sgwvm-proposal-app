@@ -1,5 +1,8 @@
 import io
+import re
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import pymupdf
@@ -9,12 +12,52 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 import database
+import email_notifier
 import kyb_verifier
 from document_processing import extract_pdf_text
 from proposal_evaluation import assess_budget, is_critical_kyb_result
+from report_generator import generate_pdf_audit_report
 
 
 class PortalPipelineTests(unittest.TestCase):
+    def test_onboarding_token_lifecycle_and_admin_controls(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            security_db = Path(temp_dir) / "security.sqlite3"
+            with patch.object(database, "SECURITY_DATABASE_PATH", security_db):
+                database.init_security_tables()
+                token = database.create_onboarding_token("Example Organization")
+
+                self.assertRegex(token, re.compile(r"^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$"))
+                attempts, locked = database.record_failed_attempt(token.lower())
+                self.assertEqual(attempts, 1)
+                self.assertFalse(locked)
+                attempts, locked = database.record_failed_attempt(token)
+                self.assertEqual(attempts, 2)
+                self.assertTrue(locked)
+                success, message = database.verify_and_consume_token(
+                    token,
+                    "contact@example.com",
+                )
+                self.assertFalse(success)
+                self.assertIn("locked", message)
+
+                self.assertTrue(database.revoke_or_reset_token(token, "unlock"))
+                success, message = database.verify_and_consume_token(
+                    token,
+                    "contact@example.com",
+                )
+                self.assertTrue(success, message)
+                self.assertFalse(
+                    database.verify_and_consume_token(token, "other@example.com")[0]
+                )
+                self.assertEqual(
+                    database.get_subscribed_clients()[0]["client_name"],
+                    "Example Organization",
+                )
+                self.assertTrue(database.revoke_or_reset_token(token, "reset"))
+                self.assertTrue(database.revoke_or_reset_token(token, "revoke"))
+                self.assertEqual(database.get_all_tokens()[0]["is_used"], 1)
+
     def test_inactive_rc_kyb_lookup_is_critical(self):
         class Response:
             status_code = 200
@@ -187,6 +230,89 @@ class PortalPipelineTests(unittest.TestCase):
             )
         finally:
             engine.dispose()
+
+    def test_vendor_acknowledgment_handles_missing_secrets(self):
+        with patch.object(email_notifier, "st") as streamlit:
+            streamlit.secrets = {}
+            success, message = email_notifier.send_vendor_acknowledgment(
+                "vendor@example.com",
+                "Example Vendor",
+                42,
+            )
+        self.assertFalse(success)
+        self.assertIn("SMTP secrets", message)
+
+    def test_vendor_acknowledgment_sends_when_smtp_is_configured(self):
+        class SMTPServer:
+            def __init__(self):
+                self.message = None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback):
+                return False
+
+            def ehlo(self):
+                pass
+
+            def starttls(self, context):
+                pass
+
+            def login(self, sender, password):
+                self.sender = sender
+                self.password = password
+
+            def send_message(self, message):
+                self.message = message
+
+        smtp_server = SMTPServer()
+        with (
+            patch.object(email_notifier, "st") as streamlit,
+            patch.object(
+                email_notifier.smtplib,
+                "SMTP",
+                return_value=smtp_server,
+            ),
+        ):
+            streamlit.secrets = {
+                "SMTP_SERVER": "smtp.example.com",
+                "SMTP_PORT": "587",
+                "SENDER_EMAIL": "sender@example.com",
+                "SENDER_PASSWORD": "test-password",
+            }
+            success, message = email_notifier.send_vendor_acknowledgment(
+                "vendor@example.com",
+                "Example Vendor",
+                42,
+            )
+
+        self.assertTrue(success)
+        self.assertEqual(message, "Vendor acknowledgment email sent.")
+        self.assertEqual(smtp_server.message["To"], "vendor@example.com")
+        self.assertIn("42", smtp_server.message.get_content())
+
+    def test_pdf_audit_report_generates_pdf_bytes(self):
+        pdf_bytes = generate_pdf_audit_report(
+            {
+                "company_name": "Vendor & Co",
+                "rc_number": "12345",
+                "budget_display": "To be negotiated",
+                "feasibility_rating": "Conditional",
+                "risk_score": 60,
+                "executive_summary": "Assessment & review required.",
+                "risk_flagged": True,
+            },
+            {
+                "company_name": "Vendor & Co",
+                "rc_number": "12345",
+                "company_status": "INACTIVE",
+                "tin": "Not verified",
+                "directors": ["A & B"],
+                "flagged": True,
+            },
+        )
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
 
 
 def _make_test_image_bytes():

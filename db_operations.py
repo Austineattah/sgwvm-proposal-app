@@ -1,4 +1,4 @@
-from database import VALID_PROPOSAL_STATUSES, get_db_connection
+from database import VALID_PROPOSAL_STATUSES, get_proposal_db_connection
 
 
 def insert_proposal(
@@ -15,7 +15,7 @@ def insert_proposal(
     """Inserts a new proposal submission record into the PostgreSQL database."""
     normalized_status = status if status in VALID_PROPOSAL_STATUSES else "Draft"
 
-    conn = get_db_connection()
+    conn = get_proposal_db_connection()
     cur = conn.cursor()
 
     query = """
