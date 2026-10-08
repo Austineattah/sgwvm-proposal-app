@@ -7,7 +7,6 @@ import sqlite3
 import string
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
@@ -30,24 +29,33 @@ from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from dotenv import load_dotenv
 
+# Load local .env configuration when available.
 load_dotenv()
 
 
-def get_secret(key: str, default: Optional[str] = None) -> Optional[str]:
-    """Read database configuration from environment variables or Streamlit secrets."""
-    value = os.getenv(key)
-    if value:
-        return value
+def get_database_url() -> str:
+    """Prefer a configured cloud URL, otherwise use the local .env URL."""
+    cloud_url = ""
     try:
-        return st.secrets[key]
+        if hasattr(st, "secrets") and "CLOUD_DATABASE_URL" in st.secrets:
+            cloud_url = str(st.secrets["CLOUD_DATABASE_URL"]).strip()
     except (KeyError, StreamlitSecretNotFoundError):
-        return default
+        logging.debug("CLOUD_DATABASE_URL is not configured in Streamlit secrets.")
+
+    cloud_url = cloud_url or os.getenv("CLOUD_DATABASE_URL", "").strip()
+    if cloud_url:
+        if cloud_url.startswith("postgres://"):
+            return cloud_url.replace("postgres://", "postgresql://", 1)
+        return cloud_url
+
+    local_url = os.getenv("LOCAL_DATABASE_URL", "").strip()
+    if local_url:
+        return local_url
+
+    return "sqlite:///./fallback_local.db"
 
 
-DEFAULT_DATABASE_URL = "sqlite:///proposals.db"
-DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
-_database_url_from_environment = bool(os.getenv("DATABASE_URL"))
-_cloud_database_url_loaded = False
+DATABASE_URL = get_database_url()
 
 IS_STREAMLIT_CLOUD = (
     os.getenv("STREAMLIT_RUNTIME_ENV", "").lower() == "cloud"
@@ -66,11 +74,15 @@ if not SECURITY_DATABASE_PATH.is_absolute():
 
 
 def create_database_engine(database_url: str) -> Engine:
-    is_sqlite = database_url.startswith("sqlite:")
+    engine_args = {}
+    if database_url.startswith("postgresql"):
+        engine_args["pool_pre_ping"] = True
+        engine_args["pool_recycle"] = 300
+    elif database_url.startswith("sqlite:"):
+        engine_args["connect_args"] = {"check_same_thread": False}
     return create_engine(
         database_url,
-        connect_args={"check_same_thread": False} if is_sqlite else {},
-        pool_pre_ping=not is_sqlite,
+        **engine_args,
     )
 
 
@@ -192,17 +204,6 @@ VALID_PROPOSAL_STATUSES = (
 
 def get_db_engine() -> Engine:
     """Return the configured SQLAlchemy engine."""
-    global DATABASE_URL, _cloud_database_url_loaded, engine
-    if not _database_url_from_environment and not _cloud_database_url_loaded:
-        _cloud_database_url_loaded = True
-        secret_database_url = get_secret("DATABASE_URL")
-        if secret_database_url:
-            DATABASE_URL = str(secret_database_url)
-            if DATABASE_URL.startswith("postgres://"):
-                DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-            engine.dispose()
-            engine = create_database_engine(DATABASE_URL)
-            SessionLocal.configure(bind=engine)
     return engine
 
 
