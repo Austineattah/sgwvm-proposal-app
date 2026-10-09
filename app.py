@@ -7,6 +7,7 @@ import io
 import json
 import sqlite3
 import time
+from html import escape
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import logging
@@ -234,6 +235,9 @@ def init_session_state():
         "portal_persona": "Developer Master Access",
         "organization_id": "",
         "is_subscribed": False,
+        "portal_branding_title": (
+            "SGWVM TECHNOLOGIES AI Enterprise Proposal Intake Portal"
+        ),
         "proposal_data": None,
         "ai_summary": None,
         "last_filename": None,
@@ -256,6 +260,57 @@ def main():
         "setup_skipped": st.session_state.get("setup_skipped", False),
         "admin_logged_in": st.session_state.get("admin_logged_in", False),
     }
+
+
+def render_animated_marquee():
+    """Render the active portal title in an accessible animated ticker."""
+    title = escape(
+        str(
+            st.session_state.get(
+                "portal_branding_title",
+                "SGWVM TECHNOLOGIES AI Enterprise Proposal Intake Portal",
+            )
+        ).strip()
+        or "SGWVM TECHNOLOGIES AI Enterprise Proposal Intake Portal"
+    )
+    st.markdown(
+        f"""
+        <style>
+        .portal-marquee {{
+            overflow: hidden;
+            white-space: nowrap;
+            width: 100%;
+            box-sizing: border-box;
+            padding: 0.7rem 0;
+            margin-bottom: 0.75rem;
+            border-top: 1px solid rgba(128, 128, 128, 0.35);
+            border-bottom: 1px solid rgba(128, 128, 128, 0.35);
+        }}
+        .portal-marquee span {{
+            display: inline-block;
+            padding-left: 100%;
+            animation: portal-marquee-scroll 24s linear infinite;
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+        }}
+        @keyframes portal-marquee-scroll {{
+            0% {{ transform: translateX(0); }}
+            100% {{ transform: translateX(-100%); }}
+        }}
+        @media (prefers-reduced-motion: reduce) {{
+            .portal-marquee span {{
+                padding-left: 0;
+                animation: none;
+            }}
+        }}
+        </style>
+        <div class="portal-marquee" role="status" aria-label="{title}">
+            <span>{title}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 if __name__ == "__main__":
@@ -1062,6 +1117,8 @@ Proposal document text:
 
     submit_proposal_mode = get_requested_mode() == "submit_proposal"
 
+    render_animated_marquee()
+
     if st.session_state.get("show_wizard") and not submit_proposal_mode:
         render_setup_wizard()
         st.stop()
@@ -1158,6 +1215,13 @@ Proposal document text:
         admin_authenticated=APP_STATE.get("admin_logged_in", False),
         subscription_checker=check_organization_subscription,
     )
+    if persona == "Developer Master Access":
+        with st.sidebar.expander("Developer Controls", expanded=False):
+            st.text_input(
+                "Global Portal Title:",
+                key="portal_branding_title",
+                max_chars=160,
+            )
 
     if portal_view == "Client Dashboard":
         if not st.session_state.get("is_subscribed", False):
