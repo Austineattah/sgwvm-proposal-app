@@ -127,6 +127,21 @@ class TenantConfig(Base):
     )
 
 
+class Organization(Base):
+    __tablename__ = "organizations"
+
+    org_id = Column(String(100), primary_key=True)
+    subscription_status = Column(String(50), nullable=False, default="INACTIVE")
+    onboarding_completed = Column(Boolean, nullable=False, default=False)
+    subscription_plan = Column(String(100), nullable=False, default="Unassigned")
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class Proposal(Base):
     __tablename__ = "proposals"
 
@@ -632,10 +647,56 @@ def ensure_proposal_status_column(db_engine: Engine | None = None) -> None:
             )
 
 
+def ensure_organization_subscription_columns(
+    db_engine: Engine | None = None,
+) -> None:
+    """Add missing subscription fields to an existing PostgreSQL organizations table."""
+    db_engine = db_engine or get_db_engine()
+    if db_engine.dialect.name != "postgresql":
+        return
+
+    inspector = inspect(db_engine)
+    if "organizations" not in inspector.get_table_names():
+        return
+    existing_columns = {
+        column["name"] for column in inspector.get_columns("organizations")
+    }
+    if "org_id" not in existing_columns:
+        raise RuntimeError(
+            "The organizations table is missing org_id; migrate its primary key "
+            "before initializing subscription support."
+        )
+
+    additions = {
+        "subscription_status": (
+            "VARCHAR(50) NOT NULL DEFAULT 'INACTIVE'"
+        ),
+        "onboarding_completed": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "subscription_plan": "VARCHAR(100) NOT NULL DEFAULT 'Unassigned'",
+        "updated_at": "TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    }
+    missing_columns = {
+        name: definition
+        for name, definition in additions.items()
+        if name not in existing_columns
+    }
+    if not missing_columns:
+        return
+
+    with db_engine.begin() as connection:
+        for name, definition in missing_columns.items():
+            connection.execute(
+                text(
+                    f"ALTER TABLE organizations ADD COLUMN {name} {definition}"
+                )
+            )
+
+
 def init_db() -> None:
     """Create ORM tables and bring the proposal status field up to date."""
     Base.metadata.create_all(bind=get_db_engine())
     ensure_proposal_status_column(get_db_engine())
+    ensure_organization_subscription_columns(get_db_engine())
 
 
 def initialize_database() -> None:

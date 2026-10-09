@@ -3,7 +3,7 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pymupdf
 import requests
@@ -12,6 +12,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 import database
+import db_subscription
 import email_notifier
 import kyb_verifier
 from document_processing import extract_pdf_text
@@ -20,6 +21,155 @@ from report_generator import generate_pdf_audit_report
 
 
 class PortalPipelineTests(unittest.TestCase):
+    def test_subscription_check_requires_active_postgresql_record(self):
+        engine = MagicMock()
+        engine.dialect.name = "postgresql"
+        connection = engine.connect.return_value.__enter__.return_value
+        inspector = MagicMock()
+        inspector.get_table_names.return_value = ["organizations"]
+        inspector.get_columns.return_value = [
+            {"name": "org_id", "type": "VARCHAR"},
+            {"name": "subscription_status", "type": "VARCHAR"},
+            {"name": "onboarding_completed", "type": "BOOLEAN"},
+            {"name": "subscription_plan", "type": "VARCHAR"},
+            {"name": "updated_at", "type": "DATETIME"},
+        ]
+        connection.execute.return_value.mappings.return_value.first.return_value = {
+            "subscription_status": "ACTIVE",
+            "onboarding_completed": True,
+            "subscription_plan": "Enterprise",
+            "updated_at": "2026-10-09T00:00:00Z",
+        }
+
+        with (
+            patch.object(db_subscription, "get_db_engine", return_value=engine),
+            patch.object(db_subscription, "inspect", return_value=inspector),
+        ):
+            self.assertEqual(
+                db_subscription.check_organization_subscription("org-123"),
+                (True, "Organization subscription is active."),
+            )
+            connection.execute.return_value.mappings.return_value.first.return_value[
+                "subscription_status"
+            ] = "INACTIVE"
+            self.assertFalse(
+                db_subscription.check_organization_subscription("org-123")[0]
+            )
+
+    def test_subscription_check_rejects_non_postgresql_engine(self):
+        engine = MagicMock()
+        engine.dialect.name = "sqlite"
+        with patch.object(db_subscription, "get_db_engine", return_value=engine):
+            self.assertFalse(
+                db_subscription.check_organization_subscription("org-123")[0]
+            )
+
+    def test_subscription_check_rejects_incomplete_organization_schema(self):
+        engine = MagicMock()
+        engine.dialect.name = "postgresql"
+        inspector = MagicMock()
+        inspector.get_table_names.return_value = ["organizations"]
+        inspector.get_columns.return_value = [
+            {"name": "org_id", "type": "VARCHAR"},
+            {"name": "subscription_status", "type": "VARCHAR"},
+        ]
+        with (
+            patch.object(db_subscription, "get_db_engine", return_value=engine),
+            patch.object(db_subscription, "inspect", return_value=inspector),
+        ):
+            is_active, message = db_subscription.check_organization_subscription(
+                "org-123"
+            )
+        self.assertFalse(is_active)
+        self.assertIn("required subscription fields", message)
+
+    def test_organization_orm_model_matches_subscription_columns(self):
+        self.assertEqual(
+            set(database.Organization.__table__.columns.keys()),
+            db_subscription.ORGANIZATION_COLUMNS,
+        )
+
+    def test_subscription_activation_uses_aligned_text_update(self):
+        engine = MagicMock()
+        engine.dialect.name = "postgresql"
+        connection = engine.begin.return_value.__enter__.return_value
+        connection.execute.return_value.rowcount = 1
+        inspector = MagicMock()
+        inspector.get_table_names.return_value = ["organizations"]
+        inspector.get_columns.return_value = [
+            {"name": "org_id", "type": "VARCHAR"},
+            {"name": "subscription_status", "type": "VARCHAR"},
+            {"name": "onboarding_completed", "type": "BOOLEAN"},
+            {"name": "subscription_plan", "type": "VARCHAR"},
+            {"name": "updated_at", "type": "TIMESTAMP"},
+        ]
+
+        with (
+            patch.object(db_subscription, "get_db_engine", return_value=engine),
+            patch.object(db_subscription, "inspect", return_value=inspector),
+        ):
+            result = db_subscription.complete_organization_subscription(
+                "org-123",
+                "Enterprise",
+            )
+
+        self.assertTrue(result[0], result[1])
+        statement = connection.execute.call_args.args[0]
+        self.assertEqual(
+            set(statement._bindparams),
+            {"plan_name", "org_id"},
+        )
+        for column in db_subscription.ORGANIZATION_COLUMNS:
+            self.assertIn(column, str(statement))
+
+    def test_master_router_forces_public_route_for_submit_proposal_mode(self):
+        streamlit = MagicMock()
+        streamlit.query_params = {"mode": "submit_proposal"}
+        with patch.object(db_subscription, "st", streamlit):
+            result = db_subscription.render_master_router()
+        self.assertEqual(
+            result,
+            ("Public Vendor", "Public Vendor Portal", True),
+        )
+        streamlit.sidebar.selectbox.assert_not_called()
+
+    def test_master_router_checks_client_subscription_before_dashboard_route(self):
+        streamlit = MagicMock()
+        streamlit.query_params = {}
+        streamlit.sidebar.selectbox.return_value = "Client"
+        streamlit.sidebar.text_input.return_value = "org-123"
+        streamlit.sidebar.radio.return_value = "Client Dashboard"
+        with (
+            patch.object(db_subscription, "st", streamlit),
+            patch.object(
+                db_subscription,
+                "check_organization_subscription",
+                return_value=(True, "Organization subscription is active."),
+            ) as check_subscription,
+        ):
+            result = db_subscription.render_master_router()
+        check_subscription.assert_called_once_with("org-123")
+        self.assertEqual(result, ("Client", "Client Dashboard", False))
+
+    def test_master_router_accepts_application_subscription_checker(self):
+        streamlit = MagicMock()
+        streamlit.query_params = {}
+        streamlit.sidebar.selectbox.return_value = "Client"
+        streamlit.sidebar.text_input.return_value = "org-456"
+        streamlit.sidebar.radio.return_value = "Organization Onboarding Wizard"
+        checker = MagicMock(return_value=(False, "Subscription is inactive."))
+
+        with patch.object(db_subscription, "st", streamlit):
+            result = db_subscription.render_master_router(
+                subscription_checker=checker
+            )
+
+        checker.assert_called_once_with("org-456")
+        self.assertEqual(
+            result,
+            ("Client", "Organization Onboarding Wizard", False),
+        )
+
     def test_onboarding_token_lifecycle_and_admin_controls(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             security_db = Path(temp_dir) / "security.sqlite3"
@@ -141,8 +291,13 @@ class PortalPipelineTests(unittest.TestCase):
                     "proposals",
                     "kyb_logs",
                     "audit_scores",
+                    "organizations",
                 }.issubset(inspector.get_table_names())
             )
+            organization_columns = {
+                column["name"] for column in inspector.get_columns("organizations")
+            }
+            self.assertTrue(db_subscription.ORGANIZATION_COLUMNS.issubset(organization_columns))
             proposal_columns = {
                 column["name"] for column in inspector.get_columns("proposals")
             }

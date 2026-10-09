@@ -87,9 +87,17 @@ def render_admin_login():
         submit_button = st.form_submit_button("Access Portal")
 
     if submit_button:
-        active_password = st.secrets.get("ADMIN_PASSWORD", ADMIN_PASSWORD)
+        import os, bcrypt
+        active_hash = os.getenv("ADMIN_PASSWORD_HASH") or st.secrets.get("ADMIN_PASSWORD_HASH") or (st.secrets.get("auth", {}).get("ADMIN_PASSWORD_HASH") if hasattr(st.secrets, "get") else None)
 
-        if input_password == active_password:
+        is_valid = False
+        if active_hash:
+            try:
+                is_valid = bcrypt.checkpw(input_password.encode("utf-8"), active_hash.encode("utf-8"))
+            except Exception:
+                is_valid = False
+
+        if is_valid:
             log_access_attempt(status="SUCCESS")
             st.session_state.is_admin_authenticated = True
             st.success("Access Granted. Redirecting to admin portal...")

@@ -15,6 +15,7 @@ import re
 import sys
 import uuid
 import bcrypt
+from sqlalchemy import inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from streamlit.errors import StreamlitSecretNotFoundError
 from werkzeug.utils import secure_filename
@@ -49,13 +50,91 @@ from report_generator import generate_pdf_audit_report
 from database import (
     clear_legacy_or_test_proposals,
     delete_proposal_by_id,
+    get_db_engine,
     initialize_database,
     insert_proposal as insert_proposal_record,
     update_proposal_status,
 )
+from database import get_db_engine
+from db_subscription import (
+    complete_organization_subscription,
+    get_requested_mode,
+    render_master_router,
+)
 from logo_handler import process_company_logo, render_logo_uploader
 from notifications import send_email_notification, send_sms_notification
 from onboarding_wizard import render_step1_company_logo
+
+ORGANIZATION_SUBSCRIPTION_COLUMNS = {
+    "org_id",
+    "subscription_status",
+    "onboarding_completed",
+    "subscription_plan",
+    "updated_at",
+}
+
+
+def check_organization_subscription(org_id: str) -> tuple[bool, str]:
+    """Check an organization's subscription using the shared SQLAlchemy engine."""
+    normalized_org_id = str(org_id).strip() if org_id is not None else ""
+    if not normalized_org_id:
+        return False, "Organization ID is required."
+
+    engine = get_db_engine()
+    if engine.dialect.name != "postgresql":
+        return False, "Subscription checks require a PostgreSQL database."
+
+    try:
+        inspector = inspect(engine)
+        if "organizations" not in inspector.get_table_names():
+            return False, "The PostgreSQL organizations table does not exist."
+
+        organization_columns = inspector.get_columns("organizations")
+        columns_by_name = {
+            column["name"]: column["type"] for column in organization_columns
+        }
+        missing_columns = ORGANIZATION_SUBSCRIPTION_COLUMNS - columns_by_name.keys()
+        if missing_columns:
+            logging.error(
+                "Cannot check organization subscription: organizations table lacks columns %s",
+                ", ".join(sorted(missing_columns)),
+            )
+            return (
+                False,
+                "The organizations table is missing required subscription fields.",
+            )
+
+        org_id_value: str | int = normalized_org_id
+        if "integer" in str(columns_by_name["org_id"]).lower():
+            try:
+                org_id_value = int(normalized_org_id)
+            except ValueError:
+                return False, "Organization ID must be a valid integer."
+
+        with engine.connect() as connection:
+            result = connection.execute(
+                text(
+                    """
+                    SELECT subscription_status, onboarding_completed,
+                           subscription_plan, updated_at
+                    FROM organizations
+                    WHERE org_id = :org_id
+                    """
+                ),
+                {"org_id": org_id_value},
+            ).mappings().first()
+
+        if result is None:
+            return False, "Organization was not found."
+        if str(result["subscription_status"]).strip().upper() != "ACTIVE":
+            return False, "Organization does not have an active subscription."
+        if not result["onboarding_completed"]:
+            return False, "Organization onboarding is not complete."
+        return True, "Organization subscription is active."
+    except SQLAlchemyError:
+        logging.exception("PostgreSQL subscription status check failed.")
+        return False, "The database could not verify the subscription. Check server logs."
+
 
 ROOT_DIR = Path(__file__).resolve().parent
 PROPOSALS_DB_PATH = ROOT_DIR / "proposals.db"
@@ -152,6 +231,9 @@ def init_session_state():
         "setup_admin_email": ORG_CONFIG.get("admin_email", ""),
         "admin_logged_in": False,
         "admin_password": "",
+        "portal_persona": "Developer Master Access",
+        "organization_id": "",
+        "is_subscribed": False,
         "proposal_data": None,
         "ai_summary": None,
         "last_filename": None,
@@ -189,9 +271,8 @@ try:
 
     @st.cache_data(ttl=10, show_spinner=False)
     def fetch_proposal_preview(query):
-        from database import get_db_engine
-
-        return pd.read_sql(query, get_db_engine())
+        with get_db_engine().connect() as connection:
+            return pd.read_sql_query(text(query), connection)
 
 
     @st.cache_data(ttl=10, show_spinner=False)
@@ -209,15 +290,14 @@ try:
 
     @st.cache_data(ttl=10, show_spinner=False)
     def fetch_proposal_metrics():
-        from database import get_db_engine
-
         query = """
             SELECT COUNT(*) AS total_proposals,
                    SUM(CASE WHEN is_flagged = TRUE OR is_high_priority = TRUE
                             THEN 1 ELSE 0 END) AS flagged_proposals
             FROM proposals;
         """
-        metrics = pd.read_sql_query(query, get_db_engine())
+        with get_db_engine().connect() as connection:
+            metrics = pd.read_sql_query(text(query), connection)
         return (
             int(metrics.iloc[0]["total_proposals"] or 0),
             int(metrics.iloc[0]["flagged_proposals"] or 0),
@@ -980,11 +1060,17 @@ Proposal document text:
 
 
 
-    if st.session_state.get("show_wizard"):
+    submit_proposal_mode = get_requested_mode() == "submit_proposal"
+
+    if st.session_state.get("show_wizard") and not submit_proposal_mode:
         render_setup_wizard()
         st.stop()
 
-    if not ORG_CONFIG.get("setup_completed", False) and not APP_STATE["setup_skipped"]:
+    if (
+        not submit_proposal_mode
+        and not ORG_CONFIG.get("setup_completed", False)
+        and not APP_STATE.get("setup_skipped", False)
+    ):
         render_setup_wizard()
         st.stop()
 
@@ -1068,16 +1154,22 @@ Proposal document text:
     st.sidebar.markdown("### SGWVM TECHNOLOGIES")
     st.sidebar.caption("AI Enterprise Proposal Intake Portal")
     render_pending_vendor_acknowledgments()
-    portal_view = st.sidebar.radio(
-        "Choose a portal",
-        [
-            "Public Vendor Portal",
-            "Internal Admin Portal",
-            "Organization Onboarding Wizard",
-        ],
-        index=0,
-        key="portal_view_selector",
+    persona, portal_view, submit_proposal_mode = render_master_router(
+        admin_authenticated=APP_STATE.get("admin_logged_in", False),
+        subscription_checker=check_organization_subscription,
     )
+
+    if portal_view == "Client Dashboard":
+        if not st.session_state.get("is_subscribed", False):
+            st.warning("An active subscription is required to access the client dashboard.")
+        else:
+            st.title("Subscribed Organization Dashboard")
+            st.success("The organization subscription is active.")
+            st.write(
+                "Organization ID: "
+                f"{st.session_state.get('organization_id', '')}"
+            )
+        st.stop()
 
     if portal_view == "Organization Onboarding Wizard":
         st.session_state["show_wizard"] = True
@@ -1267,8 +1359,8 @@ Proposal document text:
                         render_ai_executive_brief(brief_data, safe_upload_name)
         st.stop()
 
-    if portal_view == "Internal Admin Portal":
-        if not APP_STATE["admin_logged_in"]:
+    if portal_view in {"Internal Admin Portal", "Subscription Management"}:
+        if not APP_STATE.get("admin_logged_in", False):
             admin_password_hash = get_runtime_secret("ADMIN_PASSWORD_HASH")
             if not admin_password_hash:
                 st.sidebar.warning(
@@ -1310,6 +1402,43 @@ Proposal document text:
             key="admin_logout",
             on_click=clear_admin_session,
         )
+
+        if portal_view == "Subscription Management":
+            st.title("Organization Subscription Management")
+            st.caption(
+                "Activate a subscription only after confirming payment with the "
+                "configured payment provider. The organization must already exist "
+                "in the PostgreSQL organizations table."
+            )
+            with st.form("organization_subscription_activation"):
+                organization_id = st.text_input("Organization ID")
+                subscription_plan = st.text_input(
+                    "Subscription plan",
+                    value="Enterprise",
+                )
+                payment_confirmed = st.checkbox(
+                    "I have verified successful payment outside this portal."
+                )
+                activate_subscription = st.form_submit_button(
+                    "Activate subscription",
+                    type="primary",
+                )
+
+            if activate_subscription:
+                if not payment_confirmed:
+                    st.error("Verify payment before activating the subscription.")
+                elif not organization_id.strip():
+                    st.error("Enter the organization ID.")
+                else:
+                    success, message = complete_organization_subscription(
+                        organization_id.strip(),
+                        subscription_plan.strip() or "Enterprise",
+                    )
+                    if success:
+                        st.success(message)
+                    else:
+                        st.error(message)
+            st.stop()
 
         # =========================================================================
         # DATABASE INSERT ROUTINE (INTEGRATED & HARDENED)
@@ -2130,24 +2259,3 @@ Proposal document text:
                             st.rerun()
 except Exception as e:
     st.error(f"Application Error on Launch: {e}")
-
-# ---------------------------------------------------------
-# INTERNAL ADMIN ACCESS CONTROL GATE
-# ---------------------------------------------------------
-from admin_portal import render_admin_login
-
-def show_admin_section():
-    if not st.session_state.get("is_admin_authenticated", False):
-        render_admin_login()
-    else:
-        st.title("🔒 Internal Admin Dashboard")
-        st.write("Welcome, System Administrator.")
-        
-        # Internal admin controls & management views go here
-        
-        if st.button("Log Out"):
-            st.session_state.is_admin_authenticated = False
-            st.rerun()
-
-if __name__ == "__main__":
-    show_admin_section()
