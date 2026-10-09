@@ -345,6 +345,188 @@ def init_session_state():
         st.session_state["setup_subscription_plan"] = "Select a package..."
 
 
+def apply_sharp_typography():
+    """Apply crisp, high-contrast typography and themed control styling."""
+    st.markdown(
+        """
+        <style>
+        :root {
+            --sgwvm-text-color: var(--text-color, #0F172A);
+            --sgwvm-secondary-text-color: #334155;
+            --sgwvm-control-background: #FFFFFF;
+            --sgwvm-control-border: #CBD5E1;
+        }
+
+        /* The existing app and sidebar surfaces are dark slate. */
+        .stApp,
+        section[data-testid="stSidebar"] {
+            --sgwvm-text-color: #F8FAFC;
+            --sgwvm-secondary-text-color: #F8FAFC;
+            --sgwvm-control-background: #1E293B;
+            --sgwvm-control-border: #475569;
+        }
+
+        body,
+        .stApp,
+        .main,
+        p,
+        span,
+        label,
+        li,
+        div,
+        input,
+        .stMarkdown,
+        div[data-testid="stWidgetLabel"],
+        div[data-testid="stWidgetLabel"] p,
+        button,
+        button p,
+        button span,
+        section[data-testid="stSidebar"],
+        section[data-testid="stSidebar"] p,
+        section[data-testid="stSidebar"] span,
+        section[data-testid="stSidebar"] label,
+        section[data-testid="stSidebar"] li,
+        section[data-testid="stSidebar"] div,
+        select,
+        div[role="listbox"],
+        div[role="option"] {
+            font-size: 14px !important;
+            font-weight: 500 !important;
+            -webkit-font-smoothing: antialiased !important;
+            -moz-osx-font-smoothing: grayscale !important;
+            text-rendering: optimizeLegibility !important;
+            color: var(--sgwvm-text-color) !important;
+        }
+
+        div[data-testid="stWidgetLabel"],
+        div[data-testid="stWidgetLabel"] p,
+        div[data-testid="stWidgetLabel"] span,
+        label {
+            color: var(--sgwvm-secondary-text-color) !important;
+            font-weight: 600 !important;
+        }
+
+        input,
+        textarea,
+        select,
+        div[data-baseweb="select"] > div,
+        div[role="listbox"],
+        div[role="option"],
+        div[data-testid="stButton"] button {
+            background-color: var(--sgwvm-control-background) !important;
+            border: 1px solid var(--sgwvm-control-border) !important;
+        }
+
+        div[data-testid="stButton"] button {
+            background: var(--sgwvm-control-background) !important;
+        }
+
+        input,
+        textarea,
+        select,
+        div[data-baseweb="select"] *,
+        div[role="listbox"],
+        div[role="option"],
+        div[data-testid="stButton"] button,
+        div[data-testid="stButton"] button span {
+            color: var(--sgwvm-text-color) !important;
+        }
+
+        input,
+        textarea,
+        div[data-baseweb="select"] *,
+        div[role="listbox"],
+        div[role="option"],
+        div[data-testid="stButton"] button,
+        div[data-testid="stButton"] button span {
+            font-size: 14px !important;
+            font-weight: 500 !important;
+            -webkit-font-smoothing: antialiased !important;
+            -moz-osx-font-smoothing: grayscale !important;
+            text-rendering: optimizeLegibility !important;
+        }
+
+        h1,
+        h1 span,
+        h2,
+        h2 span,
+        h3 {
+            font-weight: 700 !important;
+            -webkit-font-smoothing: antialiased !important;
+            -moz-osx-font-smoothing: grayscale !important;
+            text-rendering: optimizeLegibility !important;
+        }
+
+        h1 {
+            font-size: 24px !important;
+        }
+
+        h1 span {
+            font-size: 24px !important;
+        }
+
+        h2 {
+            font-size: 20px !important;
+        }
+
+        h2 span {
+            font-size: 20px !important;
+        }
+
+        h3 {
+            font-size: 16px !important;
+        }
+
+        h3 span {
+            font-size: 16px !important;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --sgwvm-text-color: #F8FAFC;
+                --sgwvm-secondary-text-color: #F8FAFC;
+                --sgwvm-control-background: #1E293B;
+                --sgwvm-control-border: #475569;
+            }
+        }
+
+        html[data-theme="dark"],
+        body[data-theme="dark"],
+        [data-theme="dark"] {
+            --sgwvm-text-color: #F8FAFC;
+            --sgwvm-secondary-text-color: #F8FAFC;
+            --sgwvm-control-background: #1E293B;
+            --sgwvm-control-border: #475569;
+        }
+
+        @media (prefers-color-scheme: light) {
+            :root {
+                --sgwvm-text-color: #0F172A;
+                --sgwvm-secondary-text-color: #334155;
+                --sgwvm-control-background: #FFFFFF;
+                --sgwvm-control-border: #CBD5E1;
+            }
+        }
+
+        html[data-theme="light"] {
+            --sgwvm-text-color: #0F172A;
+            --sgwvm-secondary-text-color: #334155;
+            --sgwvm-control-background: #FFFFFF;
+            --sgwvm-control-border: #CBD5E1;
+        }
+
+        [data-theme="light"] .stApp {
+            --sgwvm-text-color: #0F172A;
+            --sgwvm-secondary-text-color: #334155;
+            --sgwvm-control-background: #FFFFFF;
+            --sgwvm-control-border: #CBD5E1;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def main():
     st.set_page_config(
         page_title="SGWVM TECHNOLOGIES AI Enterprise Proposal Intake Portal",
@@ -354,6 +536,7 @@ def main():
     from styles import apply_custom_theme
 
     apply_custom_theme()
+    apply_sharp_typography()
     return {
         "admin_logged_in": st.session_state.get("admin_logged_in", False),
     }
