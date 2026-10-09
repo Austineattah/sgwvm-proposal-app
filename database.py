@@ -130,8 +130,39 @@ class TenantConfig(Base):
 class Organization(Base):
     __tablename__ = "organizations"
 
-    org_id = Column(String(100), primary_key=True)
-    subscription_status = Column(String(50), nullable=False, default="INACTIVE")
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    org_name = Column(
+        String(255),
+        nullable=False,
+        server_default=text("''"),
+    )
+    registration_no = Column(
+        String(100),
+        nullable=False,
+        server_default=text("''"),
+    )
+    account_status = Column(
+        String(50),
+        nullable=False,
+        default="PENDING_DEVELOPER_ACTIVATION",
+        server_default=text("'PENDING_DEVELOPER_ACTIVATION'"),
+    )
+    activated_at = Column(DateTime(timezone=True), nullable=True)
+    gateway_provider = Column(
+        String(50),
+        nullable=False,
+        default="paystack",
+        server_default=text("'paystack'"),
+    )
+    gateway_public_key = Column(String(255), nullable=True)
+    gateway_secret_key = Column(String(255), nullable=True)
+
+    org_id = Column(String(100), nullable=False, unique=True)
+    subscription_status = Column(
+        String(50),
+        nullable=False,
+        default="PENDING_DEVELOPER_ACTIVATION",
+    )
     onboarding_completed = Column(Boolean, nullable=False, default=False)
     subscription_plan = Column(String(100), nullable=False, default="Unassigned")
     updated_at = Column(
@@ -669,7 +700,7 @@ def ensure_organization_subscription_columns(
 
     additions = {
         "subscription_status": (
-            "VARCHAR(50) NOT NULL DEFAULT 'INACTIVE'"
+            "VARCHAR(50) NOT NULL DEFAULT 'PENDING_DEVELOPER_ACTIVATION'"
         ),
         "onboarding_completed": "BOOLEAN NOT NULL DEFAULT FALSE",
         "subscription_plan": "VARCHAR(100) NOT NULL DEFAULT 'Unassigned'",
@@ -694,9 +725,9 @@ def ensure_organization_subscription_columns(
 
 def init_db() -> None:
     """Create ORM tables and bring the proposal status field up to date."""
-    Base.metadata.create_all(bind=get_db_engine())
-    ensure_proposal_status_column(get_db_engine())
-    ensure_organization_subscription_columns(get_db_engine())
+    Base.metadata.create_all(bind=engine)
+    ensure_proposal_status_column(engine)
+    ensure_organization_subscription_columns(engine)
 
 
 def initialize_database() -> None:

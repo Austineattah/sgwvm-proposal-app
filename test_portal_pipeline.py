@@ -1,4 +1,5 @@
 import io
+import os
 import re
 import tempfile
 import unittest
@@ -44,10 +45,11 @@ class PortalPipelineTests(unittest.TestCase):
         with (
             patch.object(db_subscription, "get_db_engine", return_value=engine),
             patch.object(db_subscription, "inspect", return_value=inspector),
+            patch.object(db_subscription, "is_paystack_configured", return_value=True),
         ):
             self.assertEqual(
                 db_subscription.check_organization_subscription("org-123"),
-                (True, "Organization subscription is active."),
+                (True, "Organization developer access is active."),
             )
             connection.execute.return_value.mappings.return_value.first.return_value[
                 "subscription_status"
@@ -76,6 +78,7 @@ class PortalPipelineTests(unittest.TestCase):
         with (
             patch.object(db_subscription, "get_db_engine", return_value=engine),
             patch.object(db_subscription, "inspect", return_value=inspector),
+            patch.object(db_subscription, "is_paystack_configured", return_value=True),
         ):
             is_active, message = db_subscription.check_organization_subscription(
                 "org-123"
@@ -84,9 +87,51 @@ class PortalPipelineTests(unittest.TestCase):
         self.assertIn("required subscription fields", message)
 
     def test_organization_orm_model_matches_subscription_columns(self):
+        organization_columns = database.Organization.__table__.columns
+        self.assertTrue(
+            db_subscription.ORGANIZATION_COLUMNS.issubset(
+                set(organization_columns.keys())
+            )
+        )
+        expected_columns = {
+            "id",
+            "org_name",
+            "registration_no",
+            "account_status",
+            "activated_at",
+            "gateway_provider",
+            "gateway_public_key",
+            "gateway_secret_key",
+        }
+        self.assertTrue(expected_columns.issubset(set(organization_columns.keys())))
+        self.assertTrue(organization_columns["id"].primary_key)
+        self.assertTrue(organization_columns["id"].autoincrement)
         self.assertEqual(
-            set(database.Organization.__table__.columns.keys()),
-            db_subscription.ORGANIZATION_COLUMNS,
+            organization_columns["account_status"].default.arg,
+            "PENDING_DEVELOPER_ACTIVATION",
+        )
+        self.assertEqual(organization_columns["gateway_provider"].default.arg, "paystack")
+
+    def test_init_db_creates_organizations_table(self):
+        test_engine = database.create_database_engine("sqlite://")
+        with patch.object(database, "engine", test_engine):
+            database.init_db()
+
+        organization_columns = {
+            column["name"]
+            for column in inspect(test_engine).get_columns("organizations")
+        }
+        self.assertTrue(
+            {
+                "id",
+                "org_name",
+                "registration_no",
+                "account_status",
+                "activated_at",
+                "gateway_provider",
+                "gateway_public_key",
+                "gateway_secret_key",
+            }.issubset(organization_columns)
         )
 
     def test_subscription_activation_uses_aligned_text_update(self):
@@ -107,6 +152,7 @@ class PortalPipelineTests(unittest.TestCase):
         with (
             patch.object(db_subscription, "get_db_engine", return_value=engine),
             patch.object(db_subscription, "inspect", return_value=inspector),
+            patch.object(db_subscription, "is_paystack_configured", return_value=True),
         ):
             result = db_subscription.complete_organization_subscription(
                 "org-123",
@@ -121,6 +167,170 @@ class PortalPipelineTests(unittest.TestCase):
         )
         for column in db_subscription.ORGANIZATION_COLUMNS:
             self.assertIn(column, str(statement))
+
+    def test_paystack_configuration_requires_public_and_secret_keys(self):
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch.object(
+                db_subscription,
+                "st",
+                type("StreamlitSecrets", (), {"secrets": {}})(),
+            ),
+        ):
+            self.assertFalse(db_subscription.is_paystack_configured())
+
+        with (
+            patch.dict(os.environ, {"PAYSTACK_PUBLIC_KEY": "public"}, clear=True),
+            patch.object(
+                db_subscription,
+                "st",
+                type("StreamlitSecrets", (), {"secrets": {}})(),
+            ),
+        ):
+            self.assertFalse(db_subscription.is_paystack_configured())
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "PAYSTACK_PUBLIC_KEY": "public",
+                    "PAYSTACK_SECRET_KEY": "secret",
+                },
+                clear=True,
+            ),
+            patch.object(
+                db_subscription,
+                "st",
+                type("StreamlitSecrets", (), {"secrets": {}})(),
+            ),
+        ):
+            self.assertTrue(db_subscription.is_paystack_configured())
+
+    def test_flutterwave_configuration_requires_both_keys(self):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "FLW_PUBLIC_KEY": "public",
+                    "FLW_SECRET_KEY": "secret",
+                },
+                clear=True,
+            ),
+            patch.object(
+                db_subscription,
+                "st",
+                type("StreamlitSecrets", (), {"secrets": {}})(),
+            ),
+        ):
+            self.assertTrue(db_subscription.is_flutterwave_configured())
+
+        with (
+            patch.dict(os.environ, {"FLW_PUBLIC_KEY": "public"}, clear=True),
+            patch.object(
+                db_subscription,
+                "st",
+                type("StreamlitSecrets", (), {"secrets": {}})(),
+            ),
+        ):
+            self.assertFalse(db_subscription.is_flutterwave_configured())
+
+    def test_organization_onboarding_waits_for_developer_activation(self):
+        engine = database.create_database_engine("sqlite://")
+        database.Base.metadata.create_all(engine)
+        streamlit = MagicMock()
+        streamlit.session_state = {}
+
+        with (
+            patch.object(db_subscription, "get_db_engine", return_value=engine),
+            patch.object(db_subscription, "st", streamlit),
+        ):
+            success, message, organization_id = (
+                db_subscription.complete_organization_onboarding(
+                    "org-onboarding-test",
+                    "Professional",
+                )
+            )
+            self.assertTrue(success, message)
+            self.assertEqual(organization_id, "org-onboarding-test")
+            status, message = db_subscription.get_organization_status(
+                "org-onboarding-test"
+            )
+            self.assertEqual(status, "PENDING_DEVELOPER_ACTIVATION", message)
+            self.assertFalse(
+                db_subscription.check_organization_subscription(
+                    "org-onboarding-test"
+                )[0]
+            )
+            self.assertEqual(
+                streamlit.session_state["active_org_status"],
+                "PENDING_DEVELOPER_ACTIVATION",
+            )
+
+            success, message = db_subscription.set_developer_activation_status(
+                "org-onboarding-test",
+                "ACTIVE",
+            )
+            self.assertTrue(success, message)
+            status, message = db_subscription.get_organization_status(
+                "org-onboarding-test"
+            )
+            self.assertEqual(status, "ACTIVE", message)
+            self.assertTrue(
+                db_subscription.check_organization_subscription(
+                    "org-onboarding-test"
+                )[0]
+            )
+            self.assertEqual(
+                streamlit.session_state["active_org_status"],
+                "ACTIVE",
+            )
+
+            success, message = db_subscription.set_developer_activation_status(
+                "org-onboarding-test",
+                "PENDING",
+            )
+            self.assertTrue(success, message)
+            status, message = db_subscription.get_organization_status(
+                "org-onboarding-test"
+            )
+            self.assertEqual(status, "PENDING", message)
+            self.assertFalse(
+                db_subscription.set_developer_activation_status(
+                    "org-onboarding-test",
+                    "PENDING_DEVELOPER_ACTIVATION",
+                )[0]
+            )
+
+    def test_onboarding_supports_integer_organization_ids(self):
+        engine = database.create_database_engine("sqlite://")
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE organizations (
+                        org_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        subscription_status VARCHAR(50) NOT NULL,
+                        onboarding_completed BOOLEAN NOT NULL,
+                        subscription_plan VARCHAR(100) NOT NULL,
+                        updated_at DATETIME NOT NULL
+                    )
+                    """
+                )
+            )
+
+        with patch.object(db_subscription, "get_db_engine", return_value=engine):
+            success, message, organization_id = (
+                db_subscription.complete_organization_onboarding(
+                    None,
+                    "Starter",
+                )
+            )
+            self.assertTrue(success, message)
+            self.assertIsNotNone(organization_id)
+            self.assertEqual(
+                db_subscription.get_organization_status(str(organization_id)),
+                ("PENDING_DEVELOPER_ACTIVATION", ""),
+            )
 
     def test_master_router_forces_public_route_for_submit_proposal_mode(self):
         streamlit = MagicMock()
@@ -168,6 +378,34 @@ class PortalPipelineTests(unittest.TestCase):
         self.assertEqual(
             result,
             ("Client", "Organization Onboarding Wizard", False),
+        )
+
+    def test_master_router_exposes_pending_activation_and_settings_routes(self):
+        streamlit = MagicMock()
+        streamlit.query_params = {}
+        streamlit.sidebar.selectbox.return_value = "Client"
+        streamlit.sidebar.text_input.return_value = "org-789"
+        streamlit.sidebar.radio.return_value = "Organization Onboarding Wizard"
+        checker = MagicMock(
+            return_value=(False, "Paystack gateway configuration is incomplete.")
+        )
+
+        with patch.object(db_subscription, "st", streamlit):
+            result = db_subscription.render_master_router(
+                subscription_checker=checker
+            )
+
+        self.assertEqual(
+            result,
+            ("Client", "Organization Onboarding Wizard", False),
+        )
+        self.assertEqual(
+            streamlit.sidebar.radio.call_args.args[1],
+            [
+                "Client Dashboard",
+                "Organization Admin Settings",
+                "Organization Onboarding Wizard",
+            ],
         )
 
     def test_onboarding_token_lifecycle_and_admin_controls(self):

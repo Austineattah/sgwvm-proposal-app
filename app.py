@@ -59,9 +59,15 @@ from database import (
 )
 from database import get_db_engine
 from db_subscription import (
+    AVAILABLE_SUBSCRIPTION_PLANS,
+    complete_organization_onboarding,
     complete_organization_subscription,
     get_requested_mode,
+    get_organization_status,
+    is_flutterwave_configured,
+    is_paystack_configured,
     render_master_router,
+    set_developer_activation_status,
 )
 from logo_handler import process_company_logo, render_logo_uploader
 from notifications import send_email_notification, send_sms_notification
@@ -82,13 +88,10 @@ def check_organization_subscription(org_id: str) -> tuple[bool, str]:
         return False, "Organization ID is required."
 
     engine = get_db_engine()
-    if engine.dialect.name != "postgresql":
-        return False, "Subscription checks require a PostgreSQL database."
-
     try:
         inspector = inspect(engine)
         if "organizations" not in inspector.get_table_names():
-            return False, "The PostgreSQL organizations table does not exist."
+            return False, "The organizations table does not exist."
 
         organization_columns = inspector.get_columns("organizations")
         columns_by_name = {
@@ -126,15 +129,23 @@ def check_organization_subscription(org_id: str) -> tuple[bool, str]:
             ).mappings().first()
 
         if result is None:
+            st.session_state["active_org_status"] = "PENDING_DEVELOPER_ACTIVATION"
             return False, "Organization was not found."
-        if str(result["subscription_status"]).strip().upper() != "ACTIVE":
-            return False, "Organization does not have an active subscription."
+        status = str(result["subscription_status"]).strip().upper()
+        st.session_state["active_org_status"] = status
+        if status != "ACTIVE":
+            if status == "PENDING_DEVELOPER_ACTIVATION":
+                return False, "Organization is pending developer activation."
+            return False, "Organization does not have active developer access."
         if not result["onboarding_completed"]:
             return False, "Organization onboarding is not complete."
-        return True, "Organization subscription is active."
+        return True, "Organization developer access is active."
     except SQLAlchemyError:
-        logging.exception("PostgreSQL subscription status check failed.")
-        return False, "The database could not verify the subscription. Check server logs."
+        logging.exception("Organization activation status check failed.")
+        return (
+            False,
+            "The database could not verify organization activation. Check server logs.",
+        )
 
 
 def validate_form_submission(
@@ -214,6 +225,8 @@ DEFAULT_ORG_CONFIG = {
     "contact_address": "",
     "admin_email": "",
     "logo_path": "assets/logo.png",
+    "org_id": "",
+    "subscription_plan": "",
 }
 
 
@@ -280,6 +293,8 @@ def load_org_config():
         "contact_address",
         "admin_email",
         "logo_path",
+        "org_id",
+        "subscription_plan",
     ):
         if not isinstance(config.get(key), str):
             raise ValueError(f"org_config.json {key} must be a string.")
@@ -295,18 +310,23 @@ else:
     ORG_CONFIG_LOAD_ERROR = None
 
 def init_session_state():
+    configured_plan = ORG_CONFIG.get("subscription_plan", "")
+    if configured_plan not in AVAILABLE_SUBSCRIPTION_PLANS:
+        configured_plan = "Select a package..."
     defaults = {
-        "setup_skipped": False,
         "show_wizard": False,
         "setup_current_step": "Organization",
         "setup_org_name": ORG_CONFIG.get("org_name", ""),
         "setup_entity_name": ORG_CONFIG.get("corporate_entity_name", ""),
         "setup_contact_address": ORG_CONFIG.get("contact_address", ""),
         "setup_admin_email": ORG_CONFIG.get("admin_email", ""),
+        "setup_subscription_plan": configured_plan,
         "admin_logged_in": False,
         "admin_password": "",
         "portal_persona": "Developer Master Access",
-        "organization_id": "",
+        "organization_id": ORG_CONFIG.get("org_id", ""),
+        "active_org_status": "PENDING_DEVELOPER_ACTIVATION",
+        "developer_org_active": False,
         "is_subscribed": False,
         "portal_branding_title": (
             "SGWVM TECHNOLOGIES AI Enterprise Proposal Intake Portal"
@@ -318,6 +338,11 @@ def init_session_state():
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
+    if st.session_state.get("setup_subscription_plan") not in (
+        "Select a package...",
+        *AVAILABLE_SUBSCRIPTION_PLANS,
+    ):
+        st.session_state["setup_subscription_plan"] = "Select a package..."
 
 
 def main():
@@ -330,7 +355,6 @@ def main():
 
     apply_custom_theme()
     return {
-        "setup_skipped": st.session_state.get("setup_skipped", False),
         "admin_logged_in": st.session_state.get("admin_logged_in", False),
     }
 
@@ -389,7 +413,7 @@ def render_animated_marquee():
 if __name__ == "__main__":
     APP_STATE = main()
 else:
-    APP_STATE = {"setup_skipped": False, "admin_logged_in": False}
+    APP_STATE = {"admin_logged_in": False}
 
 try:
     if ORG_CONFIG_LOAD_ERROR is not None:
@@ -982,10 +1006,6 @@ Proposal document text:
                 st.session_state.pop(key, None)
 
 
-    def mark_setup_skipped():
-        st.session_state["setup_skipped"] = True
-
-
     def mark_admin_logged_in():
         st.session_state["admin_logged_in"] = True
         st.session_state.pop("admin_password", None)
@@ -1017,7 +1037,8 @@ Proposal document text:
         render_portal_header()
         st.header("Client Installation & Setup Wizard")
         st.markdown(
-            "Configure your organization details and branding before opening the portal."
+            "Complete organization details and select a package. Workspace access "
+            "will remain pending until a developer activates the organization."
         )
         st.radio(
             "Setup step",
@@ -1032,6 +1053,11 @@ Proposal document text:
                 st.text_input("Organization name*", key="setup_org_name")
                 st.text_input("Corporate entity name*", key="setup_entity_name")
                 st.text_area("Contact address*", key="setup_contact_address")
+                st.selectbox(
+                    "Subscription package*",
+                    ["Select a package...", *AVAILABLE_SUBSCRIPTION_PLANS],
+                    key="setup_subscription_plan",
+                )
                 organization_logo = st.file_uploader(
                     "Company logo (optional)",
                     type=["png", "jpg", "jpeg", "webp"],
@@ -1053,6 +1079,12 @@ Proposal document text:
                         ),
                         "Contact address": st.session_state.get(
                             "setup_contact_address", ""
+                        ),
+                        "Subscription package": (
+                            ""
+                            if st.session_state.get("setup_subscription_plan")
+                            == "Select a package..."
+                            else st.session_state.get("setup_subscription_plan", "")
                         ),
                     },
                     {"Company logo (optional)": organization_logo},
@@ -1113,12 +1145,23 @@ Proposal document text:
                         "Contact address": st.session_state.get(
                             "setup_contact_address", ""
                         ),
+                        "Subscription package": (
+                            ""
+                            if st.session_state.get("setup_subscription_plan")
+                            == "Select a package..."
+                            else st.session_state.get("setup_subscription_plan", "")
+                        ),
                         "Admin email (optional)": setup_admin_email,
                     },
                     {"Corporate branding logo (optional)": setup_logo},
                 )
                 if missing_items:
                     render_submission_validation_errors(missing_items)
+                elif (
+                    st.session_state.get("setup_subscription_plan")
+                    not in AVAILABLE_SUBSCRIPTION_PLANS
+                ):
+                    st.error("Select Starter, Professional, or Enterprise.")
                 elif setup_admin_email and not re.fullmatch(
                     r"[^@\s]+@[^@\s]+\.[^@\s]+", setup_admin_email
                 ):
@@ -1135,6 +1178,10 @@ Proposal document text:
                                 "setup_contact_address", ""
                             ).strip(),
                             "admin_email": setup_admin_email,
+                            "org_id": ORG_CONFIG.get("org_id", ""),
+                            "subscription_plan": st.session_state.get(
+                                "setup_subscription_plan"
+                            ),
                             "company_logo_base64": st.session_state.get(
                                 "setup_company_logo_base64", ""
                             ),
@@ -1154,6 +1201,19 @@ Proposal document text:
                         from database import save_tenant_config
 
                         save_tenant_config(updated_config)
+                        (
+                            saved_onboarding,
+                            onboarding_message,
+                            organization_id,
+                        ) = (
+                            complete_organization_onboarding(
+                                updated_config["org_id"],
+                                updated_config["subscription_plan"],
+                            )
+                        )
+                        if not saved_onboarding or organization_id is None:
+                            raise RuntimeError(onboarding_message)
+                        updated_config["org_id"] = organization_id
                         config_for_file = {
                             key: value
                             for key, value in updated_config.items()
@@ -1168,18 +1228,63 @@ Proposal document text:
                         invalidate_database_previews()
                         st.session_state["show_wizard"] = False
                         st.session_state["setup_completed"] = True
+                        st.session_state["organization_id"] = updated_config["org_id"]
+                        st.session_state["active_org_status"] = (
+                            "PENDING_DEVELOPER_ACTIVATION"
+                        )
                     except (OSError, RuntimeError, SQLAlchemyError) as exc:
                         st.error(f"Could not save tenant settings: {exc}")
                     else:
                         st.rerun()
 
-        if st.button(
-            "Skip & Continue with Existing / Demo Environment",
-            key="skip_client_setup",
-        ):
-            mark_setup_skipped()
-            st.session_state["show_wizard"] = False
-            st.rerun()
+
+    def render_organization_admin_settings():
+        st.title("Organization Admin Settings")
+        st.subheader(
+            "Vendor Tender Fee Gateway Setup (Client Billing Settings)"
+        )
+        st.info(
+            "Payment credentials are managed in Streamlit Secrets or the "
+            "deployment environment and are never saved in the organization "
+            "profile."
+        )
+        if is_paystack_configured():
+            st.success("Paystack is configured.")
+        else:
+            st.warning(
+                "Paystack is not configured. Add `PAYSTACK_PUBLIC_KEY` and "
+                "`PAYSTACK_SECRET_KEY` to Streamlit Secrets or the deployment "
+                "environment."
+            )
+        if is_flutterwave_configured():
+            st.success("Flutterwave is configured.")
+        else:
+            st.warning(
+                "Flutterwave is not configured. Add `FLW_PUBLIC_KEY` and "
+                "`FLW_SECRET_KEY` to Streamlit Secrets or the deployment "
+                "environment."
+            )
+
+
+    def update_developer_activation_status():
+        organization_id = st.session_state.get("organization_id", "").strip()
+        requested_status = (
+            "ACTIVE"
+            if st.session_state.get("developer_org_active", False)
+            else "PENDING"
+        )
+        success, message = set_developer_activation_status(
+            organization_id,
+            requested_status,
+        )
+        if success:
+            st.session_state["active_org_status"] = requested_status
+            st.session_state.pop("developer_activation_error", None)
+        else:
+            st.session_state["developer_activation_error"] = message
+            st.session_state["developer_org_active"] = (
+                st.session_state.get("active_org_status") == "ACTIVE"
+            )
 
 
     def tracking_code_exists(tracking_code):
@@ -1252,11 +1357,13 @@ Proposal document text:
         render_setup_wizard()
         st.stop()
 
-    if (
-        not submit_proposal_mode
-        and not ORG_CONFIG.get("setup_completed", False)
-        and not APP_STATE.get("setup_skipped", False)
-    ):
+    setup_is_complete = (
+        ORG_CONFIG.get("setup_completed", False)
+        and ORG_CONFIG.get("subscription_plan") in AVAILABLE_SUBSCRIPTION_PLANS
+        and bool(ORG_CONFIG.get("org_id"))
+    )
+    if not submit_proposal_mode and not setup_is_complete:
+        st.session_state["show_wizard"] = True
         render_setup_wizard()
         st.stop()
 
@@ -1347,19 +1454,80 @@ Proposal document text:
         subscription_checker=check_organization_subscription,
     )
     if persona == "Developer Master Access":
-        with st.sidebar.expander("Developer Controls", expanded=False):
-            st.text_input(
-                "Global Portal Title:",
-                key="portal_branding_title",
-                max_chars=160,
-            )
+        with st.sidebar.expander(
+            "Developer Workspace Controls",
+            expanded=False,
+        ):
+            if not APP_STATE.get("admin_logged_in", False):
+                st.info(
+                    "Authenticate through the Internal Admin Portal to change "
+                    "organization activation."
+                )
+            else:
+                organization_id = st.text_input(
+                    "Organization ID",
+                    key="organization_id",
+                ).strip()
+                st.text_input(
+                    "Global Portal Title:",
+                    key="portal_branding_title",
+                    max_chars=160,
+                )
+                organization_status, status_message = get_organization_status(
+                    organization_id
+                )
+                if organization_status is None:
+                    st.session_state["active_org_status"] = (
+                        "PENDING_DEVELOPER_ACTIVATION"
+                    )
+                    st.caption(status_message)
+                else:
+                    st.session_state["active_org_status"] = organization_status
+                if (
+                    st.session_state.get("_developer_status_org_id")
+                    != organization_id
+                ):
+                    st.session_state["developer_org_active"] = (
+                        organization_status == "ACTIVE"
+                    )
+                    st.session_state["_developer_status_org_id"] = organization_id
+                st.toggle(
+                    "Organization activation status",
+                    key="developer_org_active",
+                    help=(
+                        "Turn on for ACTIVE access; turn off to set the "
+                        "organization to PENDING."
+                    ),
+                    disabled=organization_status is None,
+                    on_change=update_developer_activation_status,
+                )
+                if st.session_state.get("developer_activation_error"):
+                    st.sidebar.error(
+                        st.session_state.pop("developer_activation_error")
+                    )
+                elif organization_status is not None:
+                    st.caption(
+                        f"Current organization status: {organization_status}"
+                    )
+
+    if portal_view == "Organization Admin Settings":
+        render_organization_admin_settings()
+        st.stop()
 
     if portal_view == "Client Dashboard":
-        if not st.session_state.get("is_subscribed", False):
-            st.warning("An active subscription is required to access the client dashboard.")
+        if st.session_state.get("active_org_status") != "ACTIVE":
+            st.info("## Pending Activation")
+            st.write(
+                "Your organization has completed onboarding. A developer must "
+                "activate access before workspace modules are available."
+            )
+            st.caption(
+                "Organization status: "
+                f"{st.session_state.get('active_org_status', 'PENDING_DEVELOPER_ACTIVATION')}"
+            )
         else:
             st.title("Subscribed Organization Dashboard")
-            st.success("The organization subscription is active.")
+            st.success("Organization access is active.")
             st.write(
                 "Organization ID: "
                 f"{st.session_state.get('organization_id', '')}"
@@ -1663,9 +1831,16 @@ Proposal document text:
             )
             with st.form("organization_subscription_activation"):
                 organization_id = st.text_input("Organization ID")
-                subscription_plan = st.text_input(
-                    "Subscription plan",
-                    value="Enterprise",
+                default_plan = ORG_CONFIG.get("subscription_plan")
+                plan_index = (
+                    AVAILABLE_SUBSCRIPTION_PLANS.index(default_plan)
+                    if default_plan in AVAILABLE_SUBSCRIPTION_PLANS
+                    else 0
+                )
+                subscription_plan = st.selectbox(
+                    "Subscription package",
+                    AVAILABLE_SUBSCRIPTION_PLANS,
+                    index=plan_index,
                 )
                 payment_confirmed = st.checkbox(
                     "I have verified successful payment outside this portal."
@@ -1683,7 +1858,7 @@ Proposal document text:
                 else:
                     success, message = complete_organization_subscription(
                         organization_id.strip(),
-                        subscription_plan.strip() or "Enterprise",
+                        subscription_plan,
                     )
                     if success:
                         st.success(message)

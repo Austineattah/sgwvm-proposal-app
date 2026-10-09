@@ -1,8 +1,10 @@
 import logging
+import os
+import uuid
 from collections.abc import Callable
 
 import streamlit as st
-from streamlit.errors import StreamlitAPIException
+from streamlit.errors import StreamlitAPIException, StreamlitSecretNotFoundError
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -15,6 +17,242 @@ ORGANIZATION_COLUMNS = {
     "subscription_plan",
     "updated_at",
 }
+AVAILABLE_SUBSCRIPTION_PLANS = ("Starter", "Professional", "Enterprise")
+DEVELOPER_ACTIVATION_STATUSES = ("PENDING", "ACTIVE")
+
+
+def is_paystack_configured() -> bool:
+    """Check required Paystack credentials without exposing or persisting them."""
+    return _are_gateway_credentials_configured(
+        ("PAYSTACK_PUBLIC_KEY", "PAYSTACK_SECRET_KEY")
+    )
+
+
+def is_flutterwave_configured() -> bool:
+    """Check Flutterwave credentials without exposing or persisting them."""
+    return _are_gateway_credentials_configured(("FLW_PUBLIC_KEY", "FLW_SECRET_KEY"))
+
+
+def _are_gateway_credentials_configured(setting_names: tuple[str, str]) -> bool:
+    for setting_name in setting_names:
+        value = os.getenv(setting_name, "").strip()
+        if not value:
+            try:
+                secret_value = st.secrets.get(setting_name, "")
+            except (AttributeError, KeyError, StreamlitSecretNotFoundError):
+                secret_value = ""
+            value = secret_value.strip() if isinstance(secret_value, str) else ""
+        if not value:
+            return False
+    return True
+
+
+def _organization_id_value(org_id: str, org_id_type: object) -> str | int:
+    normalized_org_id = str(org_id).strip() if org_id is not None else ""
+    if "integer" in str(org_id_type).lower():
+        try:
+            return int(normalized_org_id)
+        except ValueError as exc:
+            raise ValueError("Organization ID must be a valid integer.") from exc
+    return normalized_org_id
+
+
+def get_organization_status(org_id: str) -> tuple[str | None, str]:
+    """Read an organization's activation status from the shared database."""
+    normalized_org_id = str(org_id).strip() if org_id is not None else ""
+    if not normalized_org_id:
+        return None, "Organization ID is required."
+
+    engine = get_db_engine()
+    try:
+        inspector = inspect(engine)
+        if "organizations" not in inspector.get_table_names():
+            return None, "The organizations table does not exist."
+        columns = {
+            column["name"]: column["type"]
+            for column in inspector.get_columns("organizations")
+        }
+        if "org_id" not in columns or "subscription_status" not in columns:
+            return None, "The organizations table is missing activation fields."
+        org_id_value = _organization_id_value(
+            normalized_org_id,
+            columns["org_id"],
+        )
+        with engine.connect() as connection:
+            result = connection.execute(
+                text(
+                    """
+                    SELECT subscription_status
+                    FROM organizations
+                    WHERE org_id = :org_id
+                    """
+                ),
+                {"org_id": org_id_value},
+            ).first()
+        if result is None:
+            return None, "Organization was not found."
+        return str(result[0]).strip().upper(), ""
+    except ValueError as exc:
+        return None, str(exc)
+    except SQLAlchemyError:
+        logging.exception("Could not read organization activation status.")
+        return None, "The database could not verify organization activation."
+
+
+def complete_organization_onboarding(
+    org_id: str | None,
+    plan_name: str,
+) -> tuple[bool, str, str | None]:
+    """Create or reset an organization record pending developer activation."""
+    normalized_org_id = str(org_id).strip() if org_id is not None else ""
+    normalized_plan = str(plan_name).strip() if plan_name is not None else ""
+    if normalized_plan not in AVAILABLE_SUBSCRIPTION_PLANS:
+        return False, "Select Starter, Professional, or Enterprise.", None
+
+    engine = get_db_engine()
+    try:
+        inspector = inspect(engine)
+        if "organizations" not in inspector.get_table_names():
+            return False, "The organizations table does not exist.", None
+        columns = {
+            column["name"]: column["type"]
+            for column in inspector.get_columns("organizations")
+        }
+        missing_columns = ORGANIZATION_COLUMNS - columns.keys()
+        if missing_columns:
+            logging.error(
+                "Cannot complete organization onboarding: organizations table lacks columns %s",
+                ", ".join(sorted(missing_columns)),
+            )
+            return (
+                False,
+                "The organizations table is missing required subscription fields.",
+                None,
+            )
+
+        with engine.begin() as connection:
+            if "integer" in str(columns["org_id"]).lower() and not normalized_org_id:
+                result = connection.execute(
+                    text(
+                        """
+                        INSERT INTO organizations (
+                            subscription_status, onboarding_completed,
+                            subscription_plan, updated_at
+                        ) VALUES (
+                            'PENDING_DEVELOPER_ACTIVATION', TRUE,
+                            :plan_name, CURRENT_TIMESTAMP
+                        )
+                        RETURNING org_id
+                        """
+                    ),
+                    {"plan_name": normalized_plan},
+                )
+                generated_org_id = str(result.scalar_one())
+                return (
+                    True,
+                    "Organization onboarding completed; developer activation is pending.",
+                    generated_org_id,
+                )
+
+            if "integer" in str(columns["org_id"]).lower():
+                try:
+                    org_id_value: str | int = int(normalized_org_id)
+                except ValueError:
+                    return (
+                        False,
+                        "Organization ID must be a valid integer.",
+                        None,
+                    )
+            else:
+                org_id_value = normalized_org_id or f"org-{uuid.uuid4().hex}"
+
+            result = connection.execute(
+                text(
+                    """
+                    UPDATE organizations
+                    SET subscription_status = 'PENDING_DEVELOPER_ACTIVATION',
+                        onboarding_completed = TRUE,
+                        subscription_plan = :plan_name,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE org_id = :org_id
+                    """
+                ),
+                {"plan_name": normalized_plan, "org_id": org_id_value},
+            )
+            if result.rowcount == 0:
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO organizations (
+                            org_id, subscription_status, onboarding_completed,
+                            subscription_plan, updated_at
+                        ) VALUES (
+                            :org_id, 'PENDING_DEVELOPER_ACTIVATION', TRUE,
+                            :plan_name, CURRENT_TIMESTAMP
+                        )
+                        """
+                    ),
+                    {"plan_name": normalized_plan, "org_id": org_id_value},
+                )
+        return (
+            True,
+            "Organization onboarding completed; developer activation is pending.",
+            str(org_id_value),
+        )
+    except ValueError as exc:
+        return False, str(exc), None
+    except SQLAlchemyError:
+        logging.exception("Could not save organization onboarding status.")
+        return False, "The database could not save organization onboarding.", None
+
+
+def set_developer_activation_status(
+    org_id: str,
+    status: str,
+) -> tuple[bool, str]:
+    """Set an existing organization to PENDING or ACTIVE for developer testing."""
+    normalized_org_id = str(org_id).strip() if org_id is not None else ""
+    normalized_status = str(status).strip().upper() if status is not None else ""
+    if not normalized_org_id:
+        return False, "Organization ID is required."
+    if normalized_status not in DEVELOPER_ACTIVATION_STATUSES:
+        return False, "Developer activation status must be PENDING or ACTIVE."
+
+    engine = get_db_engine()
+    try:
+        inspector = inspect(engine)
+        if "organizations" not in inspector.get_table_names():
+            return False, "The organizations table does not exist."
+        columns = {
+            column["name"]: column["type"]
+            for column in inspector.get_columns("organizations")
+        }
+        if "org_id" not in columns or "subscription_status" not in columns:
+            return False, "The organizations table is missing activation fields."
+        org_id_value = _organization_id_value(
+            normalized_org_id,
+            columns["org_id"],
+        )
+        with engine.begin() as connection:
+            result = connection.execute(
+                text(
+                    """
+                    UPDATE organizations
+                    SET subscription_status = :status,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE org_id = :org_id
+                    """
+                ),
+                {"status": normalized_status, "org_id": org_id_value},
+            )
+        if result.rowcount != 1:
+            return False, "Organization was not found; no activation status changed."
+        return True, f"Organization status changed to {normalized_status}."
+    except ValueError as exc:
+        return False, str(exc)
+    except SQLAlchemyError:
+        logging.exception("Could not change organization activation status.")
+        return False, "The database could not update organization activation."
 
 
 def get_requested_mode() -> str:
@@ -45,7 +283,7 @@ def render_master_router(
     admin_authenticated: bool = False,
     subscription_checker: Callable[[str], tuple[bool, str]] | None = None,
 ) -> tuple[str, str, bool]:
-    """Render persona and page navigation, enforcing subscription-based routes."""
+    """Render persona and page navigation, exposing activation-gated workspaces."""
     if get_requested_mode() == "submit_proposal":
         st.sidebar.caption("Opened via proposal submission link.")
         return "Public Vendor", "Public Vendor Portal", True
@@ -69,9 +307,13 @@ def render_master_router(
         ).strip()
         if organization_id:
             checker = subscription_checker or check_organization_subscription
+            st.session_state["active_org_status"] = "PENDING_DEVELOPER_ACTIVATION"
             is_subscribed, subscription_message = checker(organization_id)
+            if is_subscribed:
+                st.session_state["active_org_status"] = "ACTIVE"
             st.sidebar.caption(subscription_message)
         else:
+            st.session_state["active_org_status"] = "PENDING_DEVELOPER_ACTIVATION"
             st.sidebar.info("Enter your organization ID to check subscription status.")
     st.session_state["is_subscribed"] = is_subscribed
 
@@ -79,16 +321,17 @@ def render_master_router(
         portal_options = [
             "Public Vendor Portal",
             "Internal Admin Portal",
+            "Organization Admin Settings",
             "Organization Onboarding Wizard",
         ]
         if admin_authenticated:
             portal_options.append("Subscription Management")
     elif persona == "Client":
-        portal_options = (
-            ["Client Dashboard", "Organization Onboarding Wizard"]
-            if is_subscribed
-            else ["Organization Onboarding Wizard"]
-        )
+        portal_options = [
+            "Client Dashboard",
+            "Organization Admin Settings",
+            "Organization Onboarding Wizard",
+        ]
     elif persona == "Public Vendor":
         portal_options = ["Public Vendor Portal"]
     else:
@@ -103,20 +346,17 @@ def render_master_router(
 
 
 def check_organization_subscription(org_id: str) -> tuple[bool, str]:
-    """Check whether an existing organization has an active subscription."""
+    """Check whether an existing organization has developer-granted access."""
     normalized_org_id = str(org_id).strip() if org_id is not None else ""
     if not normalized_org_id:
         return False, "Organization ID is required."
 
     engine = get_db_engine()
-    if engine.dialect.name != "postgresql":
-        return False, "Subscription checks require a PostgreSQL database."
-
     try:
         with engine.connect() as connection:
             inspector = inspect(connection)
             if "organizations" not in inspector.get_table_names():
-                return False, "The PostgreSQL organizations table does not exist."
+                return False, "The organizations table does not exist."
 
             columns = {
                 column["name"]: column["type"]
@@ -150,15 +390,23 @@ def check_organization_subscription(org_id: str) -> tuple[bool, str]:
             ).mappings().first()
 
         if result is None:
+            st.session_state["active_org_status"] = "PENDING_DEVELOPER_ACTIVATION"
             return False, "Organization was not found."
-        if str(result["subscription_status"]).strip().upper() != "ACTIVE":
-            return False, "Organization does not have an active subscription."
+        status = str(result["subscription_status"]).strip().upper()
+        st.session_state["active_org_status"] = status
+        if status != "ACTIVE":
+            if status == "PENDING_DEVELOPER_ACTIVATION":
+                return False, "Organization is pending developer activation."
+            return False, "Organization does not have active developer access."
         if not result["onboarding_completed"]:
             return False, "Organization onboarding is not complete."
-        return True, "Organization subscription is active."
+        return True, "Organization developer access is active."
     except SQLAlchemyError:
-        logging.exception("PostgreSQL subscription status check failed.")
-        return False, "The database could not verify the subscription. Check server logs."
+        logging.exception("Organization activation status check failed.")
+        return (
+            False,
+            "The database could not verify organization activation. Check server logs.",
+        )
 
 
 def complete_organization_subscription(
@@ -174,8 +422,10 @@ def complete_organization_subscription(
     normalized_plan = str(plan_name).strip() if plan_name is not None else ""
     if not normalized_org_id:
         return False, "Organization ID is required."
-    if not normalized_plan or len(normalized_plan) > 100:
-        return False, "Provide a subscription plan of 1 to 100 characters."
+    if normalized_plan not in AVAILABLE_SUBSCRIPTION_PLANS:
+        return False, "Select Starter, Professional, or Enterprise."
+    if not is_paystack_configured():
+        return False, "Configure Paystack before activating a subscription."
 
     engine = get_db_engine()
     if engine.dialect.name != "postgresql":
