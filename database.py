@@ -197,6 +197,8 @@ class Proposal(Base):
     is_flagged = Column(Boolean, nullable=False, default=False)
     is_high_priority = Column(Boolean, nullable=False, default=False)
     status = Column(String(255), nullable=False, default="Draft")
+    proposal_type = Column(String(20), nullable=False, default="LEGACY")
+    submission_details = Column(Text, nullable=False, default="{}")
     cac_verification_status = Column(String(255), nullable=False, default="Not checked")
     past_contract_count = Column(Integer, nullable=False, default=0)
     company_logo_base64 = Column(Text, nullable=False, default="")
@@ -245,7 +247,10 @@ VALID_PROPOSAL_STATUSES = (
     "Approved",
     "Rejected",
     "Clarification Requested",
+    "UNDER_TENDER_REVIEW",
+    "UNSOLICITED_PRELIMINARY_KYB",
 )
+VALID_PROPOSAL_TYPES = ("SOLICITED", "UNSOLICITED", "LEGACY")
 
 
 def get_db_engine() -> Engine:
@@ -598,6 +603,20 @@ def ensure_proposal_status_column(db_engine: Engine | None = None) -> None:
                     "company_logo_base64 TEXT NOT NULL DEFAULT ''"
                 )
             )
+        if "proposal_type" not in columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE proposals ADD COLUMN "
+                    "proposal_type VARCHAR(20) NOT NULL DEFAULT 'LEGACY'"
+                )
+            )
+        if "submission_details" not in columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE proposals ADD COLUMN "
+                    "submission_details TEXT NOT NULL DEFAULT '{}'"
+                )
+            )
         if "filename" not in columns:
             connection.execute(
                 text(
@@ -651,7 +670,9 @@ def ensure_proposal_status_column(db_engine: Engine | None = None) -> None:
                    OR (
                        status NOT IN (
                            'Draft', 'Pending', 'Approved', 'Rejected',
-                           'Clarification Requested'
+                           'Clarification Requested',
+                           'UNDER_TENDER_REVIEW',
+                           'UNSOLICITED_PRELIMINARY_KYB'
                        )
                        AND status NOT LIKE 'Routed: %'
                    )
@@ -769,6 +790,14 @@ def normalize_proposal_status(status):
     return "Draft"
 
 
+def normalize_proposal_type(proposal_type):
+    """Validate the explicit proposal submission path."""
+    normalized = str(proposal_type or "LEGACY").strip().upper()
+    if normalized not in VALID_PROPOSAL_TYPES:
+        raise ValueError("Proposal type must be SOLICITED or UNSOLICITED.")
+    return normalized
+
+
 def sanitize_budget(budget_val):
     """Convert budget strings to floats, returning None for invalid amounts."""
     if isinstance(budget_val, (int, float)):
@@ -791,7 +820,7 @@ def insert_proposal(
     ai_summary,
     budget,
     is_flagged=False,
-    status="Draft",
+    status=None,
     phone_number=None,
     cac_verification_status="Not checked",
     past_contract_count=0,
@@ -803,9 +832,17 @@ def insert_proposal(
     legal_risk_flags=None,
     compliance_gaps=None,
     raw_ai_json=None,
+    proposal_type="LEGACY",
+    submission_details=None,
 ):
     """Persist a proposal and its KYB/audit records in one database transaction."""
     safe_budget = sanitize_budget(budget)
+    normalized_type = normalize_proposal_type(proposal_type)
+    if status is None:
+        status = {
+            "SOLICITED": "UNDER_TENDER_REVIEW",
+            "UNSOLICITED": "UNSOLICITED_PRELIMINARY_KYB",
+        }.get(normalized_type, "Draft")
     normalized_status = normalize_proposal_status(status)
     proposal = Proposal(
         tracking_code=tracking_code,
@@ -825,6 +862,12 @@ def insert_proposal(
             safe_budget is not None and safe_budget >= 50000000.0
         ),
         status=normalized_status,
+        proposal_type=normalized_type,
+        submission_details=json.dumps(
+            submission_details or {},
+            ensure_ascii=False,
+            default=str,
+        ),
         cac_verification_status=str(cac_verification_status)[:255],
         past_contract_count=max(0, int(past_contract_count or 0)),
         company_logo_base64=company_logo_base64 or "",

@@ -1,9 +1,11 @@
 {
-  "org_name": "",
-  "corporate_entity_name": "",
-  "contact_address": "",
-  "admin_email": "",
+  "org_name": "sgwvm",
+  "corporate_entity_name": "Standard Group",
+  "contact_address": "Nasarawa",
+  "admin_email": "austattah@gmail.com",
   "logo_path": "assets/logo.png",
+  "org_id": "org-34ce183e73f14183b87d92eaff46afed",
+  "subscription_plan": "Professional",
   "org_short": "NNPC",
   "is_configured": true,
   "setup_completed": true

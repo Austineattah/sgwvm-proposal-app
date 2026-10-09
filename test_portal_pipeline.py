@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import re
 import tempfile
@@ -549,10 +550,42 @@ class PortalPipelineTests(unittest.TestCase):
                     "feasibility_rating",
                     "risk_score",
                     "status",
+                    "proposal_type",
+                    "submission_details",
                     "timestamp",
                 }.issubset(proposal_columns)
             )
 
+            solicited_proposal_id = database.insert_proposal(
+                tracking_code="TENDER-PIPELINE-TEST",
+                vendor_name="Tender Vendor Ltd",
+                email="tender@example.com",
+                phone_number="08000000000",
+                category="Solicited Call for Tender",
+                cac_number="RC100",
+                ai_summary="Tender response",
+                budget=1250000,
+                proposal_type="SOLICITED",
+                submission_details={
+                    "tender_reference": "TND-2026-001",
+                    "bill_of_quantities": "Line item details",
+                    "attachments": {"Tax Certificate": "uploads/tax.pdf"},
+                },
+            )
+            unsolicited_proposal_id = database.insert_proposal(
+                tracking_code="UNSOLICITED-PIPELINE-TEST",
+                vendor_name="Innovative Vendor Ltd",
+                email="pitch@example.com",
+                phone_number="08111111111",
+                category="IT & Software",
+                cac_number="BN200",
+                ai_summary="A compelling executive pitch",
+                budget=None,
+                proposal_type="UNSOLICITED",
+                submission_details={
+                    "key_value_proposition": "Rapid, secure procurement",
+                },
+            )
             proposal_id = database.insert_proposal(
                 tracking_code="PIPELINE-TEST",
                 vendor_name="Example Ltd",
@@ -577,6 +610,14 @@ class PortalPipelineTests(unittest.TestCase):
             )
             with Session(engine) as session:
                 proposal = session.get(database.Proposal, proposal_id)
+                solicited_proposal = session.get(
+                    database.Proposal,
+                    solicited_proposal_id,
+                )
+                unsolicited_proposal = session.get(
+                    database.Proposal,
+                    unsolicited_proposal_id,
+                )
                 kyb_log = session.query(database.KYBLog).filter_by(
                     proposal_id=proposal_id
                 ).one()
@@ -585,6 +626,28 @@ class PortalPipelineTests(unittest.TestCase):
                 ).one()
                 self.assertEqual(proposal.filename, "proposal.pdf")
                 self.assertEqual(proposal.rc_number, "12345")
+                self.assertEqual(solicited_proposal.proposal_type, "SOLICITED")
+                self.assertEqual(solicited_proposal.status, "UNDER_TENDER_REVIEW")
+                self.assertEqual(
+                    json.loads(solicited_proposal.submission_details)[
+                        "tender_reference"
+                    ],
+                    "TND-2026-001",
+                )
+                self.assertEqual(
+                    unsolicited_proposal.proposal_type,
+                    "UNSOLICITED",
+                )
+                self.assertEqual(
+                    unsolicited_proposal.status,
+                    "UNSOLICITED_PRELIMINARY_KYB",
+                )
+                self.assertEqual(
+                    json.loads(unsolicited_proposal.submission_details)[
+                        "key_value_proposition"
+                    ],
+                    "Rapid, secure procurement",
+                )
                 self.assertEqual(kyb_log.company_status, "INACTIVE")
                 self.assertIn("Inactive registration", audit_score.legal_risk_flags)
         finally:
@@ -619,10 +682,25 @@ class PortalPipelineTests(unittest.TestCase):
                     "risk_score",
                     "timestamp",
                     "status",
+                    "proposal_type",
+                    "submission_details",
                 }.issubset(proposal_columns)
             )
         finally:
             engine.dispose()
+
+    def test_proposal_writer_rejects_unknown_submission_type(self):
+        with self.assertRaisesRegex(ValueError, "Proposal type"):
+            database.insert_proposal(
+                tracking_code="INVALID-TYPE-TEST",
+                vendor_name="Example Ltd",
+                email="test@example.com",
+                category="Test",
+                cac_number="12345",
+                ai_summary="Test",
+                budget=None,
+                proposal_type="UNSOLICITED-LIKE",
+            )
 
     def test_vendor_acknowledgment_handles_missing_secrets(self):
         with patch.object(email_notifier, "st") as streamlit:
