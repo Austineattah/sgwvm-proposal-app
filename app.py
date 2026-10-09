@@ -16,6 +16,7 @@ import re
 import sys
 import uuid
 import bcrypt
+from numbers import Number
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from streamlit.errors import StreamlitSecretNotFoundError
@@ -64,7 +65,6 @@ from db_subscription import (
 )
 from logo_handler import process_company_logo, render_logo_uploader
 from notifications import send_email_notification, send_sms_notification
-from onboarding_wizard import render_step1_company_logo
 
 ORGANIZATION_SUBSCRIPTION_COLUMNS = {
     "org_id",
@@ -137,6 +137,73 @@ def check_organization_subscription(org_id: str) -> tuple[bool, str]:
         return False, "The database could not verify the subscription. Check server logs."
 
 
+def validate_form_submission(
+    form_data: dict[str, object],
+    file_data: dict[str, object] | None = None,
+) -> list[str]:
+    """Return missing mandatory input or upload labels for a submitted form."""
+    missing_items = []
+
+    for label, value in form_data.items():
+        if "optional" in label.lower():
+            continue
+        if value is None or (isinstance(value, str) and not value.strip()):
+            missing_items.append(label)
+        elif (
+            isinstance(value, Number)
+            and not isinstance(value, bool)
+            and value == 0.0
+        ):
+            missing_items.append(label)
+
+    for label, uploaded_file in (file_data or {}).items():
+        if "optional" in label.lower():
+            continue
+        if uploaded_file is None:
+            missing_items.append(label)
+            continue
+        if isinstance(uploaded_file, str) and not uploaded_file.strip():
+            missing_items.append(label)
+            continue
+        file_size = getattr(uploaded_file, "size", None)
+        if file_size == 0:
+            missing_items.append(label)
+        elif isinstance(uploaded_file, (bytes, bytearray)) and not uploaded_file:
+            missing_items.append(label)
+        elif file_size is None and hasattr(uploaded_file, "getvalue"):
+            if not uploaded_file.getvalue():
+                missing_items.append(label)
+
+    return missing_items
+
+
+def render_submission_validation_errors(missing_items):
+    """Show the standard denial message and an itemized missing-item list."""
+    st.error("🚫 Submission Denied: Mandatory fields or documents are missing.")
+    st.markdown(
+        "Required items missing:\n"
+        + "\n".join(f"- {item}" for item in missing_items)
+    )
+
+
+def save_supporting_documents(documents, organization_name):
+    """Persist validated supporting files and return app-relative paths."""
+    saved_paths = {}
+    safe_organization = secure_filename(organization_name) or "vendor"
+    PROPOSAL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    for label, uploaded_file in documents.items():
+        content = uploaded_file.getvalue()
+        if not content:
+            raise ValueError(f"{label} upload is empty.")
+        safe_filename = secure_filename(uploaded_file.name) or "document"
+        destination = PROPOSAL_UPLOAD_DIR / (
+            f"{safe_organization}_{uuid.uuid4().hex}_{safe_filename}"
+        )
+        destination.write_bytes(content)
+        saved_paths[label] = str(destination.relative_to(ROOT_DIR))
+    return saved_paths
+
+
 ROOT_DIR = Path(__file__).resolve().parent
 PROPOSALS_DB_PATH = ROOT_DIR / "proposals.db"
 PROPOSAL_UPLOAD_DIR = ROOT_DIR / "uploads" / "proposals"
@@ -166,7 +233,8 @@ def initialize_submissions_db():
                 submission_date TEXT NOT NULL,
                 submission_channel TEXT NOT NULL DEFAULT 'Digital',
                 tracking_code TEXT,
-                company_logo_base64 TEXT NOT NULL DEFAULT ''
+                company_logo_base64 TEXT NOT NULL DEFAULT '',
+                supporting_documents_json TEXT NOT NULL DEFAULT '{}'
             );
             """)
         columns = {row[1] for row in conn.execute("PRAGMA table_info(submissions);")}
@@ -181,6 +249,11 @@ def initialize_submissions_db():
             conn.execute(
                 "ALTER TABLE submissions ADD COLUMN "
                 "company_logo_base64 TEXT NOT NULL DEFAULT '';"
+            )
+        if "supporting_documents_json" not in columns:
+            conn.execute(
+                "ALTER TABLE submissions ADD COLUMN "
+                "supporting_documents_json TEXT NOT NULL DEFAULT '{}';"
             )
 
 
@@ -955,10 +1028,47 @@ Proposal document text:
         )
 
         if st.session_state.get("setup_current_step", "Organization") == "Organization":
-            st.text_input("Organization name", key="setup_org_name")
-            st.text_input("Corporate entity name", key="setup_entity_name")
-            st.text_area("Contact address", key="setup_contact_address")
-            render_step1_company_logo()
+            with st.form("client_onboarding_organization_form"):
+                st.text_input("Organization name*", key="setup_org_name")
+                st.text_input("Corporate entity name*", key="setup_entity_name")
+                st.text_area("Contact address*", key="setup_contact_address")
+                organization_logo = st.file_uploader(
+                    "Company logo (optional)",
+                    type=["png", "jpg", "jpeg", "webp"],
+                    key="setup_company_logo_upload",
+                )
+                continue_setup = st.form_submit_button(
+                    "Continue to Contact & Branding",
+                    type="primary",
+                )
+
+            if continue_setup:
+                missing_items = validate_form_submission(
+                    {
+                        "Organization name": st.session_state.get(
+                            "setup_org_name", ""
+                        ),
+                        "Corporate entity name": st.session_state.get(
+                            "setup_entity_name", ""
+                        ),
+                        "Contact address": st.session_state.get(
+                            "setup_contact_address", ""
+                        ),
+                    },
+                    {"Company logo (optional)": organization_logo},
+                )
+                if missing_items:
+                    render_submission_validation_errors(missing_items)
+                else:
+                    try:
+                        st.session_state["setup_company_logo_base64"] = (
+                            process_company_logo(organization_logo)
+                        )
+                    except ValueError as exc:
+                        st.error(str(exc))
+                    else:
+                        st.session_state["setup_current_step"] = "Contact & Branding"
+                        st.rerun()
         else:
             def return_to_organization():
                 st.session_state["setup_current_step"] = "Organization"
@@ -976,7 +1086,7 @@ Proposal document text:
                 )
                 setup_logo = st.file_uploader(
                     "Corporate Branding Logo (optional)",
-                    type=["png", "jpg", "jpeg"],
+                    type=["png", "jpg", "jpeg", "webp"],
                     help="PNG and JPG files are saved as assets/logo.png.",
                     key="setup_logo_upload",
                 )
@@ -989,11 +1099,30 @@ Proposal document text:
                 )
 
             if save_setup:
-                setup_admin_email = st.session_state.get("setup_admin_email", "").strip()
-                if setup_admin_email and not re.fullmatch(
+                setup_admin_email = st.session_state.get(
+                    "setup_admin_email", ""
+                ).strip()
+                missing_items = validate_form_submission(
+                    {
+                        "Organization name": st.session_state.get(
+                            "setup_org_name", ""
+                        ),
+                        "Corporate entity name": st.session_state.get(
+                            "setup_entity_name", ""
+                        ),
+                        "Contact address": st.session_state.get(
+                            "setup_contact_address", ""
+                        ),
+                        "Admin email (optional)": setup_admin_email,
+                    },
+                    {"Corporate branding logo (optional)": setup_logo},
+                )
+                if missing_items:
+                    render_submission_validation_errors(missing_items)
+                elif setup_admin_email and not re.fullmatch(
                     r"[^@\s]+@[^@\s]+\.[^@\s]+", setup_admin_email
                 ):
-                    st.warning("Please enter a valid Official Admin Email.")
+                    st.error("Please enter a valid Official Admin Email.")
                 else:
                     updated_config = ORG_CONFIG.copy()
                     updated_config.update(
@@ -1144,6 +1273,7 @@ Proposal document text:
         submission_channel="Digital",
         tracking_code=None,
         company_logo_base64="",
+        supporting_documents=None,
     ):
         with sqlite3.connect(PROPOSALS_DB_PATH) as conn:
             conn.execute("BEGIN IMMEDIATE;")
@@ -1157,8 +1287,8 @@ Proposal document text:
                 INSERT INTO submissions (
                     company_name, cac_number, proposal_title, email, phone,
                     address, budget, pdf_path, submission_date, submission_channel,
-                    tracking_code, company_logo_base64
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    tracking_code, company_logo_base64, supporting_documents_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     company_name,
@@ -1173,6 +1303,7 @@ Proposal document text:
                     submission_channel,
                     tracking_code,
                     company_logo_base64 or "",
+                    json.dumps(supporting_documents or {}, ensure_ascii=False),
                 ),
             )
 
@@ -1251,7 +1382,7 @@ Proposal document text:
             "to the public without login."
         )
 
-        with st.form("public_vendor_submission_form"):
+        with st.form(key="vendor_proposal_form"):
             company_name = st.text_input("Organisation Name*", key="draft_company_name")
             cac_number = st.text_input("CAC Number*", key="draft_cac_number")
             proposal_title = st.text_input("Title of Proposal*", key="draft_proposal_title")
@@ -1261,17 +1392,41 @@ Proposal document text:
             budget_text = st.text_input(
                 "Optional Budget (₦)",
                 placeholder="Leave blank if not applicable",
-                key="draft_budget",
+                key="draft_optional_budget",
             )
             proposed_timeline = st.text_input(
-                "Proposed Timeline",
-                key="draft_proposed_timeline",
+                "Proposed Timeline (optional)",
+                key="draft_optional_proposed_timeline",
             )
-            uploaded_pdf = st.file_uploader(
-                "Upload PDF Proposal",
+            technical_proposal = st.file_uploader(
+                "Technical Proposal* (PDF)",
                 type=["pdf"],
                 help="Only PDF files are accepted for public vendor submissions.",
-                key="draft_pdf",
+                key="draft_technical_proposal",
+            )
+            financial_proposal = st.file_uploader(
+                "Financial Proposal*",
+                type=["pdf", "docx", "xlsx", "xls"],
+                key="draft_financial_proposal",
+            )
+            cac_certificate = st.file_uploader(
+                "CAC Certificate*",
+                type=["pdf", "png", "jpg", "jpeg"],
+                key="draft_cac_certificate",
+            )
+            tin_certificate = st.file_uploader(
+                "TIN Certificate*",
+                type=["pdf", "png", "jpg", "jpeg"],
+                key="draft_tin_certificate",
+            )
+            subcontractor_notes = st.text_area(
+                "Subcontractor Notes (optional)",
+                key="draft_optional_subcontractor_notes",
+            )
+            extra_certifications = st.file_uploader(
+                "Extra Certifications (optional)",
+                type=["pdf", "png", "jpg", "jpeg"],
+                key="draft_optional_extra_certifications",
             )
             company_logo_upload = render_logo_uploader(
                 label="Company Logo Upload (optional)",
@@ -1282,22 +1437,31 @@ Proposal document text:
             )
 
         if submitted:
-            required_fields = (
-                (company_name, "Organisation Name"),
-                (cac_number, "CAC Number"),
-                (proposal_title, "Title of Proposal"),
-                (contact_email, "Contact Email"),
-                (contact_phone, "Phone"),
-                (company_address, "Address"),
+            missing_items = validate_form_submission(
+                {
+                    "Organisation Name": company_name,
+                    "CAC Number": cac_number,
+                    "Proposal Title": proposal_title,
+                    "Contact Email": contact_email,
+                    "Phone": contact_phone,
+                    "Address": company_address,
+                    "Budget (optional)": budget_text,
+                    "Proposed Timeline (optional)": proposed_timeline,
+                    "Subcontractor Notes (optional)": subcontractor_notes,
+                },
+                {
+                    "Technical Proposal": technical_proposal,
+                    "Financial Proposal": financial_proposal,
+                    "CAC Certificate": cac_certificate,
+                    "TIN Certificate": tin_certificate,
+                    "Extra Certifications (optional)": extra_certifications,
+                    "Company Logo (optional)": company_logo_upload,
+                },
             )
-            missing_field = next(
-                (label for value, label in required_fields if not value.strip()), None
-            )
-            if missing_field:
-                st.warning(f"Please enter {missing_field}.")
-            elif uploaded_pdf is None:
-                st.warning("Please upload a PDF proposal before submitting.")
+            if missing_items:
+                render_submission_validation_errors(missing_items)
             else:
+                uploaded_pdf = technical_proposal
                 try:
                     budget = (
                         float(budget_text.replace(",", "").strip())
@@ -1325,8 +1489,26 @@ Proposal document text:
                         f"{safe_company_name}_{uuid.uuid4().hex}_"
                         f"{Path(safe_upload_name).stem}.pdf"
                     )
+                    supporting_document_paths = {}
 
                     try:
+                        supporting_document_paths = save_supporting_documents(
+                            {
+                                "Financial Proposal": financial_proposal,
+                                "CAC Certificate": cac_certificate,
+                                "TIN Certificate": tin_certificate,
+                                **(
+                                    {"Extra Certifications": extra_certifications}
+                                    if extra_certifications is not None
+                                    else {}
+                                ),
+                            },
+                            company_name,
+                        )
+                        supporting_document_metadata = {
+                            "attachments": supporting_document_paths,
+                            "subcontractor_notes": subcontractor_notes,
+                        }
                         pdf_path.write_bytes(pdf_bytes)
                         try:
                             extracted_text = extract_uploaded_text_with_progress(
@@ -1396,6 +1578,7 @@ Proposal document text:
                             submission_channel="Digital",
                             tracking_code=tracking_code,
                             company_logo_base64=company_logo_base64,
+                            supporting_documents=supporting_document_metadata,
                         )
                         invalidate_database_previews()
                         dispatch_intake_notifications(
@@ -1412,6 +1595,10 @@ Proposal document text:
                     except Exception as exc:
                         if pdf_path.exists():
                             pdf_path.unlink()
+                        for relative_path in supporting_document_paths.values():
+                            supporting_path = ROOT_DIR / relative_path
+                            if supporting_path.exists():
+                                supporting_path.unlink()
                         st.error(f"Failed to save your proposal: {exc}")
                     else:
                         if extraction_warning:
@@ -1587,7 +1774,7 @@ Proposal document text:
                 "Submit your proposal details and upload a PDF. This vendor portal is open to the public without login."
             )
 
-            with st.form("vendor_submission_form"):
+            with st.form("legacy_vendor_proposal_form"):
                 company_name = st.text_input(
                     "Company Name*", "", key="legacy_public_company_name"
                 )
@@ -1610,19 +1797,68 @@ Proposal document text:
                     value=None,
                     placeholder="Not provided",
                     step=1000.0,
-                    key="legacy_public_budget",
+                    key="legacy_public_optional_budget",
                 )
-                uploaded_pdf = st.file_uploader(
-                    "Upload PDF Proposal",
+                technical_proposal = st.file_uploader(
+                    "Technical Proposal* (PDF)",
                     type=["pdf"],
                     help="Only PDF files are accepted for public vendor submissions.",
-                    key="legacy_public_pdf",
+                    key="legacy_public_technical_proposal",
+                )
+                financial_proposal = st.file_uploader(
+                    "Financial Proposal*",
+                    type=["pdf", "docx", "xlsx", "xls"],
+                    key="legacy_public_financial_proposal",
+                )
+                cac_certificate = st.file_uploader(
+                    "CAC Certificate*",
+                    type=["pdf", "png", "jpg", "jpeg"],
+                    key="legacy_public_cac_certificate",
+                )
+                tin_certificate = st.file_uploader(
+                    "TIN Certificate*",
+                    type=["pdf", "png", "jpg", "jpeg"],
+                    key="legacy_public_tin_certificate",
+                )
+                subcontractor_notes = st.text_area(
+                    "Subcontractor Notes (optional)",
+                    key="legacy_public_optional_subcontractor_notes",
+                )
+                extra_certifications = st.file_uploader(
+                    "Extra Certifications (optional)",
+                    type=["pdf", "png", "jpg", "jpeg"],
+                    key="legacy_public_optional_extra_certifications",
                 )
                 submitted = st.form_submit_button(
                     "Submit Proposal", key="legacy_public_submit_btn"
                 )
 
+            missing_items = []
             if submitted:
+                missing_items = validate_form_submission(
+                    {
+                        "Company Name": company_name,
+                        "CAC Registration Number": cac_registration_number,
+                        "Proposal Title": proposal_title,
+                        "Contact Email": contact_email,
+                        "Contact Phone Number": contact_phone,
+                        "Company Address": company_address,
+                        "Budget (optional)": budget,
+                        "Subcontractor Notes (optional)": subcontractor_notes,
+                    },
+                    {
+                        "Technical Proposal": technical_proposal,
+                        "Financial Proposal": financial_proposal,
+                        "CAC Certificate": cac_certificate,
+                        "TIN Certificate": tin_certificate,
+                        "Extra Certifications (optional)": extra_certifications,
+                    },
+                )
+                if missing_items:
+                    render_submission_validation_errors(missing_items)
+
+            if submitted and not missing_items:
+                uploaded_pdf = technical_proposal
                 if not company_name.strip():
                     st.warning("Please enter the company name.")
                 elif not cac_registration_number.strip():
@@ -1645,6 +1881,19 @@ Proposal document text:
                         st.stop()
                     proposal_dir = Path("uploads") / "proposals"
                     proposal_dir.mkdir(parents=True, exist_ok=True)
+                    supporting_document_paths = save_supporting_documents(
+                        {
+                            "Financial Proposal": financial_proposal,
+                            "CAC Certificate": cac_certificate,
+                            "TIN Certificate": tin_certificate,
+                            **(
+                                {"Extra Certifications": extra_certifications}
+                                if extra_certifications is not None
+                                else {}
+                            ),
+                        },
+                        company_name,
+                    )
 
                     safe_name = secure_filename(company_name) or "vendor"
                     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -1661,11 +1910,13 @@ Proposal document text:
                         "contact_email": contact_email,
                         "contact_phone": contact_phone,
                         "company_address": company_address,
-                        "budget": float(budget) if budget else 0.0,
+                        "budget": float(budget) if budget is not None else None,
                         "submitted_at": datetime.utcnow().isoformat(timespec="seconds")
                         + "Z",
                         "pdf_path": str(pdf_path),
                         "status": "Draft",
+                        "supporting_documents": supporting_document_paths,
+                        "subcontractor_notes": subcontractor_notes,
                     }
 
                     history_path = proposal_dir / "vendor_submission_log.json"
@@ -1751,34 +2002,27 @@ Proposal document text:
                     "Submit vendor proposal documentation below for real-time CAC verification and AI analysis."
                 )
 
-                # Legacy admin intake form retained for internal use.
-                submission_channel = st.radio(
-                    "Select Submission Channel:",
-                    [
-                        "Digital Submission (Vendor Portal)",
-                        "Physical Submission (Registry Desk OCR Intake)",
-                    ],
-                    horizontal=True,
-                    key="admin_submission_channel",
-                )
-
-                with st.form("vendor_submission_form_internal"):
+                with st.form("admin_vendor_proposal_form"):
+                    submission_channel = st.radio(
+                        "Select Submission Channel:",
+                        [
+                            "Digital Submission (Vendor Portal)",
+                            "Physical Submission (Registry Desk OCR Intake)",
+                        ],
+                        horizontal=True,
+                        key="admin_submission_channel",
+                    )
                     submitter = st.text_input(
                         "Submitter Name / Organization*",
-                        "Vendor Name",
                         key="admin_submitter_name",
                     )
-                    title = st.text_input(
-                        "Proposal Title*",
-                        "Proposal Document",
-                        key="admin_proposal_title",
-                    )
+                    title = st.text_input("Proposal Title*", key="admin_proposal_title")
                     cac_number = st.text_input(
                         "CAC Registration Number (e.g., RC123456)",
                         key="admin_cac_number",
                     )
                     budget = st.number_input(
-                        "Proposed Budget ($ / ₦)",
+                        "Proposed Budget ($ / ₦, optional)",
                         min_value=0.0,
                         value=None,
                         placeholder="Not provided",
@@ -1789,8 +2033,8 @@ Proposal document text:
                         key="admin_proposed_budget",
                     )
                     proposed_timeline = st.text_input(
-                        "Proposed Timeline",
-                        key="admin_proposed_timeline",
+                        "Proposed Timeline (optional)",
+                        key="admin_optional_proposed_timeline",
                     )
 
                     category = st.selectbox(
@@ -1823,9 +2067,33 @@ Proposal document text:
                         )
 
                     uploaded_file = st.file_uploader(
-                        f"Upload Proposal Document ({submission_channel})",
+                        f"Technical Proposal* ({submission_channel})",
                         type=["pdf", "docx", "xlsx", "xls", "png", "jpg", "jpeg"],
                         key="admin_proposal_upload",
+                    )
+                    financial_proposal = st.file_uploader(
+                        "Financial Proposal*",
+                        type=["pdf", "docx", "xlsx", "xls"],
+                        key="admin_financial_proposal_upload",
+                    )
+                    cac_certificate = st.file_uploader(
+                        "CAC Certificate*",
+                        type=["pdf", "png", "jpg", "jpeg"],
+                        key="admin_cac_certificate_upload",
+                    )
+                    tin_certificate = st.file_uploader(
+                        "TIN Certificate*",
+                        type=["pdf", "png", "jpg", "jpeg"],
+                        key="admin_tin_certificate_upload",
+                    )
+                    subcontractor_notes = st.text_area(
+                        "Subcontractor Notes (optional)",
+                        key="admin_optional_subcontractor_notes",
+                    )
+                    extra_certifications = st.file_uploader(
+                        "Extra Certifications (optional)",
+                        type=["pdf", "png", "jpg", "jpeg"],
+                        key="admin_optional_extra_certifications",
                     )
                     company_logo_upload = render_logo_uploader(
                         label="Company Logo Upload (optional)",
@@ -1836,7 +2104,33 @@ Proposal document text:
                         key="admin_process_proposal_btn",
                     )
 
+                missing_items = []
                 if submitted:
+                    missing_items = validate_form_submission(
+                        {
+                            "Submitter Name / Organization": submitter,
+                            "Proposal Title": title,
+                            "CAC Registration Number": cac_number,
+                            "Budget (optional)": budget,
+                            "Proposed Timeline (optional)": proposed_timeline,
+                            "Proposal Category": category,
+                            "Contact Email Address": email,
+                            "Contact Phone Number": phone_number,
+                            "Subcontractor Notes (optional)": subcontractor_notes,
+                        },
+                        {
+                            "Technical Proposal": uploaded_file,
+                            "Financial Proposal": financial_proposal,
+                            "CAC Certificate": cac_certificate,
+                            "TIN Certificate": tin_certificate,
+                            "Extra Certifications (optional)": extra_certifications,
+                            "Company Logo (optional)": company_logo_upload,
+                        },
+                    )
+                    if missing_items:
+                        render_submission_validation_errors(missing_items)
+
+                if submitted and not missing_items:
                     if not cac_number.strip():
                         st.warning(
                             "Please enter a valid CAC registration number for KYB verification."
@@ -1922,6 +2216,7 @@ Proposal document text:
                             with file_path.open("wb") as f:
                                 f.write(file_bytes)
 
+                            supporting_document_paths = {}
                             tracking_code = generate_unique_tracking_code("TRK")
                             sqlite_submission_channel = (
                                 "Digital"
@@ -1930,6 +2225,23 @@ Proposal document text:
                             )
 
                             try:
+                                support_files = {
+                                    "Financial Proposal": financial_proposal,
+                                    "CAC Certificate": cac_certificate,
+                                    "TIN Certificate": tin_certificate,
+                                }
+                                if extra_certifications is not None:
+                                    support_files["Extra Certifications"] = (
+                                        extra_certifications
+                                    )
+                                supporting_document_paths = save_supporting_documents(
+                                    support_files,
+                                    submitter,
+                                )
+                                supporting_document_metadata = {
+                                    "attachments": supporting_document_paths,
+                                    "subcontractor_notes": subcontractor_notes,
+                                }
                                 insert_proposal(
                                     tracking_code=tracking_code,
                                     vendor_name=submitter,
@@ -1969,6 +2281,7 @@ Proposal document text:
                                     submission_channel=sqlite_submission_channel,
                                     tracking_code=tracking_code,
                                     company_logo_base64=company_logo_base64,
+                                    supporting_documents=supporting_document_metadata,
                                 )
                                 invalidate_database_previews()
 
@@ -2028,6 +2341,10 @@ Proposal document text:
                                         )
 
                             except Exception as e:
+                                for relative_path in supporting_document_paths.values():
+                                    supporting_path = ROOT_DIR / relative_path
+                                    if supporting_path.exists():
+                                        supporting_path.unlink()
                                 st.error(f"Database error during storage: {e}")
 
                 (
