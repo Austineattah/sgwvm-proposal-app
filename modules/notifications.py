@@ -32,3 +32,21 @@ def send_email(to_email, subject, body):
         return True, "Email sent successfully."
     except Exception as e:
         return False, f"Email sending failed: {str(e)}"
+
+def send_submission_acknowledgement(vendor_email, company_name, project_title, proposal_id):
+    """Sends the official automated acknowledgement email with dynamic client/organization branding."""
+    org_name = getattr(Config, 'ORG_NAME', 'SGWVM Technology Limited')
+    committee_name = getattr(Config, 'COMMITTEE_NAME', f"{org_name} Proposal Evaluation Committee")
+    
+    subject = f"Proposal Received: {project_title} (#{proposal_id})"
+    body = f"""Dear {company_name},
+
+Thank you for your proposal submitted to {org_name}. 
+
+Your proposal is under review (Reference ID: #{proposal_id} - "{project_title}") and you shall be contacted in due course upon need appraisal.
+
+Best regards,
+{committee_name}
+{org_name}"""
+
+    return send_email(vendor_email, subject, body)
