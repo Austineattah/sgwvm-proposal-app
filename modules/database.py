@@ -1,85 +1,60 @@
-﻿import datetime
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime
-from sqlalchemy.orm import declarative_base, sessionmaker
+﻿import sqlite3
+import os
 from config import Config
 
-engine = create_engine(Config.DATABASE_URL, echo=False)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-Base = declarative_base()
-
-class ConceptNote(Base):
-    __tablename__ = "concept_notes"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    org_name = Column(String(255), nullable=False)
-    email = Column(String(255), nullable=False)
-    title = Column(String(255), nullable=False)
-    file_name = Column(String(255), nullable=False)
-    ai_summary = Column(Text, nullable=True)
-    payment_status = Column(String(50), default="UNPAID")
-    review_status = Column(String(50), default="PENDING_REVIEW")
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+def get_connection():
+    os.makedirs(os.path.dirname(Config.DB_PATH), exist_ok=True)
+    return sqlite3.connect(Config.DB_PATH)
 
 def init_db():
-    Base.metadata.create_all(bind=engine)
-
-def save_concept_note(org_name: str, email: str, title: str, file_name: str, ai_summary: str, payment_status: str = "EXEMPT_OR_PENDING") -> int:
-    init_db()
-    session = SessionLocal()
-    try:
-        note = ConceptNote(
-            org_name=org_name,
-            email=email,
-            title=title,
-            file_name=file_name,
-            ai_summary=ai_summary,
-            payment_status=payment_status,
-            review_status="PENDING_REVIEW"
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS proposals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_name TEXT,
+            rc_number TEXT,
+            email TEXT,
+            phone TEXT,
+            project_title TEXT,
+            category TEXT,
+            proposal_abstract TEXT,
+            file_name TEXT,
+            ai_summary TEXT,
+            status TEXT DEFAULT 'Pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-        session.add(note)
-        session.commit()
-        session.refresh(note)
-        return note.id
-    except Exception as e:
-        session.rollback()
-        raise e
-    finally:
-        session.close()
+    ''')
+    conn.commit()
+    conn.close()
 
-def fetch_all_concept_notes() -> list[dict]:
+def insert_proposal(company_name, rc_number, email, phone, project_title, category, proposal_abstract, file_name, ai_summary):
     init_db()
-    session = SessionLocal()
-    try:
-        notes = session.query(ConceptNote).order_by(ConceptNote.created_at.desc()).all()
-        return [
-            {
-                "id": n.id,
-                "org_name": n.org_name,
-                "email": n.email,
-                "title": n.title,
-                "file_name": n.file_name,
-                "ai_summary": n.ai_summary,
-                "payment_status": n.payment_status,
-                "review_status": n.review_status,
-                "created_at": n.created_at.strftime("%Y-%m-%d %H:%M") if n.created_at else ""
-            }
-            for n in notes
-        ]
-    finally:
-        session.close()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO proposals (company_name, rc_number, email, phone, project_title, category, proposal_abstract, file_name, ai_summary, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending')
+    ''', (company_name, rc_number, email, phone, project_title, category, proposal_abstract, file_name, ai_summary))
+    conn.commit()
+    proposal_id = cursor.lastrowid
+    conn.close()
+    return proposal_id
 
-def update_concept_note_status(note_id: int, new_status: str) -> bool:
+def get_all_proposals():
     init_db()
-    session = SessionLocal()
-    try:
-        note = session.query(ConceptNote).filter(ConceptNote.id == note_id).first()
-        if note:
-            note.review_status = new_status
-            session.commit()
-            return True
-        return False
-    except Exception as e:
-        session.rollback()
-        return False
-    finally:
-        session.close()
+    conn = get_connection()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM proposals ORDER BY created_at DESC')
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def update_proposal_status(proposal_id, new_status):
+    init_db()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('UPDATE proposals SET status = ? WHERE id = ?', (new_status, proposal_id))
+    conn.commit()
+    conn.close()
