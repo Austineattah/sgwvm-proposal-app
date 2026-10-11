@@ -3524,3 +3524,134 @@ def process_unsolicited_concept_note(company_name, concept_note_file) -> tuple:
 
     fallback_summary = generate_local_heuristic_summary(company_name, raw_text)
     return fallback_summary, "AI_EXTRACTION_COMPLETE_LOCAL_FALLBACK"
+
+# --- Custom Pitch Black Outer Canvas & Portal Text Cards ---
+def apply_custom_theme():
+    import streamlit as st
+    st.markdown('''
+        <style>
+        .stApp {
+            background-color: #000000 !important;
+        }
+        [data-testid="stForm"], 
+        [data-testid="stExpander"], 
+        .stAlert,
+        div[data-baseweb="card"] {
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            border-radius: 10px !important;
+            padding: 1.2rem !important;
+        }
+        [data-testid="stSidebar"] {
+            background-color: #050505 !important;
+            border-right: 1px solid #1e293b !important;
+        }
+        </style>
+    ''', unsafe_allow_html=True)
+
+apply_custom_theme()
+
+# --- FULL CANVAS PITCH BLACK & PORTAL TEXT CARD STYLING ---
+def apply_pitch_black_theme():
+    import streamlit as st
+    st.markdown('''
+        <style>
+        /* 1. Force absolute pitch black on every outer canvas & wrapper element */
+        html, body, .stApp, header[data-testid="stHeader"], 
+        section.main, [data-testid="stMain"], [data-testid="stSidebarContent"],
+        [data-testid="stToolbar"], .main .block-container {
+            background-color: #000000 !important;
+            background: #000000 !important;
+        }
+
+        /* 2. Text Resting Surfaces (Cards, Forms, Expanders, Callouts) */
+        /* This applies your current portal background color (#1e293b) to where fonts rest */
+        [data-testid="stForm"], 
+        [data-testid="stExpander"], 
+        .stAlert, 
+        div[data-testid="stVerticalBlock"] > div[style*="background-color"],
+        div[data-testid="stMarkdownContainer"] > div {
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            border-radius: 10px !important;
+            padding: 1rem !important;
+        }
+
+        /* 3. Inputs, Text Areas, and Select Boxes resting inside containers */
+        .stTextInput input, .stSelectbox > div > div, .stTextArea textarea {
+            background-color: #0f172a !important;
+            color: #ffffff !important;
+            border: 1px solid #334155 !important;
+        }
+
+        /* 4. Sidebar pitch black isolation with boundary line */
+        [data-testid="stSidebar"] {
+            background-color: #000000 !important;
+            border-right: 1px solid #1e293b !important;
+        }
+        </style>
+    ''', unsafe_allow_html=True)
+
+apply_pitch_black_theme()
+
+# --- FULL CANVAS PITCH BLACK & PORTAL TEXT CARD STYLING ---
+def apply_pitch_black_theme():
+    import streamlit as st
+    st.markdown('''
+        <style>
+        /* 1. Force absolute pitch black on every outer canvas & wrapper element */
+        html, body, .stApp, header[data-testid="stHeader"], 
+        section.main, [data-testid="stMain"], [data-testid="stSidebarContent"],
+        [data-testid="stToolbar"], .main .block-container {
+            background-color: #000000 !important;
+            background: #000000 !important;
+        }
+
+        /* 2. Text Resting Surfaces (Cards, Forms, Expanders, Callouts) */
+        /* This applies your current portal background color (#1e293b) to where fonts rest */
+        [data-testid="stForm"], 
+        [data-testid="stExpander"], 
+        .stAlert, 
+        div[data-testid="stVerticalBlock"] > div[style*="background-color"],
+        div[data-testid="stMarkdownContainer"] > div {
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            border-radius: 10px !important;
+            padding: 1rem !important;
+        }
+
+        /* 3. Inputs, Text Areas, and Select Boxes resting inside containers */
+        .stTextInput input, .stSelectbox > div > div, .stTextArea textarea {
+            background-color: #0f172a !important;
+            color: #ffffff !important;
+            border: 1px solid #334155 !important;
+        }
+
+        /* 4. Sidebar pitch black isolation with boundary line */
+        [data-testid="stSidebar"] {
+            background-color: #000000 !important;
+            border-right: 1px solid #1e293b !important;
+        }
+        </style>
+    ''', unsafe_allow_html=True)
+
+apply_pitch_black_theme()
+
+# --- Secure Document Upload Integration ---
+from modules.security_scanner import scan_document_for_malware
+
+uploaded_file = st.file_uploader("Upload Proposal Document (PDF only)", type=["pdf"])
+
+if uploaded_file is not None:
+    file_bytes = uploaded_file.read()
+    
+    # Run Security Inspection First
+    is_safe, security_message = scan_document_for_malware(file_bytes, uploaded_file.name)
+    
+    if not is_safe:
+        st.error(f"?? {security_message}")
+        st.stop()  # Halts execution immediately; blocks processing
+    
+    st.success(f"? {security_message}")
+    
+    # Proceed safely to AI extraction and database persistence...
