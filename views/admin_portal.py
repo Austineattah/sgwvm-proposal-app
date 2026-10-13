@@ -4,7 +4,7 @@ import plotly.express as px
 from modules import database, notifications
 
 def render():
-    st.title("🛡️ Legislative Admin & Committee Review Dashboard")
+    st.title("️ Legislative Admin & Committee Review Dashboard")
     st.markdown("Manage vendor proposals, inspect AI summaries, track statuses, and view pipeline analytics.")
 
     # Fetch proposals from database
@@ -32,7 +32,7 @@ def render():
     st.markdown("---")
 
     # --- PLOTLY ANALYTICS CHARTS ---
-    st.subheader("📊 Pipeline Analytics")
+    st.subheader(" Pipeline Analytics")
     chart_col1, chart_col2 = st.columns(2)
 
     with chart_col1:
@@ -69,7 +69,7 @@ def render():
     st.markdown("---")
 
     # --- EXPORT COMMITTEE REPORT ---
-    st.subheader("📥 Export Committee Report")
+    st.subheader(" Export Committee Report")
     col_exp1, col_exp2 = st.columns([2, 2])
     with col_exp1:
         csv_data = df.to_csv(index=False).encode('utf-8')
@@ -84,7 +84,7 @@ def render():
     st.markdown("---")
 
     # --- PROPOSAL MANAGEMENT TABLE & ACTIONS ---
-    st.subheader("📋 Proposal Review & Management")
+    st.subheader(" Proposal Review & Management")
     
     selected_id = st.selectbox("Select Proposal ID to Review", options=df['id'].tolist() if 'id' in df.columns else [])
     
@@ -100,7 +100,7 @@ def render():
             st.markdown(f"**Current Status:** `{prop.get('status', 'Pending')}`")
             st.markdown(f"**Submitted At:** {prop.get('created_at', 'N/A')}")
 
-        st.markdown("### 🤖 AI Summary & Insights")
+        st.markdown("###  AI Summary & Insights")
         st.info(prop.get('ai_summary', 'No AI summary generated.'))
 
         # Status Update Form

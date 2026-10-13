@@ -60,7 +60,7 @@ def generate_pdf_audit_report(proposal_data: dict, kyb_data: dict) -> bytes:
 
     # Title & Header
     elements.append(Paragraph("EXECUTIVE PROCUREMENT AUDIT REPORT", title_style))
-    elements.append(Paragraph("SGWVM Technology Limited — Dynamic Proposal Evaluation System", subtitle_style))
+    elements.append(Paragraph("VECTRA DIGITAL TECHNOLOGIES — Dynamic Proposal Evaluation System", subtitle_style))
     elements.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#2563EB'), spaceAfter=15, spaceBefore=5))
 
     # Summary Table Data

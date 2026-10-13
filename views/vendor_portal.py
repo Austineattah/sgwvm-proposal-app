@@ -3,7 +3,7 @@ import os
 from modules import database, ai_engine, security_scanner, notifications
 
 def render():
-    st.title("🏛️ Legislative Vendor Proposal Portal")
+    st.title("️ Legislative Vendor Proposal Portal")
     st.markdown("Submit your technical proposals, security-vetted documentation, and deliverables for committee evaluation.")
 
     with st.form("vendor_submission_form"):

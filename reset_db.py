@@ -9,7 +9,7 @@ def reset_security_logs():
             c.execute(f"DELETE FROM {table[0]}")
         conn.commit()
         conn.close()
-        print("🔓 Security logs cleared successfully!")
+        print(" Security logs cleared successfully!")
     except Exception as e:
         print(f"Error resetting database: {e}")
 

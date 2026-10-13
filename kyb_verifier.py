@@ -22,7 +22,7 @@ def verify_company_kyb(rc_number: str, company_type: str = "RC") -> dict:
             "directors": [],
             "tin": "Not Verified",
             "flagged": True,
-            "risk_label": "⚠️ KYB Warning: Prembly API keys not configured",
+            "risk_label": "️ KYB Warning: Prembly API keys not configured",
         }
 
     # Clean up RC number input
@@ -77,9 +77,9 @@ def verify_company_kyb(rc_number: str, company_type: str = "RC") -> dict:
                 "tin": tin,
                 "flagged": not is_active,
                 "risk_label": (
-                    "✅ Active Corporate Status"
+                    " Active Corporate Status"
                     if is_active
-                    else "🚨 CRITICAL RISK: CAC Status INACTIVE / DORMANT"
+                    else " CRITICAL RISK: CAC Status INACTIVE / DORMANT"
                 ),
             }
         else:
@@ -95,7 +95,7 @@ def verify_company_kyb(rc_number: str, company_type: str = "RC") -> dict:
                 "directors": [],
                 "tin": "Unverified",
                 "flagged": True,
-                "risk_label": "🚨 CRITICAL RISK: Entity Not Found on CAC Registry",
+                "risk_label": " CRITICAL RISK: Entity Not Found on CAC Registry",
             }
 
     except Exception as e:
@@ -109,13 +109,13 @@ def verify_company_kyb(rc_number: str, company_type: str = "RC") -> dict:
             "directors": [],
             "tin": "Error",
             "flagged": True,
-            "risk_label": f"⚠️ Connection Error: {str(e)}",
+            "risk_label": f"️ Connection Error: {str(e)}",
         }
 
 
 def render_kyb_summary_card(kyb_data: dict):
     """Renders an executive KYB & Corporate Governance card inside Streamlit UI."""
-    st.markdown("### 🏢 Corporate Governance & KYB Verification")
+    st.markdown("###  Corporate Governance & KYB Verification")
 
     if kyb_data.get("flagged", True):
         st.error(f"**{kyb_data.get('risk_label')}**")
@@ -134,6 +134,6 @@ def render_kyb_summary_card(kyb_data: dict):
         st.metric("Listed Directors", f"{directors_count} Found")
 
     if kyb_data.get("directors"):
-        with st.expander("👤 View Listed Company Directors"):
+        with st.expander(" View Listed Company Directors"):
             for idx, director in enumerate(kyb_data["directors"], 1):
                 st.write(f"**{idx}.** {director}")

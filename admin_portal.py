@@ -24,15 +24,15 @@ def render_admin_login():
         window_seconds=LOCKOUT_WINDOW, max_attempts=MAX_ATTEMPTS
     )
 
-    st.subheader("🔒 Internal Admin Portal")
+    st.subheader(" Internal Admin Portal")
 
     # 1. SYSTEM BLOCKED / LOCKOUT VIEW
     if is_blocked:
-        st.error("🚨 SYSTEM BLOCKED: Maximum 3 attempts exceeded. Access Restricted.")
+        st.error(" SYSTEM BLOCKED: Maximum 3 attempts exceeded. Access Restricted.")
         st.warning("Please contact the Administrator or reset security settings below.")
 
         st.divider()
-        st.markdown("### 🔑 Admin Security Recovery")
+        st.markdown("###  Admin Security Recovery")
         st.write(
             "An administrator can request a verification code sent to the registered email address to restore access."
         )
@@ -114,7 +114,7 @@ if __name__ == "__main__":
     if not st.session_state.get("is_admin_authenticated", False):
         render_admin_login()
     else:
-        st.title("🔒 Internal Admin Dashboard")
+        st.title(" Internal Admin Dashboard")
         st.write("Welcome, System Administrator.")
         if st.button("Log Out"):
             st.session_state.is_admin_authenticated = False

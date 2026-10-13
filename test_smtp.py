@@ -2,9 +2,9 @@
 from notifications import send_email_notification
 from admin_logger import generate_reset_token
 
-st.set_page_config(page_title="SMTP Diagnostic Tool", page_icon="✉️")
+st.set_page_config(page_title="SMTP Diagnostic Tool", page_icon="️")
 
-st.title("✉️ SMTP Recovery Email Test Suite")
+st.title("️ SMTP Recovery Email Test Suite")
 
 # 1. Verify secrets configuration
 st.subheader("1. Secret Configuration Status")
