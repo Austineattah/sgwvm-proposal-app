@@ -1,4 +1,4 @@
-﻿import streamlit as st
+import streamlit as st
 import pandas as pd
 import plotly.express as px
 from modules import database, notifications
@@ -117,7 +117,7 @@ def render():
                 vendor_email = prop.get('email')
                 if vendor_email:
                     subject = f"Update on your SGWVM Proposal: {prop.get('project_title', 'Submission')}"
-                    body = f"Hello {prop.get('company_name', 'Vendor')},\n\nYour proposal status has been updated to: {new_status}.\n\nAdmin Notes:\n{admin_notes}\n\nThank you for partnering with VECTRA DIGITAL TECHNOLOGIES."
+                    body = f"Hello {prop.get('company_name', 'Vendor')},\n\nYour proposal status has been updated to: {new_status}.\n\nAdmin Notes:\n{admin_notes}\n\nThank you for partnering with NEXUSVAULT DIGITAL TECHNOLOGIES."
                     notifications.send_email(vendor_email, subject, body)
                 
                 st.success(f"Proposal #{selected_id} updated successfully and notification triggered!")

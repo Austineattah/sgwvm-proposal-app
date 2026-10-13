@@ -220,8 +220,8 @@ PROPOSALS_DB_PATH = ROOT_DIR / "proposals.db"
 PROPOSAL_UPLOAD_DIR = ROOT_DIR / "uploads" / "proposals"
 ORG_CONFIG_PATH = ROOT_DIR / "org_config.json"
 DEFAULT_ORG_CONFIG = {
-    "org_name": "vectra Technology",
-    "corporate_entity_name": "vectra Technology",
+    "org_name": "NexusVault Technology",
+    "corporate_entity_name": "NexusVault Technology",
     "contact_address": "",
     "admin_email": "",
     "logo_path": "assets/logo.png",
@@ -329,7 +329,7 @@ def init_session_state():
         "developer_org_active": False,
         "is_subscribed": False,
         "portal_branding_title": (
-            "VECTRA DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal"
+            "NEXUSVAULT DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal"
         ),
         "proposal_data": None,
         "ai_summary": None,
@@ -351,19 +351,19 @@ def apply_sharp_typography():
         """
         <style>
         :root {
-            --vectra-text-color: var(--text-color, #0F172A);
-            --vectra-secondary-text-color: #334155;
-            --vectra-control-background: #FFFFFF;
-            --vectra-control-border: #CBD5E1;
+            --NexusVault-text-color: var(--text-color, #0F172A);
+            --NexusVault-secondary-text-color: #334155;
+            --NexusVault-control-background: #FFFFFF;
+            --NexusVault-control-border: #CBD5E1;
         }
 
         /* The existing app and sidebar surfaces are dark slate. */
         .stApp,
         section[data-testid="stSidebar"] {
-            --vectra-text-color: #F8FAFC;
-            --vectra-secondary-text-color: #F8FAFC;
-            --vectra-control-background: #1E293B;
-            --vectra-control-border: #475569;
+            --NexusVault-text-color: #F8FAFC;
+            --NexusVault-secondary-text-color: #F8FAFC;
+            --NexusVault-control-background: #1E293B;
+            --NexusVault-control-border: #475569;
         }
 
         body,
@@ -395,14 +395,14 @@ def apply_sharp_typography():
             -webkit-font-smoothing: antialiased !important;
             -moz-osx-font-smoothing: grayscale !important;
             text-rendering: optimizeLegibility !important;
-            color: var(--vectra-text-color) !important;
+            color: var(--NexusVault-text-color) !important;
         }
 
         div[data-testid="stWidgetLabel"],
         div[data-testid="stWidgetLabel"] p,
         div[data-testid="stWidgetLabel"] span,
         label {
-            color: var(--vectra-secondary-text-color) !important;
+            color: var(--NexusVault-secondary-text-color) !important;
             font-weight: 600 !important;
         }
 
@@ -413,12 +413,12 @@ def apply_sharp_typography():
         div[role="listbox"],
         div[role="option"],
         div[data-testid="stButton"] button {
-            background-color: var(--vectra-control-background) !important;
-            border: 1px solid var(--vectra-control-border) !important;
+            background-color: var(--NexusVault-control-background) !important;
+            border: 1px solid var(--NexusVault-control-border) !important;
         }
 
         div[data-testid="stButton"] button {
-            background: var(--vectra-control-background) !important;
+            background: var(--NexusVault-control-background) !important;
         }
 
         input,
@@ -429,7 +429,7 @@ def apply_sharp_typography():
         div[role="option"],
         div[data-testid="stButton"] button,
         div[data-testid="stButton"] button span {
-            color: var(--vectra-text-color) !important;
+            color: var(--NexusVault-text-color) !important;
         }
 
         input,
@@ -483,43 +483,43 @@ def apply_sharp_typography():
 
         @media (prefers-color-scheme: dark) {
             :root {
-                --vectra-text-color: #F8FAFC;
-                --vectra-secondary-text-color: #F8FAFC;
-                --vectra-control-background: #1E293B;
-                --vectra-control-border: #475569;
+                --NexusVault-text-color: #F8FAFC;
+                --NexusVault-secondary-text-color: #F8FAFC;
+                --NexusVault-control-background: #1E293B;
+                --NexusVault-control-border: #475569;
             }
         }
 
         html[data-theme="dark"],
         body[data-theme="dark"],
         [data-theme="dark"] {
-            --vectra-text-color: #F8FAFC;
-            --vectra-secondary-text-color: #F8FAFC;
-            --vectra-control-background: #1E293B;
-            --vectra-control-border: #475569;
+            --NexusVault-text-color: #F8FAFC;
+            --NexusVault-secondary-text-color: #F8FAFC;
+            --NexusVault-control-background: #1E293B;
+            --NexusVault-control-border: #475569;
         }
 
         @media (prefers-color-scheme: light) {
             :root {
-                --vectra-text-color: #0F172A;
-                --vectra-secondary-text-color: #334155;
-                --vectra-control-background: #FFFFFF;
-                --vectra-control-border: #CBD5E1;
+                --NexusVault-text-color: #0F172A;
+                --NexusVault-secondary-text-color: #334155;
+                --NexusVault-control-background: #FFFFFF;
+                --NexusVault-control-border: #CBD5E1;
             }
         }
 
         html[data-theme="light"] {
-            --vectra-text-color: #0F172A;
-            --vectra-secondary-text-color: #334155;
-            --vectra-control-background: #FFFFFF;
-            --vectra-control-border: #CBD5E1;
+            --NexusVault-text-color: #0F172A;
+            --NexusVault-secondary-text-color: #334155;
+            --NexusVault-control-background: #FFFFFF;
+            --NexusVault-control-border: #CBD5E1;
         }
 
         [data-theme="light"] .stApp {
-            --vectra-text-color: #0F172A;
-            --vectra-secondary-text-color: #334155;
-            --vectra-control-background: #FFFFFF;
-            --vectra-control-border: #CBD5E1;
+            --NexusVault-text-color: #0F172A;
+            --NexusVault-secondary-text-color: #334155;
+            --NexusVault-control-background: #FFFFFF;
+            --NexusVault-control-border: #CBD5E1;
         }
         </style>
         """,
@@ -529,7 +529,7 @@ def apply_sharp_typography():
 
 def main():
     st.set_page_config(
-        page_title="VECTRA DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal",
+        page_title="NEXUSVAULT DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal",
         layout="wide",
     )
     init_session_state()
@@ -548,10 +548,10 @@ def render_animated_marquee():
         str(
             st.session_state.get(
                 "portal_branding_title",
-                "VECTRA DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal"
+                "NEXUSVAULT DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal"
             )
         ).strip()
-        or "VECTRA DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal"
+        or "NEXUSVAULT DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal"
     )
     st.markdown(
         f"""
@@ -1629,7 +1629,7 @@ Proposal document text:
             r"C:\Program Files\Tesseract-OCR\tesseract.exe"
         )
 
-    st.sidebar.markdown("### vectra TECHNOLOGIES")
+    st.sidebar.markdown("### NexusVault TECHNOLOGIES")
     st.sidebar.caption("AI Enterprise Proposal Intake Portal")
     render_pending_vendor_acknowledgments()
     persona, portal_view, submit_proposal_mode = render_master_router(
@@ -2387,7 +2387,7 @@ Proposal document text:
             if (ROOT_DIR / ORG_CONFIG["logo_path"]).is_file()
             else "https://via.placeholder.com/250x80.png?text=PORTAL+LOGO"
         )
-        render_header(logo_file, "vectra TECHNOLOGIES")
+        render_header(logo_file, "NexusVault TECHNOLOGIES")
 
         if st.button("Launch Client Setup Wizard", key="launch_setup_wizard_header"):
             st.session_state["show_wizard"] = True
@@ -2794,7 +2794,7 @@ Proposal document text:
                             st.warning(str(exc))
                             st.stop()
                         with st.spinner(
-                            f"Running Prembly KYB check via {submission_channel}, universal AI extraction, and saving to vectra_db..."
+                            f"Running Prembly KYB check via {submission_channel}, universal AI extraction, and saving to NexusVault_db..."
                         ):
                             uploaded_file.seek(0)
                             store_processed_proposal(file_bytes, safe_upload_name)
@@ -3005,7 +3005,7 @@ Proposal document text:
             with tab2:
                 st.header("Enterprise Proposal Dashboard & Management")
                 st.markdown(
-                    "Inspect, filter, and manage all ingested vendor proposals stored in `vectra_db`."
+                    "Inspect, filter, and manage all ingested vendor proposals stored in `NexusVault_db`."
                 )
 
                 try:
@@ -3306,7 +3306,7 @@ def render_public_vendor_proposal_submission():
         with st.form(key="solicited_tender_form"):
             tender_id = st.text_input(
                 "Tender Reference ID *", 
-                placeholder="e.g., vectra-2026-TND-004",
+                placeholder="e.g., NexusVault-2026-TND-004",
                 help="Required: Enter the official Tender ID published by the organization."
             )
             
