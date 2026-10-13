@@ -1,4 +1,4 @@
-﻿import os
+import os
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
@@ -190,7 +190,7 @@ def validate_form_submission(
 
 def render_submission_validation_errors(missing_items):
     """Show the standard denial message and an itemized missing-item list."""
-    st.error("ðŸš« Submission Denied: Mandatory fields or documents are missing.")
+    st.error("š« Submission Denied: Mandatory fields or documents are missing.")
     st.markdown(
         "Required items missing:\n"
         + "\n".join(f"- {item}" for item in missing_items)
@@ -329,7 +329,7 @@ def init_session_state():
         "developer_org_active": False,
         "is_subscribed": False,
         "portal_branding_title": (
-            "VECTRA DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal
+            "VECTRA DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal"
         ),
         "proposal_data": None,
         "ai_summary": None,
@@ -529,7 +529,7 @@ def apply_sharp_typography():
 
 def main():
     st.set_page_config(
-        page_title="VECTRA DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal
+        page_title="VECTRA DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal",
         layout="wide",
     )
     init_session_state()
@@ -548,10 +548,10 @@ def render_animated_marquee():
         str(
             st.session_state.get(
                 "portal_branding_title",
-                "VECTRA DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal
+                "VECTRA DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal"
             )
         ).strip()
-        or "VECTRA DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal
+        or "VECTRA DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal"
     )
     st.markdown(
         f"""
@@ -692,7 +692,7 @@ try:
         risk_label = str(kyb_data.get("risk_label", "Not assessed"))
         status_label = str(kyb_data.get("company_status", "UNKNOWN"))
         critical_label = (
-            "ðŸš¨ CRITICAL RISK: CAC Status INACTIVE"
+            "š¨ CRITICAL RISK: CAC Status INACTIVE"
             if critical_risk
             else "No inactive company status detected"
         )
@@ -1807,8 +1807,8 @@ Proposal document text:
         )
         tab_solicited, tab_unsolicited = st.tabs(
             [
-                "ðŸ“‹ Solicited Call for Tender",
-                "ðŸ’¡ Unsolicited Proposal Submission",
+                "‹ Solicited Call for Tender",
+                "¡ Unsolicited Proposal Submission",
             ]
         )
 
@@ -3202,7 +3202,7 @@ Proposal document text:
                             str(selected_proposal["filename"] or "proposal")
                         ).stem
                         st.download_button(
-                            "ðŸ“„ Download 1-Click Executive Audit Report (PDF)",
+                            "„ Download 1-Click Executive Audit Report (PDF)",
                             data=generate_pdf_audit_report(
                                 proposal_data,
                                 stored_kyb_data,
