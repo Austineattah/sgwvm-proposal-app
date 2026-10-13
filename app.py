@@ -329,7 +329,7 @@ def init_session_state():
         "developer_org_active": False,
         "is_subscribed": False,
         "portal_branding_title": (
-            "vectra TECHNOLOGIES AI Enterprise Proposal Intake Portal"
+            "VECTRA DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal
         ),
         "proposal_data": None,
         "ai_summary": None,
@@ -529,7 +529,7 @@ def apply_sharp_typography():
 
 def main():
     st.set_page_config(
-        page_title="vectra TECHNOLOGIES AI Enterprise Proposal Intake Portal",
+        page_title="VECTRA DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal
         layout="wide",
     )
     init_session_state()
@@ -548,10 +548,10 @@ def render_animated_marquee():
         str(
             st.session_state.get(
                 "portal_branding_title",
-                "vectra TECHNOLOGIES AI Enterprise Proposal Intake Portal",
+                "VECTRA DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal
             )
         ).strip()
-        or "vectra TECHNOLOGIES AI Enterprise Proposal Intake Portal"
+        or "VECTRA DIGITAL TECHNOLOGIES Super Intelligence & Agentic AI Enterprise Proposal Intake Portal
     )
     st.markdown(
         f"""
