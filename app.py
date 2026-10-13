@@ -3657,3 +3657,20 @@ if uploaded_file is not None:
     # Proceed safely to AI extraction and database persistence...
 
 
+
+
+
+def render_confidentiality_trust_panel():
+    st.markdown(
+        """
+        <div style="background-color: #f8f9fa; border-left: 4px solid #008751; padding: 15px; border-radius: 4px; margin-bottom: 20px;">
+            <h4 style="color: #008751; margin: 0 0 5px 0;">🔒 Enterprise Data Confidentiality & Sovereignty Assurance</h4>
+            <p style="margin: 0; font-size: 0.9rem; color: #333;">
+                <b>Infrastructure:</b> Hosted on sovereign Nigerian Cloud (Galaxy Cloud Platform / GxCP).<br>
+                <b>Data Protection:</b> Strict adherence to the <b>Nigeria Data Protection Act (NDPA)</b>.<br>
+                <b>Security:</b> End-to-end TLS 1.3 encryption, immutable audit logging, and role-based access control.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
