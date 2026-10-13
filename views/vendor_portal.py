@@ -56,3 +56,4 @@ def render():
                 notifications.send_submission_acknowledgement(email, phone, company_name, project_title, proposal_id)
 
                 st.success(f"Proposal successfully submitted! Reference ID: #{proposal_id}. Automated email and SMS acknowledgements have been dispatched.")
+
