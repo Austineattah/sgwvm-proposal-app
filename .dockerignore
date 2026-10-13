@@ -1,0 +1,13 @@
+﻿venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git
+.gitignore
+.env
+.vscode/
+run_update.py
+fix_*.py
+clean_emojis.py
+inspect_*.py

@@ -1,0 +1,14 @@
+﻿version: '3.8'
+services:
+  vectra-proposal-portal:
+    build: .
+    image: vectra-proposal-portal:latest
+    container_name: vectra_proposal_intake_portal
+    restart: always
+    ports:
+      - "8502:8502"
+    environment:
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_SERVER_ENABLE_CORS=false
+      - STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=true
+      - GBB_GXCP_ENVIRONMENT=production
