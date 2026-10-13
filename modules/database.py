@@ -58,3 +58,4 @@ def update_proposal_status(proposal_id, new_status):
     cursor.execute('UPDATE proposals SET status = ? WHERE id = ?', (new_status, proposal_id))
     conn.commit()
     conn.close()
+
