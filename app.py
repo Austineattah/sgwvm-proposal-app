@@ -1637,6 +1637,25 @@ Proposal document text:
         subscription_checker=check_organization_subscription,
     )
     if persona == "Developer Master Access":
+        # --- EXECUTIVE RECORD MANAGEMENT: PURGE BY REFERENCE ---
+        if persona in ["Developer Master Access", "Executive Control Hub"]:
+            st.markdown("### 🗄️ Executive Record Management")
+            st.markdown("Securely clear obsolete proposals by entering their official reference number.")
+        
+            purge_ref = st.text_input("Enter Proposal Reference Number to Purge", key="input_purge_proposal_ref")
+            if st.button("🗑️ Clear / Archive Proposal Record", key="btn_execute_purge_proposal"):
+                if purge_ref.strip():
+                    proposals_list = APP_STATE.get("proposals", [])
+                    initial_count = len(proposals_list)
+                    updated_proposals = [p for p in proposals_list if p.get("reference", "") != purge_ref.strip()]
+                
+                    if len(updated_proposals) < initial_count:
+                        APP_STATE["proposals"] = updated_proposals
+                        st.success(f"SUCCESS: Proposal reference '{purge_ref.strip()}' successfully cleared.")
+                    else:
+                        st.warning(f"No active proposal record found matching reference: '{purge_ref.strip()}'.")
+                else:
+                    st.error("Please enter a valid proposal reference number.")
         with st.sidebar.expander(
             "Developer Workspace Controls",
             expanded=False,
@@ -2600,7 +2619,7 @@ Proposal document text:
                 else:
                     st.dataframe(
                         submissions_df,
-                        use_container_width=True,
+                        width='stretch',
                         hide_index=True,
                     )
             except Exception as exc:
@@ -3330,7 +3349,7 @@ def render_public_vendor_proposal_submission():
                 help="Upload priced financial schedule."
             )
 
-            submit_solicited = st.form_submit_button("Submit Formal Tender Bid", use_container_width=True)
+            submit_solicited = st.form_submit_button("Submit Formal Tender Bid", width='stretch')
 
             if submit_solicited:
                 if not all([tender_id, company_name, contact_email, cac_number, phone_number, tech_doc, boq_doc]):
@@ -3392,7 +3411,7 @@ def render_public_vendor_proposal_submission():
                 help="Mandatory PDF document. The AI summarization module reads this file to generate proposal summaries."
             )
 
-            submit_unsolicited = st.form_submit_button("Submit Unsolicited Proposal for AI Processing", use_container_width=True)
+            submit_unsolicited = st.form_submit_button("Submit Unsolicited Proposal for AI Processing", width='stretch')
 
             if submit_unsolicited:
                 if (
