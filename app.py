@@ -1849,26 +1849,37 @@ Proposal document text:
             """
             <style>
             div[data-baseweb="tab-list"] {
-                gap: 8px !important;
+                gap: 10px !important;
+                background-color: transparent !important;
             }
             button[data-baseweb="tab"] {
                 font-size: 14px !important;
-                font-weight: 600 !important;
-                padding: 10px 22px !important;
-                border-radius: 6px !important;
-                background-color: #f8f9fa !important;
-                border: 1px solid #dee2e6 !important;
-                transition: all 0.2s ease-in-out !important;
+                font-weight: 700 !important;
+                padding: 12px 24px !important;
+                border-radius: 8px !important;
+                background-color: #1a1f2c !important;
+                color: #e2e8f0 !important;
+                border: 1px solid #334155 !important;
+                transition: all 0.25s ease-in-out !important;
+            }
+            button[data-baseweb="tab"] p {
+                font-size: 14px !important;
+                font-weight: 700 !important;
+                color: #e2e8f0 !important;
             }
             button[data-baseweb="tab"]:hover {
-                background-color: #e9ecef !important;
-                border-color: #ced4da !important;
+                background-color: #2d3748 !important;
+                border-color: #0d6efd !important;
+                color: #ffffff !important;
             }
             button[data-baseweb="tab"][aria-selected="true"] {
                 background-color: #0d6efd !important;
                 color: #ffffff !important;
-                border-color: #0d6efd !important;
-                box-shadow: 0px 3px 8px rgba(13, 110, 253, 0.25) !important;
+                border: 1px solid #3b82f6 !important;
+                box-shadow: 0px 4px 12px rgba(13, 110, 253, 0.45) !important;
+            }
+            button[data-baseweb="tab"][aria-selected="true"] p {
+                color: #ffffff !important;
             }
             </style>
             """,
