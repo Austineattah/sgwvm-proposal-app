@@ -1,4 +1,4 @@
-import os
+﻿import os
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
@@ -1412,9 +1412,8 @@ Proposal document text:
                         st.session_state["show_wizard"] = False
                         st.session_state["setup_completed"] = True
                         st.session_state["organization_id"] = updated_config["org_id"]
-                        st.session_state["active_org_status"] = (
-                            "PENDING_DEVELOPER_ACTIVATION"
-                        )
+                        st.session_state["active_org_status"] = "ACTIVE_ORGANIZATION_ADMINISTRATOR"
+                        st.session_state["workspace_admin_active"] = True
                     except (OSError, RuntimeError, SQLAlchemyError) as exc:
                         st.error(f"Could not save tenant settings: {exc}")
                     else:
@@ -1630,15 +1629,41 @@ Proposal document text:
         )
 
     st.sidebar.markdown("### NEXUSVAULT Technology")
+
+    # --- ARCHITECTURAL LIFECYCLE GUARD FOR NAVIGATION HUB ---
+    if st.session_state.get("show_wizard", False):
+        st.sidebar.info("🧭 **Navigation Hub**\n\nComplete Onboarding Wizard to unlock modules.")
+    else:
+        # --- NEXUSVAULT SIDEBAR BUTTON NAVIGATION HUB ---
+        if "active_module" not in APP_STATE:
+            APP_STATE["active_module"] = "Overview Dashboard"
+    
+        st.sidebar.markdown("### 🧭 Navigation Hub")
+        
+        sidebar_modules = [
+            ("📊 Overview Dashboard", "Overview Dashboard"),
+            ("🔍 KYB & Identity Triage", "KYB Triage"),
+            ("🗄️ Executive Records", "Record Management"),
+            ("⚙️ System Settings", "System Settings")
+        ]
+        
+        for label, mod_key in sidebar_modules:
+            is_active = APP_STATE.get("active_module") == mod_key
+            btn_type = "primary" if is_active else "secondary"
+            if st.sidebar.button(label, type=btn_type, key=f"nav_mod_{mod_key}"):
+                APP_STATE["active_module"] = mod_key
+                st.rerun()
+                
+        st.sidebar.markdown("---")
     st.sidebar.caption("AI Enterprise Proposal Intake Portal")
     render_pending_vendor_acknowledgments()
     persona, portal_view, submit_proposal_mode = render_master_router(
         admin_authenticated=APP_STATE.get("admin_logged_in", False),
         subscription_checker=check_organization_subscription,
     )
-    if persona == "Developer Master Access":
-        # --- EXECUTIVE RECORD MANAGEMENT: PURGE BY REFERENCE ---
-        if persona in ["Developer Master Access", "Executive Control Hub"]:
+    if persona in ["Developer Master Access", "Executive Control Hub"] and not APP_STATE.get("show_wizard", False):
+        if APP_STATE.get("active_module") == "Record Management":
+            # --- EXECUTIVE RECORD MANAGEMENT: PURGE BY REFERENCE ---
             st.markdown("### 🗄️ Executive Record Management")
             st.markdown("Securely clear obsolete proposals by entering their official reference number.")
         
@@ -1819,601 +1844,42 @@ Proposal document text:
         if public_logo_path.is_file():
             st.image(str(public_logo_path), width=150)
         render_portal_header()
-        st.header("Public Vendor Proposal Submission")
+        # Custom Button Tab CSS
         st.markdown(
-            "Choose the tender pathway that matches your proposal. All starred "
-            "details and required documents must be provided."
-        )
-        tab_solicited, tab_unsolicited = st.tabs(
-            [
-                "‹ Solicited Call for Tender",
-                "¡ Unsolicited Proposal Submission",
-            ]
-        )
-
-        with tab_solicited:
-            with st.form("solicited_tender_submission_form"):
-                tender_reference = st.text_input(
-                    "Active Tender Reference Number / ID*",
-                    help="Enter a tender reference issued for an active call for tender.",
-                    key="solicited_tender_reference",
-                )
-                vendor_name = st.text_input(
-                    "Vendor Name*",
-                    key="solicited_vendor_name",
-                )
-                vendor_email = st.text_input(
-                    "Email*",
-                    key="solicited_vendor_email",
-                )
-                vendor_phone = st.text_input(
-                    "Phone*",
-                    key="solicited_vendor_phone",
-                )
-                vendor_cac = st.text_input(
-                    "CAC Number*",
-                    key="solicited_vendor_cac",
-                )
-                financial_bid = st.number_input(
-                    "Financial Bid Amount (â‚¦)*",
-                    min_value=0.0,
-                    value=None,
-                    step=1000.0,
-                    placeholder="Enter bid amount",
-                    key="solicited_financial_bid",
-                )
-                technical_compliance = st.file_uploader(
-                    "Technical Compliance Document (PDF)*",
-                    type=["pdf"],
-                    key="solicited_technical_compliance",
-                )
-                tax_clearance = st.file_uploader(
-                    "Tax Clearance Certificate (PDF)*",
-                    type=["pdf"],
-                    key="solicited_tax_clearance",
-                )
-                bill_of_quantities = st.text_area(
-                    "Detailed Bill of Quantities (BoQ)*",
-                    key="solicited_bill_of_quantities",
-                )
-                solicited_submitted = st.form_submit_button(
-                    "Submit Solicited Tender",
-                    type="primary",
-                )
-
-            if solicited_submitted:
-                missing_items = validate_form_submission(
-                    {
-                        "Active Tender Reference Number / ID": tender_reference,
-                        "Vendor Name": vendor_name,
-                        "Email": vendor_email,
-                        "Phone": vendor_phone,
-                        "CAC Number": vendor_cac,
-                        "Financial Bid Amount": financial_bid,
-                        "Detailed Bill of Quantities (BoQ)": bill_of_quantities,
-                    },
-                    {
-                        "Technical Compliance Document (PDF)": technical_compliance,
-                        "Tax Clearance Certificate (PDF)": tax_clearance,
-                    },
-                )
-                if financial_bid is not None and financial_bid <= 0:
-                    missing_items.append("Financial Bid Amount must be greater than zero")
-                if missing_items:
-                    render_submission_validation_errors(missing_items)
-                elif not re.fullmatch(
-                    r"[^@\s]+@[^@\s]+\.[^@\s]+",
-                    vendor_email.strip(),
-                ):
-                    st.error("Enter a valid vendor email address.")
-                else:
-                    persist_vendor_path_submission(
-                        proposal_type="SOLICITED",
-                        vendor_name=vendor_name,
-                        email=vendor_email,
-                        phone=vendor_phone,
-                        cac_number=vendor_cac,
-                        category="Solicited Call for Tender",
-                        budget=financial_bid,
-                        summary=f"Response to tender {tender_reference.strip()}",
-                        details={
-                            "tender_reference": tender_reference.strip(),
-                            "bill_of_quantities": bill_of_quantities.strip(),
-                        },
-                        uploaded_documents={
-                            "Technical Compliance Document": technical_compliance,
-                            "Tax Clearance Certificate": tax_clearance,
-                        },
-                    )
-
-        with tab_unsolicited:
-            with st.form("unsolicited_proposal_submission_form"):
-                legal_company_name = st.text_input(
-                    "Company Legal Name*",
-                    key="unsolicited_company_name",
-                )
-                contact_person_email = st.text_input(
-                    "Contact Person Email*",
-                    key="unsolicited_contact_email",
-                )
-                unsolicited_phone = st.text_input(
-                    "Phone Number*",
-                    key="unsolicited_phone",
-                )
-                unsolicited_cac = st.text_input(
-                    "CAC Registration Number (RC/BN)*",
-                    key="unsolicited_cac",
-                )
-                service_category = st.selectbox(
-                    "Category of Proposed Services*",
-                    [
-                        "Select a category...",
-                        "IT & Software",
-                        "Consulting",
-                        "Procurement",
-                        "Infrastructure",
-                        "HSE & Environmental Compliance",
-                        "Other",
-                    ],
-                    key="unsolicited_service_category",
-                )
-                executive_pitch = st.text_area(
-                    "Executive Summary / Pitch*",
-                    key="unsolicited_executive_pitch",
-                )
-                value_proposition = st.text_area(
-                    "Key Value Proposition*",
-                    key="unsolicited_value_proposition",
-                )
-                concept_note = st.file_uploader(
-                    "Concept Note / Solution Brief (PDF)*",
-                    type=["pdf"],
-                    key="unsolicited_concept_note",
-                )
-                unsolicited_submitted = st.form_submit_button(
-                    "Submit Unsolicited Proposal",
-                    type="primary",
-                )
-
-            if unsolicited_submitted:
-                missing_items = validate_form_submission(
-                    {
-                        "Company Legal Name": legal_company_name,
-                        "Contact Person Email": contact_person_email,
-                        "Phone Number": unsolicited_phone,
-                        "CAC Registration Number (RC/BN)": unsolicited_cac,
-                        "Category of Proposed Services": (
-                            ""
-                            if service_category == "Select a category..."
-                            else service_category
-                        ),
-                        "Executive Summary / Pitch": executive_pitch,
-                        "Key Value Proposition": value_proposition,
-                    },
-                    {"Concept Note / Solution Brief (PDF)": concept_note},
-                )
-                if missing_items:
-                    render_submission_validation_errors(missing_items)
-                elif not re.fullmatch(
-                    r"[^@\s]+@[^@\s]+\.[^@\s]+",
-                    contact_person_email.strip(),
-                ):
-                    st.error("Enter a valid contact person email address.")
-                else:
-                    persist_vendor_path_submission(
-                        proposal_type="UNSOLICITED",
-                        vendor_name=legal_company_name,
-                        email=contact_person_email,
-                        phone=unsolicited_phone,
-                        cac_number=unsolicited_cac,
-                        category=service_category,
-                        budget=None,
-                        summary=executive_pitch,
-                        details={
-                            "key_value_proposition": value_proposition.strip(),
-                        },
-                        uploaded_documents={
-                            "Concept Note / Solution Brief": concept_note,
-                        },
-                    )
-        st.stop()
-
-    if portal_view == "Legacy Public Vendor Portal":
-        public_logo_path = ROOT_DIR / ORG_CONFIG["logo_path"]
-        if public_logo_path.is_file():
-            st.image(str(public_logo_path), width=150)
-        render_portal_header()
-        st.header("Public Vendor Proposal Submission")
-        st.markdown(
-            "Submit your proposal details and upload a PDF. This vendor portal is open "
-            "to the public without login."
+            """
+            <style>
+            div[data-baseweb="tab-list"] {
+                gap: 8px !important;
+            }
+            button[data-baseweb="tab"] {
+                font-size: 14px !important;
+                font-weight: 600 !important;
+                padding: 10px 22px !important;
+                border-radius: 6px !important;
+                background-color: #f8f9fa !important;
+                border: 1px solid #dee2e6 !important;
+                transition: all 0.2s ease-in-out !important;
+            }
+            button[data-baseweb="tab"]:hover {
+                background-color: #e9ecef !important;
+                border-color: #ced4da !important;
+            }
+            button[data-baseweb="tab"][aria-selected="true"] {
+                background-color: #0d6efd !important;
+                color: #ffffff !important;
+                border-color: #0d6efd !important;
+                box-shadow: 0px 3px 8px rgba(13, 110, 253, 0.25) !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
         )
 
-        with st.form(key="vendor_proposal_form"):
-            company_name = st.text_input("Organisation Name*", key="draft_company_name")
-            cac_number = st.text_input("CAC Number*", key="draft_cac_number")
-            proposal_title = st.text_input("Title of Proposal*", key="draft_proposal_title")
-            contact_email = st.text_input("Contact Email*", key="draft_email")
-            contact_phone = st.text_input("Phone*", key="draft_phone")
-            company_address = st.text_area("Address*", height=100, key="draft_address")
-            budget_text = st.text_input(
-                "Optional Budget (â‚¦)",
-                placeholder="Leave blank if not applicable",
-                key="draft_optional_budget",
-            )
-            proposed_timeline = st.text_input(
-                "Proposed Timeline (optional)",
-                key="draft_optional_proposed_timeline",
-            )
-            technical_proposal = st.file_uploader(
-                "Technical Proposal* (PDF)",
-                type=["pdf"],
-                help="Only PDF files are accepted for public vendor submissions.",
-                key="draft_technical_proposal",
-            )
-            financial_proposal = st.file_uploader(
-                "Financial Proposal*",
-                type=["pdf", "docx", "xlsx", "xls"],
-                key="draft_financial_proposal",
-            )
-            cac_certificate = st.file_uploader(
-                "CAC Certificate*",
-                type=["pdf", "png", "jpg", "jpeg"],
-                key="draft_cac_certificate",
-            )
-            tin_certificate = st.file_uploader(
-                "TIN Certificate*",
-                type=["pdf", "png", "jpg", "jpeg"],
-                key="draft_tin_certificate",
-            )
-            subcontractor_notes = st.text_area(
-                "Subcontractor Notes (optional)",
-                key="draft_optional_subcontractor_notes",
-            )
-            extra_certifications = st.file_uploader(
-                "Extra Certifications (optional)",
-                type=["pdf", "png", "jpg", "jpeg"],
-                key="draft_optional_extra_certifications",
-            )
-            company_logo_upload = render_logo_uploader(
-                label="Company Logo Upload (optional)",
-                key="draft_company_logo_upload",
-            )
-            submitted = st.form_submit_button(
-                "Submit Proposal", key="public_vendor_submit_btn"
-            )
+        tab_solicited, tab_unsolicited = st.tabs([
+            "‹ Solicited Call for Tender",
+            "¡ Unsolicited Proposal Submission"
+        ])
 
-        if submitted:
-            missing_items = validate_form_submission(
-                {
-                    "Organisation Name": company_name,
-                    "CAC Number": cac_number,
-                    "Proposal Title": proposal_title,
-                    "Contact Email": contact_email,
-                    "Phone": contact_phone,
-                    "Address": company_address,
-                    "Budget (optional)": budget_text,
-                    "Proposed Timeline (optional)": proposed_timeline,
-                    "Subcontractor Notes (optional)": subcontractor_notes,
-                },
-                {
-                    "Technical Proposal": technical_proposal,
-                    "Financial Proposal": financial_proposal,
-                    "CAC Certificate": cac_certificate,
-                    "TIN Certificate": tin_certificate,
-                    "Extra Certifications (optional)": extra_certifications,
-                    "Company Logo (optional)": company_logo_upload,
-                },
-            )
-            if missing_items:
-                render_submission_validation_errors(missing_items)
-            else:
-                uploaded_pdf = technical_proposal
-                try:
-                    budget = (
-                        float(budget_text.replace(",", "").strip())
-                        if budget_text.strip()
-                        else None
-                    )
-                    if budget is not None and budget < 0:
-                        raise ValueError
-                except ValueError:
-                    st.warning("Please enter a valid non-negative budget.")
-                else:
-                    PROPOSAL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-                    try:
-                        safe_upload_name, pdf_bytes = validate_pdf_upload(uploaded_pdf)
-                    except ValueError as exc:
-                        st.warning(str(exc))
-                        st.stop()
-                    try:
-                        company_logo_base64 = process_company_logo(company_logo_upload)
-                    except ValueError as exc:
-                        st.warning(str(exc))
-                        st.stop()
-                    safe_company_name = secure_filename(company_name) or "vendor"
-                    pdf_path = PROPOSAL_UPLOAD_DIR / (
-                        f"{safe_company_name}_{uuid.uuid4().hex}_"
-                        f"{Path(safe_upload_name).stem}.pdf"
-                    )
-                    supporting_document_paths = {}
-
-                    try:
-                        supporting_document_paths = save_supporting_documents(
-                            {
-                                "Financial Proposal": financial_proposal,
-                                "CAC Certificate": cac_certificate,
-                                "TIN Certificate": tin_certificate,
-                                **(
-                                    {"Extra Certifications": extra_certifications}
-                                    if extra_certifications is not None
-                                    else {}
-                                ),
-                            },
-                            company_name,
-                        )
-                        supporting_document_metadata = {
-                            "attachments": supporting_document_paths,
-                            "subcontractor_notes": subcontractor_notes,
-                        }
-                        pdf_path.write_bytes(pdf_bytes)
-                        try:
-                            extracted_text = extract_uploaded_text_with_progress(
-                                uploaded_pdf
-                            )
-                            extraction_warning = ""
-                        except Exception as exc:
-                            extracted_text = ""
-                            extraction_warning = f"Proposal text extraction failed: {exc}"
-                        brief_data = generate_ai_executive_brief(
-                            extracted_pdf_text=extracted_text,
-                            company_name=company_name,
-                            rc_number=cac_number,
-                            scope=proposal_title,
-                            proposed_timeline=proposed_timeline,
-                        )
-                        verified_rc_number = brief_data["rc_number"]
-                        if verified_rc_number.upper() != cac_number.strip().upper():
-                            st.warning(
-                                "The RC number extracted from the proposal differs from "
-                                "the entered CAC number; verification and history checks "
-                                "will use the extracted number."
-                            )
-                        kyb_data = verify_company_kyb(verified_rc_number)
-                        brief_data = attach_kyb_result_to_brief(
-                            brief_data,
-                            kyb_data,
-                        )
-                        audit_record = build_audit_record(brief_data, kyb_data)
-                        kyb_status = get_verification_status_from_kyb(kyb_data)
-                        past_contract_count = get_past_contract_history(
-                            verified_rc_number
-                        )
-                        tracking_code = generate_unique_tracking_code("SUB")
-                        verification_label = get_cac_verification_label(kyb_status)
-                        initialize_database()
-                        proposal_id = insert_proposal_record(
-                            tracking_code=tracking_code,
-                            vendor_name=company_name.strip(),
-                            email=contact_email.strip(),
-                            phone_number=contact_phone.strip(),
-                            category="Public Vendor Submission",
-                            cac_number=verified_rc_number,
-                            ai_summary=brief_data["summary"],
-                            budget=budget,
-                            is_flagged=brief_data["risk_flagged"],
-                            filename=safe_upload_name,
-                            feasibility_rating=audit_record["feasibility_rating"],
-                            risk_score=audit_record["risk_score"],
-                            kyb_data=kyb_data,
-                            legal_risk_flags=audit_record["legal_risk_flags"],
-                            compliance_gaps=audit_record["compliance_gaps"],
-                            raw_ai_json=audit_record["raw_ai_json"],
-                            cac_verification_status=verification_label,
-                            past_contract_count=past_contract_count,
-                            company_logo_base64=company_logo_base64,
-                        )
-                        insert_vendor_submission(
-                            company_name=company_name.strip(),
-                            cac_number=verified_rc_number,
-                            proposal_title=proposal_title.strip(),
-                            email=contact_email.strip(),
-                            phone=contact_phone.strip(),
-                            address=company_address.strip(),
-                            budget=budget,
-                            pdf_path=pdf_path.relative_to(ROOT_DIR),
-                            submission_channel="Digital",
-                            tracking_code=tracking_code,
-                            company_logo_base64=company_logo_base64,
-                            supporting_documents=supporting_document_metadata,
-                        )
-                        invalidate_database_previews()
-                        dispatch_intake_notifications(
-                            email=contact_email.strip(),
-                            phone=contact_phone.strip(),
-                            company_name=company_name.strip(),
-                            tracking_code=tracking_code,
-                        )
-                        queue_vendor_acknowledgment(
-                            contact_email.strip(),
-                            company_name.strip(),
-                            proposal_id,
-                        )
-                    except Exception as exc:
-                        if pdf_path.exists():
-                            pdf_path.unlink()
-                        for relative_path in supporting_document_paths.values():
-                            supporting_path = ROOT_DIR / relative_path
-                            if supporting_path.exists():
-                                supporting_path.unlink()
-                        st.error(f"Failed to save your proposal: {exc}")
-                    else:
-                        if extraction_warning:
-                            st.warning(extraction_warning)
-                        st.success(
-                            f"Your submission is successful. Tracking code: {tracking_code}"
-                        )
-                        st.caption(f"CAC status: {verification_label}")
-                        render_ai_executive_brief(brief_data, safe_upload_name)
-        st.stop()
-
-    if portal_view in {"Internal Admin Portal", "Subscription Management"}:
-        if not APP_STATE.get("admin_logged_in", False):
-            admin_password_hash = get_runtime_secret("ADMIN_PASSWORD_HASH")
-            if not admin_password_hash:
-                st.sidebar.warning(
-                    "Admin access is unavailable until ADMIN_PASSWORD_HASH is configured "
-                    "in Streamlit secrets or the environment."
-                )
-                st.stop()
-            admin_password = st.sidebar.text_input(
-                "Admin password",
-                type="password",
-                help="Enter the internal admin password to unlock proposal review and AI tools.",
-                key="admin_password",
-            )
-            if admin_password:
-                try:
-                    password_matches = bcrypt.checkpw(
-                        admin_password.encode("utf-8"),
-                        admin_password_hash.encode("utf-8"),
-                    )
-                except (TypeError, ValueError):
-                    st.sidebar.error(
-                        "ADMIN_PASSWORD_HASH must contain a valid bcrypt password hash."
-                    )
-                    st.stop()
-                if password_matches:
-                    mark_admin_logged_in()
-                    st.rerun()
-                else:
-                    st.warning("Incorrect admin password. Please try again.")
-            else:
-                st.warning(
-                    "Access restricted to the internal admin portal. Please enter the admin password."
-                )
-            st.stop()
-
-        st.sidebar.success("Admin portal unlocked.")
-        st.sidebar.button(
-            "Log out",
-            key="admin_logout",
-            on_click=clear_admin_session,
-        )
-
-        if portal_view == "Subscription Management":
-            st.title("Organization Subscription Management")
-            st.caption(
-                "Activate a subscription only after confirming payment with the "
-                "configured payment provider. The organization must already exist "
-                "in the PostgreSQL organizations table."
-            )
-            with st.form("organization_subscription_activation"):
-                organization_id = st.text_input("Organization ID")
-                default_plan = ORG_CONFIG.get("subscription_plan")
-                plan_index = (
-                    AVAILABLE_SUBSCRIPTION_PLANS.index(default_plan)
-                    if default_plan in AVAILABLE_SUBSCRIPTION_PLANS
-                    else 0
-                )
-                subscription_plan = st.selectbox(
-                    "Subscription package",
-                    AVAILABLE_SUBSCRIPTION_PLANS,
-                    index=plan_index,
-                )
-                payment_confirmed = st.checkbox(
-                    "I have verified successful payment outside this portal."
-                )
-                activate_subscription = st.form_submit_button(
-                    "Activate subscription",
-                    type="primary",
-                )
-
-            if activate_subscription:
-                if not payment_confirmed:
-                    st.error("Verify payment before activating the subscription.")
-                elif not organization_id.strip():
-                    st.error("Enter the organization ID.")
-                else:
-                    success, message = complete_organization_subscription(
-                        organization_id.strip(),
-                        subscription_plan,
-                    )
-                    if success:
-                        st.success(message)
-                    else:
-                        st.error(message)
-            st.stop()
-
-        # =========================================================================
-        # DATABASE INSERT ROUTINE (INTEGRATED & HARDENED)
-        # =========================================================================
-        def insert_proposal(
-            tracking_code,
-            vendor_name,
-            email,
-            phone_number,
-            category,
-            cac_number,
-            ai_summary,
-            budget,
-            is_flagged,
-            status="Draft",
-            cac_verification_status="Not checked",
-            past_contract_count=0,
-            company_logo_base64="",
-            filename="",
-            feasibility_rating="Not assessed",
-            risk_score=None,
-            kyb_data=None,
-            legal_risk_flags=None,
-            compliance_gaps=None,
-            raw_ai_json=None,
-        ):
-            return insert_proposal_record(
-                tracking_code=tracking_code,
-                vendor_name=vendor_name,
-                email=email,
-                phone_number=phone_number,
-                category=category,
-                cac_number=cac_number,
-                ai_summary=ai_summary,
-                budget=budget,
-                is_flagged=is_flagged,
-                status=status,
-                cac_verification_status=cac_verification_status,
-                past_contract_count=past_contract_count,
-                company_logo_base64=company_logo_base64,
-                filename=filename,
-                feasibility_rating=feasibility_rating,
-                risk_score=risk_score,
-                kyb_data=kyb_data,
-                legal_risk_flags=legal_risk_flags,
-                compliance_gaps=compliance_gaps,
-                raw_ai_json=raw_ai_json,
-            )
-
-        # 1. Path Resolution
-        ROOT_DIR_STR = os.path.abspath(os.path.dirname(__file__))
-        if ROOT_DIR_STR not in sys.path:
-            sys.path.insert(0, ROOT_DIR_STR)
-
-        # 2. Local Module Imports (Backend helper routines)
-        from styles import render_header
-
-        logo_file = (
-            str(ROOT_DIR / ORG_CONFIG["logo_path"])
-            if (ROOT_DIR / ORG_CONFIG["logo_path"]).is_file()
-            else "https://via.placeholder.com/250x80.png?text=PORTAL+LOGO"
-        )
-        render_header(logo_file, "NEXUSVAULT Technology")
-
-        if st.button("Launch Client Setup Wizard", key="launch_setup_wizard_header"):
-            st.session_state["show_wizard"] = True
-            render_setup_wizard()
-            st.stop()
-
-        # Opening app display title
         render_portal_header()
         st.markdown("""
         This system streamlines corporate proposal submissions, performs automated **CAC/KYB verification**,
