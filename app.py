@@ -2,12 +2,14 @@
 import base64
 import pandas as pd
 import io
+import random
 from datetime import datetime
 from sector_logic import render_sector_onboarding_wizard
 import sector_mapper as mapper
 import database as db
 import qr_generator as qrg
 import dispatcher as disp
+import ocr_parser as ocr
 
 # Page Configuration
 st.set_page_config(
@@ -72,7 +74,6 @@ else:
     sub_tier = st.session_state.get("sub_package", "Enterprise Sovereign Tier")
     portal_heading = st.session_state.get("custom_portal_heading", "NEXUSVAULT SECURE WORKSPACE")
 
-    # Header with Logo Display
     col_hdr1, col_hdr2 = st.columns([4, 1])
     with col_hdr1:
         st.markdown(f"""
@@ -96,7 +97,6 @@ else:
                 </div>
             """, unsafe_allow_html=True)
 
-    # Sidebar Navigation & Settings
     with st.sidebar:
         st.markdown("### 🔐 Role Gateways")
         selected_role_view = st.radio(
@@ -122,6 +122,9 @@ else:
         st.markdown("---")
         st.markdown("### 🛠️ Quick Tools & Demo Data")
         if st.button("⚡ Load Representative Sample Proposals", use_container_width=True):
+            rand_suffix1 = random.randint(1000, 9999)
+            rand_suffix2 = random.randint(1000, 9999)
+            
             sample_records = [
                 {
                     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -134,7 +137,7 @@ else:
                     "title": "Solar Micro-Grid Power Deployment for Campus Facilities",
                     "target_officer": "director.facilities@entity.org",
                     "priority": "High Priority / Urgent Attention",
-                    "qr_ref": f"NV-QREF-{datetime.now().strftime('%Y%m%d')}-1092",
+                    "qr_ref": f"NV-QREF-{datetime.now().strftime('%Y%m%d')}-{rand_suffix1}",
                     "status": "Routed & Pending Review",
                     "kyb_status": "Verified Active (CAC)",
                     "score": 94.8,
@@ -143,7 +146,7 @@ else:
                 },
                 {
                     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "type": "Solicited Tender",
+                    "type": "Solicited Tender Response",
                     "vendor": "CloudTech Consortium",
                     "cac": "RC-993810",
                     "email": "contact@cloudtech.com",
@@ -152,7 +155,7 @@ else:
                     "title": "Enterprise Cloud Migration & Data Vault Architecture",
                     "target_officer": "director.it@entity.org",
                     "priority": "Executive Fast-Track",
-                    "qr_ref": f"NV-SOLICIT-{datetime.now().strftime('%Y%m%d')}-5521",
+                    "qr_ref": f"NV-SOLICIT-{datetime.now().strftime('%Y%m%d')}-{rand_suffix2}",
                     "status": "Solicited Audit Complete",
                     "kyb_status": "Pre-Qualified White-list (Full BPP/TCC/PENCOM Compliant)",
                     "score": 98.2,
@@ -162,7 +165,7 @@ else:
             ]
             for rec in sample_records:
                 db.save_proposal(rec)
-            st.success("✅ Sample institutional proposals loaded into database!")
+            st.success("✅ Sample institutional proposals loaded cleanly into database!")
             st.rerun()
 
         if st.button("🔒 Terminate Node Session", use_container_width=True):
@@ -175,7 +178,7 @@ else:
     # TIER 1: FRONT DESK OFFICER PORTAL (DUAL TAB)
     # ==========================================
     if st.session_state["active_user_role"] == "Front Desk (Proposal Intake & KYB)":
-        st.markdown("<h3 style='color: #ffffff;'>📥 Front Desk: Intake Gateway & Verification Engine</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='color: #ffffff;'>📥 Front Desk: Intake Gateway & Live OCR Extraction</h3>", unsafe_allow_html=True)
         
         tab_unsolicited, tab_solicited = st.tabs(["💡 Unsolicited Proposal Pitch Gate", "🏛️ Statutory Solicited Tender / RFP Submission Gate"])
 
@@ -212,17 +215,21 @@ else:
                     chk_bank = st.checkbox("Bank Reference Letter & Audited Financials", value=True)
                     chk_nda = st.checkbox("Non-Disclosure Agreement (NDA) & ISO Certs", value=True)
 
-                st.markdown("##### 📄 3. Physical Document Scanning & Upload")
+                st.markdown("##### 📄 3. Physical Document Scanning & Live OCR Ingestion")
                 scanned_pdf = st.file_uploader("Upload Scanned Proposal Document (PDF)", type=["pdf"])
 
-                btn_sub_unsol = st.form_submit_button("Verify Statutory Bundle, Issue QR Badge & Route Pitch", use_container_width=True)
+                btn_sub_unsol = st.form_submit_button("Execute Live OCR, Generate QR Badge & Route Pitch", use_container_width=True)
 
                 if btn_sub_unsol:
                     if not vendor_name or not cac_num or not vendor_email or not project_title or not target_officer or not scanned_pdf:
                         st.error("⚠️ Please complete all required fields and upload the scanned proposal PDF.")
                     else:
-                        with st.spinner("🔄 Processing statutory verification, generating QR pass, and dispatching alerts..."):
-                            qr_ref_id = f"NV-QREF-{datetime.now().strftime('%Y%m%d')}-{abs(hash(vendor_name)) % 10000:04d}"
+                        with st.spinner("🔄 Executing live OCR text extraction, writing to DB, and generating QR badge..."):
+                            pdf_bytes = scanned_pdf.getvalue()
+                            ocr_result = ocr.extract_pdf_content(pdf_bytes)
+
+                            unique_hash = random.randint(1000, 9999)
+                            qr_ref_id = f"NV-QREF-{datetime.now().strftime('%Y%m%d%H%M%S')}-{unique_hash}"
                             
                             proposal_rec = {
                                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -238,9 +245,9 @@ else:
                                 "qr_ref": qr_ref_id,
                                 "status": "Routed & Pending Directorate Review",
                                 "kyb_status": "Verified Active (CAC & Statutory Clearances)",
-                                "score": 95.5,
-                                "estimated_cost": "₦42,000,000",
-                                "ai_summary": f"Unsolicited pitch evaluated under {entity_type} scope. Technical alignment strong."
+                                "score": 96.5,
+                                "estimated_cost": ocr_result["detected_cost"],
+                                "ai_summary": f"Live OCR Extracted ({ocr_result['page_count']} Pages): {ocr_result['summary']}"
                             }
                             
                             db.save_proposal(proposal_rec)
@@ -249,17 +256,17 @@ else:
                             disp.send_vendor_acknowledgement(vendor_email, vendor_phone, vendor_name, qr_ref_id, project_title)
                             disp.trigger_officer_priority_alert(target_officer, priority_lvl, qr_ref_id, project_title, vendor_name)
 
-                        st.success(f"🎉 Unsolicited Pitch Registered! **QR Reference ID: {qr_ref_id}**")
+                        st.success(f"🎉 Live OCR Extraction Complete & Pitch Registered! **QR Ref: {qr_ref_id}**")
+                        
                         col_r1, col_r2 = st.columns([1, 2])
                         with col_r1:
                             st.image(qr_img, width=160, caption=f"Printable Pass Badge ({qr_ref_id})")
                             st.download_button("💾 Download Badge PNG", data=qr_img, file_name=f"{qr_ref_id}_badge.png", mime="image/png")
                         with col_r2:
-                            st.info(f"✉️ **Automated Dispatch Log:**\n- Email Receipt sent to **{vendor_email}**\n- Priority Alert routed to officer **{target_officer}**")
+                            st.info(f"📄 **OCR Analysis Summary:**\n- Pages Processed: **{ocr_result['page_count']}**\n- Detected Cost/Budget: **{ocr_result['detected_cost']}**\n- Priority Alert dispatched to **{target_officer}**")
 
-        # TAB B: SOLICITED TENDERS (PROMINENT WARNING NOTICE ADDED HERE)
+        # TAB B: SOLICITED TENDERS
         with tab_solicited:
-            # Prominent Statutory Procurement Warning Box
             st.markdown("""
                 <div class="procurement-notice">
                     <h4 style="color: #f87171; margin: 0 0 8px 0; font-size: 16px; font-weight: 800;">
@@ -272,7 +279,6 @@ else:
             """, unsafe_allow_html=True)
 
             st.markdown("#### 🏛️ Statutory Government & Corporate Solicited Tender Bidding Gate")
-            st.markdown("Execute strict compliance audit against mandatory statutory certificates, financial audits, and technical experience forms.")
 
             with st.form("solicited_statutory_form"):
                 st.markdown("##### 🏢 1. RFP Call & Bidder Meta")
@@ -317,7 +323,7 @@ else:
                     s_affid = st.checkbox("Legal Sworn Affidavit (Non-Conviction & Non-Receivership)", value=True)
                     s_boq = st.checkbox("Tender Submission Form & Priced BOQ / Financial Proposal", value=True)
 
-                st.markdown("##### 📄 3. Formal Tender Package Upload")
+                st.markdown("##### 📄 3. Formal Tender Package Upload & OCR Audit")
                 solicited_pdf = st.file_uploader("Upload Scanned Tender Package (Technical & Financial Bids PDF)", type=["pdf"])
 
                 btn_sub_sol = st.form_submit_button("Audit BPP/Statutory Compliance, Issue Tender Pass & Register Bid", use_container_width=True)
@@ -328,7 +334,12 @@ else:
                     elif not (s_cac and s_tcc and s_pen and s_itf and s_nsitf and s_bpp and s_affid):
                         st.error("❌ Mandatory Statutory Disqualification: Missing essential BPP, TCC, PenCom, ITF, NSITF, or Sworn Affidavit clearances.")
                     else:
-                        solicited_qr = f"NV-SOLICIT-{datetime.now().strftime('%Y%m%d')}-{abs(hash(bidder_name)) % 10000:04d}"
+                        pdf_sol_bytes = solicited_pdf.getvalue()
+                        ocr_sol_res = ocr.extract_pdf_content(pdf_sol_bytes)
+
+                        unique_hash_sol = random.randint(1000, 9999)
+                        solicited_qr = f"NV-SOLICIT-{datetime.now().strftime('%Y%m%d%H%M%S')}-{unique_hash_sol}"
+                        
                         sol_record = {
                             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                             "type": "Solicited Tender Response",
@@ -344,8 +355,8 @@ else:
                             "status": "Solicited Tender Registered (Full Statutory Pass)",
                             "kyb_status": "Verified White-list (CAC, TCC, PenCom, ITF, NSITF, BPP)",
                             "score": 99.2,
-                            "estimated_cost": "Tender Budget Cap",
-                            "ai_summary": f"Full statutory procurement audit PASSED for {rfp_ref}. BPP IRR, 3-Yr TCC, PenCom, ITF, NSITF & Sworn Affidavit verified."
+                            "estimated_cost": ocr_sol_res["detected_cost"],
+                            "ai_summary": f"Full statutory procurement audit PASSED. OCR Text Analysis ({ocr_sol_res['page_count']} Pages): {ocr_sol_res['summary']}"
                         }
                         db.save_proposal(sol_record)
                         qr_img_sol = qrg.generate_qr_badge(solicited_qr, bidder_name, tender_title)
@@ -357,7 +368,7 @@ else:
                             st.image(qr_img_sol, width=150, caption=f"Tender Badge: {solicited_qr}")
                             st.download_button("💾 Download Tender Badge PNG", data=qr_img_sol, file_name=f"{solicited_qr}_badge.png", mime="image/png")
                         with col_sr2:
-                            st.info(f"✉️ **Tender Board Dispatch Summary:**\n- White-list status granted for **{bidder_name}**\n- Notification routed to Tender Committee (**{target_comm_email}**)")
+                            st.info(f"✉️ **Tender Board Dispatch Summary:**\n- White-list status granted for **{bidder_name}**\n- OCR Cost Extracted: **{ocr_sol_res['detected_cost']}**\n- Routed to Tender Committee (**{target_comm_email}**)")
 
     # ==========================================
     # TIER 2: STRATEGIC DIRECTORATE PORTAL
@@ -400,11 +411,11 @@ else:
                         st.image(qr_bytes, width=120)
 
                     st.markdown("---")
-                    st.markdown("#### 🧠 Agentic AI Financial & Need Appraisal")
+                    st.markdown("#### 🧠 Agentic AI Financial & Need Appraisal (Fed by Live Document OCR)")
                     st.markdown(f"""
                         <div class="card-box">
-                            <p><b>Executive Assessment:</b> {item['ai_summary']}</p>
-                            <p><b>Estimated Cost Implication:</b> {item['estimated_cost']}</p>
+                            <p><b>Live OCR Executive Assessment:</b> {item['ai_summary']}</p>
+                            <p><b>Extracted Cost Implication:</b> {item['estimated_cost']}</p>
                             <p><b>Statutory Compliance Score:</b> {item['compliance_score']}% / 100%</p>
                         </div>
                     """, unsafe_allow_html=True)
@@ -430,7 +441,7 @@ else:
                     st.write(f"**Status:** {sp['status']}")
                     st.write(f"**Statutory Clearances:** {sp['kyb_status']}")
                     st.write(f"**Compliance Score:** {sp['compliance_score']}%")
-                    st.write(f"**Executive Summary:** {sp['ai_summary']}")
+                    st.write(f"**Live OCR Executive Summary:** {sp['ai_summary']}")
 
     # ==========================================
     # TIER 4: EXECUTIVE REPORTING & EXPORTS
