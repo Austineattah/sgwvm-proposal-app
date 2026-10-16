@@ -1,8 +1,7 @@
 ﻿import streamlit as st
-import base64
+import database as db
 
 def render_sector_onboarding_wizard():
-    # Initialize Header Settings in Session State
     if "custom_portal_heading" not in st.session_state:
         st.session_state["custom_portal_heading"] = 'NEXUSVAULT "SUPER INTELLIGENCE & AGENTIC AI PROPOSAL INTAKE PORTAL"'
 
@@ -20,12 +19,38 @@ def render_sector_onboarding_wizard():
                 </div>
                 <div style="background-color: rgba(255, 255, 255, 0.08); border: 1px solid #059669; border-radius: 10px; padding: 12px 18px; text-align: center;">
                     <span style="font-size: 32px;">🏛️</span>
-                    <div style="color: #34d399; font-size: 9px; font-weight: bold; margin-top: 4px; letter-spacing: 1px;">SOVEREIGN</div>
+                    <div style="color: #34d399; font-size: 9px; font-weight: bold; margin-top: 4px;">SOVEREIGN</div>
                 </div>
             </div>
         </div>
     """, unsafe_allow_html=True)
 
+    # Check if Onboarding is submitted but pending Developer Access Grant
+    if st.session_state.get("onboarding_submitted", False) and not st.session_state.get("developer_access_granted", False):
+        st.warning("⏳ **CLIENT NODE DEPLOYED — PENDING DEVELOPER ACCESS AUTHORIZATION**")
+        st.info("""
+            Your organizational profile has been successfully submitted and initialized.
+            In accordance with platform security protocols, **access to the portal is pending internal authorization from the Platform Developer / Systems Admin**.
+        """)
+        
+        st.markdown("---")
+        st.markdown("### 🔑 Developer Internal Access Activation Console")
+        with st.form("developer_approval_form"):
+            dev_key = st.text_input("Enter Master Developer Activation Key", type="password", placeholder="Enter key to authorize node access")
+            btn_authorize = st.form_submit_button("Grant Enterprise Access & Launch Workspace", use_container_width=True)
+
+            if btn_authorize:
+                if dev_key == "NexusDevGrant2026!":
+                    st.session_state["developer_access_granted"] = True
+                    st.session_state["portal_initialized"] = True
+                    db.set_setting("node_approved", "True")
+                    st.success("✅ Developer Authorization Verified! Launching Enterprise Workspace...")
+                    st.rerun()
+                else:
+                    st.error("❌ Invalid Developer Activation Key. Access restricted.")
+        return
+
+    # Onboarding Setup Form
     with st.form("corporate_onboarding_form"):
         st.markdown("<h3 style='color: #ffffff;'>🏢 Step 1: Organizational Classification & Domain Setup</h3>", unsafe_allow_html=True)
         
@@ -63,13 +88,13 @@ def render_sector_onboarding_wizard():
         with col_d:
             uploaded_logo = st.file_uploader("Upload Official Institutional Branding Logo (PNG/JPG)", type=["png", "jpg", "jpeg"])
 
-        submitted = st.form_submit_button("Deploy Sovereign Client Node & Launch Workspace", use_container_width=True)
+        submitted = st.form_submit_button("Submit Organizational Node for Developer Authorization", use_container_width=True)
 
         if submitted:
             if not corp_name or not corp_email or not corp_phone or not corp_address:
                 st.error("⚠️ Please fill in all required organizational entity fields marked with an asterisk (*).")
             else:
-                st.session_state["portal_initialized"] = True
+                st.session_state["onboarding_submitted"] = True
                 st.session_state["entity_type"] = entity_type
                 st.session_state["corp_name"] = corp_name
                 st.session_state["corp_email"] = corp_email
@@ -83,5 +108,5 @@ def render_sector_onboarding_wizard():
                 if uploaded_logo:
                     st.session_state["logo_bytes"] = uploaded_logo.getvalue()
 
-                st.success("🎉 Organizational node deployed successfully! Launching workspace...")
+                st.success("🎉 Organizational setup completed! Proceeding to Developer Authorization Gate...")
                 st.rerun()

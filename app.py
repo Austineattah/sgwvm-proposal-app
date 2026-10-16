@@ -10,6 +10,7 @@ import database as db
 import qr_generator as qrg
 import dispatcher as disp
 import ocr_parser as ocr
+import qr_scanner as scanner
 
 # Page Configuration
 st.set_page_config(
@@ -66,7 +67,7 @@ if "portal_initialized" not in st.session_state:
 if "active_user_role" not in st.session_state:
     st.session_state["active_user_role"] = "Front Desk Officer"
 
-if not st.session_state["portal_initialized"]:
+if not st.session_state["portal_initialized"] or not st.session_state.get("developer_access_granted", False):
     render_sector_onboarding_wizard()
 else:
     entity_name = st.session_state.get("corp_name", "Sovereign Entity Node")
@@ -101,7 +102,7 @@ else:
         st.markdown("### 🔐 Role Gateways")
         selected_role_view = st.radio(
             "Select Portal Access Gate",
-            ["Front Desk (Proposal Intake & KYB)", "Strategic Directorate (AI & Financial Appraisals)", "Senior Management (Solicited Tenders Audit)", "📊 Executive Reporting & Exports", "📜 Audit Logs & Compliance Trail"]
+            ["Front Desk (Proposal Intake & KYB)", "Strategic Directorate (AI & Financial Appraisals)", "Senior Management (Solicited Tenders & Payment Control)", "📊 Executive Reporting & Exports", "📜 Audit Logs & Compliance Trail"]
         )
 
         if selected_role_view not in ["Front Desk (Proposal Intake & KYB)", "📊 Executive Reporting & Exports", "📜 Audit Logs & Compliance Trail"]:
@@ -142,7 +143,8 @@ else:
                     "kyb_status": "Verified Active (CAC)",
                     "score": 94.8,
                     "estimated_cost": "₦38,000,000",
-                    "ai_summary": "High feasibility solar infrastructure pitch. Budget headroom confirmed."
+                    "ai_summary": "High feasibility solar infrastructure pitch. Budget headroom confirmed.",
+                    "payment_ref": "N/A (Unsolicited Pitch)"
                 },
                 {
                     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -160,7 +162,8 @@ else:
                     "kyb_status": "Pre-Qualified White-list (Full BPP/TCC/PENCOM Compliant)",
                     "score": 98.2,
                     "estimated_cost": "₦85,000,000",
-                    "ai_summary": "Full compliance with BPP, TCC (3 Yrs), PENCOM, ITF, NSITF, and Sworn Affidavit."
+                    "ai_summary": "Full compliance with BPP, TCC (3 Yrs), PENCOM, ITF, NSITF, and Sworn Affidavit.",
+                    "payment_ref": "RRR-2026-99201-PAY"
                 }
             ]
             for rec in sample_records:
@@ -170,15 +173,22 @@ else:
 
         if st.button("🔒 Terminate Node Session", use_container_width=True):
             st.session_state["portal_initialized"] = False
+            st.session_state["developer_access_granted"] = False
+            st.session_state["onboarding_submitted"] = False
             st.rerun()
 
     sector_categories = mapper.get_sector_proposal_categories(entity_type)
+
+    # Fetch Payment Gateway Settings set by Senior Officers
+    payment_required = db.get_setting("payment_required", "True") == "True"
+    bidding_fee_amount = db.get_setting("bidding_fee_amount", "₦50,000")
+    payment_instructions = db.get_setting("payment_instructions", "Pay via Federal Remita RRR / Commercial Bank Deposit to Account: 101-223344-01")
 
     # ==========================================
     # TIER 1: FRONT DESK OFFICER PORTAL (DUAL TAB)
     # ==========================================
     if st.session_state["active_user_role"] == "Front Desk (Proposal Intake & KYB)":
-        st.markdown("<h3 style='color: #ffffff;'>📥 Front Desk: Intake Gateway & Live OCR Extraction</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='color: #ffffff;'>📥 Front Desk: Intake Gateway & Verification Engine</h3>", unsafe_allow_html=True)
         
         tab_unsolicited, tab_solicited = st.tabs(["💡 Unsolicited Proposal Pitch Gate", "🏛️ Statutory Solicited Tender / RFP Submission Gate"])
 
@@ -247,7 +257,8 @@ else:
                                 "kyb_status": "Verified Active (CAC & Statutory Clearances)",
                                 "score": 96.5,
                                 "estimated_cost": ocr_result["detected_cost"],
-                                "ai_summary": f"Live OCR Extracted ({ocr_result['page_count']} Pages): {ocr_result['summary']}"
+                                "ai_summary": f"Live OCR Extracted ({ocr_result['page_count']} Pages): {ocr_result['summary']}",
+                                "payment_ref": "Exempt (Unsolicited Pitch)"
                             }
                             
                             db.save_proposal(proposal_rec)
@@ -278,6 +289,9 @@ else:
                 </div>
             """, unsafe_allow_html=True)
 
+            if payment_required:
+                st.info(f"💳 **ORGANIZATIONAL TENDER BIDDING FEE REQUIRED:** Fee Amount: **{bidding_fee_amount}** | Instructions: {payment_instructions}")
+
             st.markdown("#### 🏛️ Statutory Government & Corporate Solicited Tender Bidding Gate")
 
             with st.form("solicited_statutory_form"):
@@ -292,7 +306,7 @@ else:
                     tender_title = st.text_input("Contract / Procurement Title*", placeholder="e.g., Construction of High-Performance Computing Vault")
                     target_comm_email = st.text_input("Target Evaluation Committee Email*", placeholder="tender.board@entity.org")
                     bid_bond_ref = st.text_input("Bid Security / Bank Guarantee Ref (if applicable)", placeholder="BG-2026-99182")
-                    priority_sol = st.selectbox("Priority Queue", ["Executive Fast-Track", "High Priority / Urgent Attention", "Standard Tender Review"])
+                    payment_ref_input = st.text_input("Bidding Fee Payment Transaction Ref / Receipt Number*", placeholder="e.g., RRR-1029-4482-PAY")
 
                 st.markdown("##### 📋 2. Comprehensive Statutory & Mandatory Procurement Audit")
                 
@@ -326,11 +340,13 @@ else:
                 st.markdown("##### 📄 3. Formal Tender Package Upload & OCR Audit")
                 solicited_pdf = st.file_uploader("Upload Scanned Tender Package (Technical & Financial Bids PDF)", type=["pdf"])
 
-                btn_sub_sol = st.form_submit_button("Audit BPP/Statutory Compliance, Issue Tender Pass & Register Bid", use_container_width=True)
+                btn_sub_sol = st.form_submit_button("Audit BPP/Statutory Compliance & Verify Payment", use_container_width=True)
 
                 if btn_sub_sol:
                     if not rfp_ref or not bidder_name or not bidder_email or not tender_title or not solicited_pdf:
                         st.error("⚠️ Please fill in all required tender reference fields and upload the bid package.")
+                    elif payment_required and not payment_ref_input:
+                        st.error("❌ Bidding Payment Disqualification: Missing internal tender payment reference.")
                     elif not (s_cac and s_tcc and s_pen and s_itf and s_nsitf and s_bpp and s_affid):
                         st.error("❌ Mandatory Statutory Disqualification: Missing essential BPP, TCC, PenCom, ITF, NSITF, or Sworn Affidavit clearances.")
                     else:
@@ -352,29 +368,30 @@ else:
                             "target_officer": target_comm_email,
                             "priority": priority_sol,
                             "qr_ref": solicited_qr,
-                            "status": "Solicited Tender Registered (Full Statutory Pass)",
+                            "status": "Solicited Tender Registered (Full Statutory & Payment Pass)",
                             "kyb_status": "Verified White-list (CAC, TCC, PenCom, ITF, NSITF, BPP)",
                             "score": 99.2,
                             "estimated_cost": ocr_sol_res["detected_cost"],
-                            "ai_summary": f"Full statutory procurement audit PASSED. OCR Text Analysis ({ocr_sol_res['page_count']} Pages): {ocr_sol_res['summary']}"
+                            "ai_summary": f"Full statutory & payment audit PASSED. OCR Text Analysis ({ocr_sol_res['page_count']} Pages): {ocr_sol_res['summary']}",
+                            "payment_ref": payment_ref_input if payment_required else "Fee Waived"
                         }
                         db.save_proposal(sol_record)
                         qr_img_sol = qrg.generate_qr_badge(solicited_qr, bidder_name, tender_title)
                         
-                        st.success(f"🎉 Statutory Tender Compliance Verification PASSED! **Tracking Pass: {solicited_qr}**")
+                        st.success(f"🎉 Statutory & Payment Compliance PASSED! **Tracking Pass: {solicited_qr}**")
                         
                         col_sr1, col_sr2 = st.columns([1, 2])
                         with col_sr1:
                             st.image(qr_img_sol, width=150, caption=f"Tender Badge: {solicited_qr}")
                             st.download_button("💾 Download Tender Badge PNG", data=qr_img_sol, file_name=f"{solicited_qr}_badge.png", mime="image/png")
                         with col_sr2:
-                            st.info(f"✉️ **Tender Board Dispatch Summary:**\n- White-list status granted for **{bidder_name}**\n- OCR Cost Extracted: **{ocr_sol_res['detected_cost']}**\n- Routed to Tender Committee (**{target_comm_email}**)")
+                            st.info(f"✉️ **Tender Board Dispatch Summary:**\n- White-list status granted for **{bidder_name}**\n- Payment Ref: **{payment_ref_input}**\n- Routed to Tender Committee (**{target_comm_email}**)")
 
     # ==========================================
     # TIER 2: STRATEGIC DIRECTORATE PORTAL
     # ==========================================
     elif st.session_state["active_user_role"] == "Strategic Directorate (AI & Financial Appraisals)":
-        st.markdown("<h3 style='color: #ffffff;'>🤖 Strategic Directorate: Persistent Inbox & Agentic AI Appraisals</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='color: #ffffff;'>🤖 Strategic Directorate: Persistent Inbox & Optical QR Pass Scanner</h3>", unsafe_allow_html=True)
 
         proposals = db.fetch_all_proposals()
 
@@ -390,13 +407,43 @@ else:
                 """, unsafe_allow_html=True)
 
             st.markdown("---")
-            search_qr = st.text_input("🔍 Lookup Proposal by QR Reference ID", placeholder="Enter QR Reference ID (e.g., NV-QREF-... or NV-SOLICIT-...)")
+            st.markdown("#### 📷 Optical QR Pass Badge Scanner")
+            
+            tab_cam, tab_file_qr, tab_text_qr = st.tabs(["🎥 Live Webcam Badge Scanner", "🖼️ Upload Badge Image PNG/JPG", "🔍 Manual QR Reference Search"])
+            
+            scanned_search_id = ""
 
+            with tab_cam:
+                st.markdown("Hold the physical proposal binder's QR badge up to your camera:")
+                cam_photo = st.camera_input("Take Optical Snapshot of QR Pass Badge")
+                if cam_photo:
+                    with st.spinner("🔍 Decoding optical QR badge pattern..."):
+                        scanned_id = scanner.decode_qr_from_image(cam_photo.getvalue())
+                        if scanned_id:
+                            st.success(f"🎯 Optical Scan Match Found! Reference ID: **{scanned_id}**")
+                            scanned_search_id = scanned_id
+                        else:
+                            st.warning("⚠️ No valid QR pass pattern detected in camera snapshot.")
+
+            with tab_file_qr:
+                qr_file_up = st.file_uploader("Upload QR Badge Image (PNG, JPG)", type=["png", "jpg", "jpeg"])
+                if qr_file_up:
+                    scanned_id = scanner.decode_qr_from_image(qr_file_up.getvalue())
+                    if scanned_id:
+                        st.success(f"🎯 Image Badge Decoded: **{scanned_id}**")
+                        scanned_search_id = scanned_id
+
+            with tab_text_qr:
+                manual_input = st.text_input("Enter QR Reference ID Manually", placeholder="e.g., NV-QREF-...")
+                if manual_input:
+                    scanned_search_id = manual_input
+
+            st.markdown("---")
             for item in proposals:
-                if search_qr and search_qr.upper() not in item["qr_ref_id"]:
+                if scanned_search_id and scanned_search_id.upper() not in item["qr_ref_id"]:
                     continue
                 
-                with st.expander(f"📌 [{item['qr_ref_id']}] {item['project_title']} — {item['vendor_name']} ({item['proposal_type']})"):
+                with st.expander(f"📌 [{item['qr_ref_id']}] {item['project_title']} — {item['vendor_name']} ({item['proposal_type']})", expanded=bool(scanned_search_id)):
                     col_d1, col_d2, col_d3 = st.columns([2, 2, 1])
                     with col_d1:
                         st.write(f"**Intake Date:** {item['timestamp']}")
@@ -404,7 +451,7 @@ else:
                         st.write(f"**Assigned Officer:** {item['target_officer']}")
                     with col_d2:
                         st.write(f"**CAC Reg / KYB:** {item['cac_number']}")
-                        st.write(f"**Clearance Status:** {item['kyb_status']}")
+                        st.write(f"**Payment Ref:** {item.get('payment_ref', 'N/A')}")
                         st.write(f"**Current Status:** {item['status']}")
                     with col_d3:
                         qr_bytes = qrg.generate_qr_badge(item['qr_ref_id'], item['vendor_name'], item['project_title'])
@@ -426,22 +473,48 @@ else:
                         st.rerun()
 
     # ==========================================
-    # TIER 3: SENIOR MANAGEMENT PORTAL
+    # TIER 3: SENIOR MANAGEMENT PORTAL & PAYMENT GATEWAY MANAGER
     # ==========================================
-    elif st.session_state["active_user_role"] == "Senior Management (Solicited Tenders Audit)":
-        st.markdown("<h3 style='color: #ffffff;'>🏛️ Senior Management: Solicited Tenders Audit</h3>", unsafe_allow_html=True)
-        proposals = db.fetch_all_proposals()
-        sol_proposals = [p for p in proposals if "Solicited" in p["proposal_type"]]
+    elif st.session_state["active_user_role"] == "Senior Management (Solicited Tenders & Payment Control)":
+        st.markdown("<h3 style='color: #ffffff;'>🏛️ Senior Management: Internal Bidding Payment Control & Tender Audit</h3>", unsafe_allow_html=True)
+        
+        tab_pay_mgr, tab_tend_audit = st.tabs(["💳 Organizational Bidding Payment Gateway Manager", "💼 Solicited Tenders Audit Trail"])
 
-        if len(sol_proposals) == 0:
-            st.info("ℹ️ No solicited tender responses registered yet.")
-        else:
-            for sp in sol_proposals:
-                with st.expander(f"💼 [{sp['qr_ref_id']}] {sp['project_title']} — {sp['vendor_name']}"):
-                    st.write(f"**Status:** {sp['status']}")
-                    st.write(f"**Statutory Clearances:** {sp['kyb_status']}")
-                    st.write(f"**Compliance Score:** {sp['compliance_score']}%")
-                    st.write(f"**Live OCR Executive Summary:** {sp['ai_summary']}")
+        with tab_pay_mgr:
+            st.markdown("#### Configure Internal Tender Processing & Bidding Fee Rules")
+            st.info("Senior Officers can configure internal bidding fees, bank instructions, or Remita RRR gateway settings for tender submissions.")
+
+            with st.form("payment_gateway_config_form"):
+                col_p1, col_p2 = st.columns(2)
+                with col_p1:
+                    req_payment_toggle = st.checkbox("Require Tender Processing / Bidding Fee Payment", value=payment_required)
+                    fee_amt = st.text_input("Required Tender Bidding Fee Amount", value=bidding_fee_amount)
+                with col_p2:
+                    pay_instr = st.text_area("Payment Instructions / Remita Gateway Account Notes", value=payment_instructions)
+
+                btn_save_pay = st.form_submit_button("Save Organizational Payment Rules", use_container_width=True)
+
+                if btn_save_pay:
+                    db.set_setting("payment_required", str(req_payment_toggle))
+                    db.set_setting("bidding_fee_amount", fee_amt)
+                    db.set_setting("payment_instructions", pay_instr)
+                    st.success("✅ Organizational Bidding Payment Gateway rules updated successfully!")
+                    st.rerun()
+
+        with tab_tend_audit:
+            proposals = db.fetch_all_proposals()
+            sol_proposals = [p for p in proposals if "Solicited" in p["proposal_type"]]
+
+            if len(sol_proposals) == 0:
+                st.info("ℹ️ No solicited tender responses registered yet.")
+            else:
+                for sp in sol_proposals:
+                    with st.expander(f"💼 [{sp['qr_ref_id']}] {sp['project_title']} — {sp['vendor_name']}"):
+                        st.write(f"**Status:** {sp['status']}")
+                        st.write(f"**Bidding Payment Reference:** {sp.get('payment_ref', 'N/A')}")
+                        st.write(f"**Statutory Clearances:** {sp['kyb_status']}")
+                        st.write(f"**Compliance Score:** {sp['compliance_score']}%")
+                        st.write(f"**Live OCR Executive Summary:** {sp['ai_summary']}")
 
     # ==========================================
     # TIER 4: EXECUTIVE REPORTING & EXPORTS

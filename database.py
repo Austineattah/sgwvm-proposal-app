@@ -31,7 +31,15 @@ def init_db():
             kyb_status TEXT DEFAULT 'Verified Active (CAC Registry)',
             compliance_score REAL DEFAULT 95.0,
             estimated_cost TEXT,
-            ai_summary TEXT
+            ai_summary TEXT,
+            payment_ref TEXT DEFAULT 'N/A'
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS system_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
         )
     ''')
 
@@ -53,14 +61,13 @@ def save_proposal(proposal_data):
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Using INSERT OR REPLACE to gracefully handle duplicate QR IDs without crashing
     cursor.execute('''
         INSERT OR REPLACE INTO proposals (
             timestamp, proposal_type, vendor_name, cac_number, vendor_email, 
             vendor_phone, vendor_address, project_title, target_officer, 
             priority_level, qr_ref_id, status, kyb_status, compliance_score, 
-            estimated_cost, ai_summary
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            estimated_cost, ai_summary, payment_ref
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         proposal_data.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         proposal_data.get("type", "Unsolicited (Physical Intake)"),
@@ -77,13 +84,29 @@ def save_proposal(proposal_data):
         proposal_data.get("kyb_status", "Verified Active (CAC Registry)"),
         proposal_data.get("score", 95.5),
         proposal_data.get("estimated_cost", "₦45,500,000"),
-        proposal_data.get("ai_summary", "Automated compliance audit complete. Recommended for executive review.")
+        proposal_data.get("ai_summary", "Automated compliance audit complete. Recommended for executive review."),
+        proposal_data.get("payment_ref", "N/A")
     ))
     
     conn.commit()
     conn.close()
     
-    log_event("System", "PROPOSAL_SAVED", proposal_data.get("qr_ref"), f"Proposal record saved/updated for {proposal_data.get('vendor')}")
+    log_event("System", "PROPOSAL_SAVED", proposal_data.get("qr_ref"), f"Proposal record saved for {proposal_data.get('vendor')}")
+
+def set_setting(key, value):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)', (key, str(value)))
+    conn.commit()
+    conn.close()
+
+def get_setting(key, default_value=""):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT value FROM system_settings WHERE key = ?', (key,))
+    row = cursor.fetchone()
+    conn.close()
+    return row["value"] if row else default_value
 
 def fetch_all_proposals():
     conn = get_connection()
@@ -93,21 +116,12 @@ def fetch_all_proposals():
     conn.close()
     return [dict(row) for row in rows]
 
-def fetch_proposal_by_qr(qr_ref_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM proposals WHERE qr_ref_id = ?', (qr_ref_id,))
-    row = cursor.fetchone()
-    conn.close()
-    return dict(row) if row else None
-
 def update_proposal_status(qr_ref_id, new_status, updated_by_role="Strategic Directorate"):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('UPDATE proposals SET status = ? WHERE qr_ref_id = ?', (new_status, qr_ref_id))
     conn.commit()
     conn.close()
-    
     log_event(updated_by_role, "STATUS_UPDATE", qr_ref_id, f"Status updated to '{new_status}'")
 
 def log_event(role, action, qr_ref_id, details):
