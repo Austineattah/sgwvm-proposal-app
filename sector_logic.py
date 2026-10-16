@@ -3,29 +3,72 @@ import database as db
 
 def render_sector_onboarding_wizard():
     if "custom_portal_heading" not in st.session_state:
-        st.session_state["custom_portal_heading"] = 'NEXUSVAULT "SUPER INTELLIGENCE & AGENTIC AI PROPOSAL INTAKE PORTAL"'
+        st.session_state["custom_portal_heading"] = 'NEXUSVAULT TECHNOLOGIES "SUPER INTELLIGENCE - AGENTIC AI PROPOSAL INTAKE PORTAL"'
 
-    # Header Render
+    # Global Font Import & Dark Theme
+    st.markdown("""
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=Roboto:wght@400;500;700&display=swap');
+
+            .stApp {
+                background-color: #070d19 !important;
+                color: #ffffff !important;
+                font-family: 'Plus Jakarta Sans', sans-serif !important;
+            }
+
+            .section-hdr {
+                color: #38bdf8 !important;
+                font-size: 19px !important;
+                font-weight: 800 !important;
+                letter-spacing: 0.3px !important;
+                border-left: 4px solid #38bdf8;
+                padding-left: 10px;
+                margin-top: 15px;
+                margin-bottom: 15px;
+            }
+
+            label, div[data-baseweb="select"] span {
+                color: #f8fafc !important;
+                font-family: 'Plus Jakarta Sans', sans-serif !important;
+                font-weight: 600 !important;
+            }
+
+            div[data-baseweb="select"] > div {
+                background-color: #0f172a !important;
+                border: 1px solid #334155 !important;
+                color: #ffffff !important;
+                border-radius: 8px !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # Executive Banner
     st.markdown(f"""
-        <div style="background: linear-gradient(135deg, #042f2e 0%, #0f172a 100%); padding: 32px; border-radius: 12px; border: 1px solid #059669; box-shadow: 0 10px 25px rgba(4, 47, 46, 0.6); margin-bottom: 24px;">
+        <div style="background: linear-gradient(135deg, #0a192f 0%, #0d2137 100%); padding: 28px 32px; border-radius: 12px; border: 2px solid #1d4ed8; box-shadow: 0 10px 28px rgba(10, 25, 47, 0.85); margin-bottom: 24px;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px;">
-                <div style="flex: 1; min-width: 300px;">
-                    <h2 style="color: #ffffff !important; margin: 0 0 10px 0; font-size: 22px; font-weight: 900; letter-spacing: 0.5px;">
+                <div style="flex: 1; min-width: 320px;">
+                    <h1 style="color: #ffffff !important; margin: 0 0 10px 0; font-size: 24px; font-weight: 900; letter-spacing: 0.5px; line-height: 1.3; font-family: 'Plus Jakarta Sans', sans-serif;">
                         🛡️ {st.session_state["custom_portal_heading"]}
-                    </h2>
-                    <p style="color: #e2e8f0 !important; margin: 0; font-size: 15px; font-weight: 500;">
+                    </h1>
+                    <p style="color: #cbd5e1 !important; margin: 0; font-size: 15px; font-weight: 500; line-height: 1.5; font-family: 'Plus Jakarta Sans', sans-serif;">
                         Initialize your secure organizational node, configure your domain scope, and deploy your sovereign enterprise proposal intake gateway.
                     </p>
                 </div>
-                <div style="background-color: rgba(255, 255, 255, 0.08); border: 1px solid #059669; border-radius: 10px; padding: 12px 18px; text-align: center;">
-                    <span style="font-size: 32px;">🏛️</span>
-                    <div style="color: #34d399; font-size: 9px; font-weight: bold; margin-top: 4px;">SOVEREIGN</div>
+                <div style="display: flex; align-items: center; background-color: rgba(15, 23, 42, 0.8); border: 2px solid #008751; border-radius: 10px; padding: 12px 18px; gap: 12px;">
+                    <svg width="40" height="26" viewBox="0 0 3 2" style="border-radius: 3px; box-shadow: 0 2px 6px rgba(0,0,0,0.5);">
+                        <rect width="1" height="2" x="0" fill="#008751"/>
+                        <rect width="1" height="2" x="1" fill="#FFFFFF"/>
+                        <rect width="1" height="2" x="2" fill="#008751"/>
+                    </svg>
+                    <div>
+                        <div style="color: #ffffff; font-size: 12px; font-weight: 800; letter-spacing: 0.5px; font-family: 'Plus Jakarta Sans', sans-serif;">FEDERAL REPUBLIC</div>
+                        <div style="color: #34d399; font-size: 10px; font-weight: 700; font-family: 'Plus Jakarta Sans', sans-serif;">OF NIGERIA</div>
+                    </div>
                 </div>
             </div>
         </div>
     """, unsafe_allow_html=True)
 
-    # Check if Onboarding is submitted but pending Developer Access Grant
     if st.session_state.get("onboarding_submitted", False) and not st.session_state.get("developer_access_granted", False):
         st.warning("⏳ **CLIENT NODE DEPLOYED — PENDING DEVELOPER ACCESS AUTHORIZATION**")
         st.info("""
@@ -34,7 +77,7 @@ def render_sector_onboarding_wizard():
         """)
         
         st.markdown("---")
-        st.markdown("### 🔑 Developer Internal Access Activation Console")
+        st.markdown("<div class='section-hdr'>🔑 Developer Internal Access Activation Console</div>", unsafe_allow_html=True)
         with st.form("developer_approval_form"):
             dev_key = st.text_input("Enter Master Developer Activation Key", type="password", placeholder="Enter key to authorize node access")
             btn_authorize = st.form_submit_button("Grant Enterprise Access & Launch Workspace", use_container_width=True)
@@ -50,9 +93,8 @@ def render_sector_onboarding_wizard():
                     st.error("❌ Invalid Developer Activation Key. Access restricted.")
         return
 
-    # Onboarding Setup Form
     with st.form("corporate_onboarding_form"):
-        st.markdown("<h3 style='color: #ffffff;'>🏢 Step 1: Organizational Classification & Domain Setup</h3>", unsafe_allow_html=True)
+        st.markdown("<div class='section-hdr'>🏢 Step 1: Organizational Classification & Domain Setup</div>", unsafe_allow_html=True)
         
         entity_type = st.selectbox(
             "Select Organization / Entity Category*",
@@ -69,15 +111,15 @@ def render_sector_onboarding_wizard():
 
         col_a, col_b = st.columns(2)
         with col_a:
-            corp_name = st.text_input("Organizational Entity Name*", placeholder="e.g., University of Abuja / UN Development Programme / Federal Ministry of Finance")
+            corp_name = st.text_input("Organizational Entity Name*", placeholder="e.g., Federal Ministry of Technology / NASS Directorate")
             corp_email = st.text_input("Official Dispatch Email*", placeholder="contact@entity.gov.ng / info@entity.org")
 
         with col_b:
             corp_phone = st.text_input("Official Phone / SMS Gateway Contact*", placeholder="+234 803 000 0000")
-            corp_address = st.text_input("Institutional Headquarters Address*", placeholder="Central Area, Abuja / Campus Main Office")
+            corp_address = st.text_input("Institutional Headquarters Address*", placeholder="Central Area, Abuja")
             admin_email = st.text_input("Executive Chief Notification Node", placeholder="executive-office@entity.org")
 
-        st.markdown("<h3 style='color: #ffffff;'>🎨 Step 2: Branding & Custom Portal Heading</h3>", unsafe_allow_html=True)
+        st.markdown("<div class='section-hdr'>🎨 Step 2: Branding & Custom Portal Heading</div>", unsafe_allow_html=True)
         col_c, col_d = st.columns(2)
         with col_c:
             custom_title_input = st.text_input("Custom Portal Banner Title", value=st.session_state["custom_portal_heading"])

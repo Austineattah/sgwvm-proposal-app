@@ -20,44 +20,108 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Dark Obsidian Styling
+# Global Typography (Plus Jakarta Sans) & High-Contrast Obsidian Theme
 st.markdown("""
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=Roboto:wght@400;500;700&display=swap');
+
         .stApp {
-            background-color: #0b0f19;
-            color: #f8fafc;
+            background-color: #070d19 !important;
+            color: #ffffff !important;
+            font-family: 'Plus Jakarta Sans', sans-serif !important;
         }
+
+        /* Typography Override */
+        h1, h2, h3, h4, h5, h6, label, p, span, div {
+            font-family: 'Plus Jakarta Sans', sans-serif !important;
+        }
+
+        /* Header Banner */
         .main-header {
-            background: linear-gradient(135deg, #042f2e 0%, #0f172a 100%);
-            padding: 24px;
+            background: linear-gradient(135deg, #0a192f 0%, #0d2137 100%);
+            padding: 24px 28px;
             border-radius: 12px;
-            border: 1px solid #059669;
-            box-shadow: 0 10px 25px rgba(4, 47, 46, 0.6);
+            border: 2px solid #1d4ed8;
+            box-shadow: 0 10px 28px rgba(10, 25, 47, 0.85);
             margin-bottom: 24px;
         }
+
+        /* Uniform Section Headings */
+        .section-hdr {
+            color: #38bdf8 !important;
+            font-size: 19px !important;
+            font-weight: 800 !important;
+            letter-spacing: 0.3px !important;
+            border-left: 4px solid #38bdf8;
+            padding-left: 10px;
+            margin-top: 18px;
+            margin-bottom: 14px;
+        }
+
+        /* Dropdown & Inputs Styling */
+        div[data-baseweb="select"] > div, input, textarea {
+            background-color: #0f172a !important;
+            border: 1px solid #334155 !important;
+            color: #ffffff !important;
+            border-radius: 8px !important;
+            font-family: 'Plus Jakarta Sans', sans-serif !important;
+            font-size: 14px !important;
+        }
+
+        /* Clickable Tabs */
+        button[data-baseweb="tab"] {
+            background-color: rgba(15, 23, 42, 0.85) !important;
+            border: 1px solid #334155 !important;
+            border-radius: 8px 8px 0px 0px !important;
+            padding: 12px 24px !important;
+            color: #cbd5e1 !important;
+            font-weight: 700 !important;
+            font-size: 15px !important;
+            margin-right: 6px !important;
+            transition: all 0.25s ease-in-out !important;
+        }
+
+        button[data-baseweb="tab"]:hover {
+            color: #ffffff !important;
+            background-color: rgba(30, 58, 138, 0.6) !important;
+            border-color: #60a5fa !important;
+        }
+
+        button[data-baseweb="tab"][aria-selected="true"] {
+            background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
+            color: #ffffff !important;
+            border: 2px solid #38bdf8 !important;
+            border-bottom: 4px solid #38bdf8 !important;
+            font-weight: 900 !important;
+            font-size: 16px !important;
+            box-shadow: 0 6px 16px rgba(2, 132, 199, 0.5) !important;
+        }
+
+        /* Cards & Notices */
         .card-box {
-            background-color: rgba(15, 23, 42, 0.7);
-            border: 1px solid #1e293b;
+            background-color: rgba(15, 23, 42, 0.85);
+            border: 1px solid #334155;
             border-radius: 10px;
             padding: 20px;
-            margin-bottom: 15px;
+            margin-bottom: 18px;
         }
+
         .checklist-hdr {
-            color: #34d399;
-            font-size: 14px;
-            font-weight: bold;
+            color: #38bdf8;
+            font-size: 15px;
+            font-weight: 800;
             margin-top: 10px;
-            margin-bottom: 6px;
-            border-bottom: 1px solid rgba(52, 211, 153, 0.3);
+            margin-bottom: 8px;
+            border-bottom: 2px solid rgba(56, 189, 248, 0.4);
             padding-bottom: 4px;
         }
+
         .procurement-notice {
             background-color: rgba(220, 38, 38, 0.15);
             border-left: 5px solid #ef4444;
             border-radius: 8px;
-            padding: 16px 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 15px rgba(220, 38, 38, 0.2);
+            padding: 18px 22px;
+            margin-bottom: 22px;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -73,30 +137,35 @@ else:
     entity_name = st.session_state.get("corp_name", "Sovereign Entity Node")
     entity_type = st.session_state.get("entity_type", "Statutory Directorate")
     sub_tier = st.session_state.get("sub_package", "Enterprise Sovereign Tier")
-    portal_heading = st.session_state.get("custom_portal_heading", "NEXUSVAULT SECURE WORKSPACE")
+    portal_heading = st.session_state.get("custom_portal_heading", 'NEXUSVAULT TECHNOLOGIES "SUPER INTELLIGENCE - AGENTIC AI PROPOSAL INTAKE PORTAL"')
 
-    col_hdr1, col_hdr2 = st.columns([4, 1])
+    # Header Panel
+    col_hdr1, col_hdr2 = st.columns([4, 1.2])
     with col_hdr1:
         st.markdown(f"""
             <div class="main-header">
-                <h2 style="color: #ffffff !important; margin: 0 0 6px 0; font-size: 20px; font-weight: 900;">
+                <h1 style="color: #ffffff !important; margin: 0 0 8px 0; font-size: 22px; font-weight: 900; letter-spacing: 0.4px; line-height: 1.3;">
                     🛡️ {portal_heading}
-                </h2>
-                <p style="color: #34d399 !important; margin: 0; font-size: 14px; font-weight: 600;">
-                    Node: {entity_name} | Scope: {entity_type} | Portal: {st.session_state["active_user_role"]}
+                </h1>
+                <p style="color: #38bdf8 !important; margin: 0; font-size: 14px; font-weight: 700;">
+                    Node: <span style="color: #ffffff;">{entity_name}</span> | Scope: <span style="color: #ffffff;">{entity_type}</span> | Active Gate: <span style="color: #34d399;">{st.session_state["active_user_role"]}</span>
                 </p>
             </div>
         """, unsafe_allow_html=True)
     with col_hdr2:
-        if "logo_bytes" in st.session_state and st.session_state["logo_bytes"] is not None:
-            st.image(st.session_state["logo_bytes"], width=90, caption="ORGANIZATION CREST")
-        else:
-            st.markdown("""
-                <div style="background-color: rgba(255, 255, 255, 0.05); border: 1px dashed #059669; border-radius: 8px; padding: 10px; text-align: center;">
-                    <span style="font-size: 24px;">🏛️</span>
-                    <div style="color: #34d399; font-size: 8px; font-weight: bold; margin-top: 2px;">SOVEREIGN</div>
+        st.markdown("""
+            <div style="display: flex; align-items: center; justify-content: flex-end; background-color: rgba(15, 23, 42, 0.85); border: 2px solid #008751; border-radius: 10px; padding: 12px 16px; gap: 12px; margin-top: 4px;">
+                <svg width="42" height="28" viewBox="0 0 3 2" style="border-radius: 3px; box-shadow: 0 2px 6px rgba(0,0,0,0.5);">
+                    <rect width="1" height="2" x="0" fill="#008751"/>
+                    <rect width="1" height="2" x="1" fill="#FFFFFF"/>
+                    <rect width="1" height="2" x="2" fill="#008751"/>
+                </svg>
+                <div>
+                    <div style="color: #ffffff; font-size: 11px; font-weight: 800; letter-spacing: 0.5px;">FEDERAL REPUBLIC</div>
+                    <div style="color: #34d399; font-size: 10px; font-weight: 700;">OF NIGERIA</div>
                 </div>
-            """, unsafe_allow_html=True)
+            </div>
+        """, unsafe_allow_html=True)
 
     with st.sidebar:
         st.markdown("### 🔐 Role Gateways")
@@ -179,7 +248,6 @@ else:
 
     sector_categories = mapper.get_sector_proposal_categories(entity_type)
 
-    # Fetch Payment Gateway Settings set by Senior Officers
     payment_required = db.get_setting("payment_required", "True") == "True"
     bidding_fee_amount = db.get_setting("bidding_fee_amount", "₦50,000")
     payment_instructions = db.get_setting("payment_instructions", "Pay via Federal Remita RRR / Commercial Bank Deposit to Account: 101-223344-01")
@@ -188,13 +256,13 @@ else:
     # TIER 1: FRONT DESK OFFICER PORTAL (DUAL TAB)
     # ==========================================
     if st.session_state["active_user_role"] == "Front Desk (Proposal Intake & KYB)":
-        st.markdown("<h3 style='color: #ffffff;'>📥 Front Desk: Intake Gateway & Verification Engine</h3>", unsafe_allow_html=True)
+        st.markdown("<div class='section-hdr'>📥 Front Desk: Intake Gateway & Verification Engine</div>", unsafe_allow_html=True)
         
         tab_unsolicited, tab_solicited = st.tabs(["💡 Unsolicited Proposal Pitch Gate", "🏛️ Statutory Solicited Tender / RFP Submission Gate"])
 
         # TAB A: UNSOLICITED PROPOSALS
         with tab_unsolicited:
-            st.markdown("#### Unsolicited Pitch Intake & 2-Bundle Statutory Verification")
+            st.markdown("<h3 style='color: #38bdf8; font-size: 18px;'>Unsolicited Pitch Intake & 2-Bundle Statutory Verification</h3>", unsafe_allow_html=True)
             with st.form("unsolicited_form"):
                 st.markdown("##### 🏢 1. Vendor & Corporate Details")
                 col_u1, col_u2 = st.columns(2)
@@ -292,7 +360,7 @@ else:
             if payment_required:
                 st.info(f"💳 **ORGANIZATIONAL TENDER BIDDING FEE REQUIRED:** Fee Amount: **{bidding_fee_amount}** | Instructions: {payment_instructions}")
 
-            st.markdown("#### 🏛️ Statutory Government & Corporate Solicited Tender Bidding Gate")
+            st.markdown("<h3 style='color: #38bdf8; font-size: 18px;'>🏛️ Statutory Government & Corporate Solicited Tender Bidding Gate</h3>", unsafe_allow_html=True)
 
             with st.form("solicited_statutory_form"):
                 st.markdown("##### 🏢 1. RFP Call & Bidder Meta")
@@ -391,7 +459,7 @@ else:
     # TIER 2: STRATEGIC DIRECTORATE PORTAL
     # ==========================================
     elif st.session_state["active_user_role"] == "Strategic Directorate (AI & Financial Appraisals)":
-        st.markdown("<h3 style='color: #ffffff;'>🤖 Strategic Directorate: Persistent Inbox & Optical QR Pass Scanner</h3>", unsafe_allow_html=True)
+        st.markdown("<div class='section-hdr'>🤖 Strategic Directorate: Persistent Inbox & Optical QR Pass Scanner</div>", unsafe_allow_html=True)
 
         proposals = db.fetch_all_proposals()
 
@@ -401,8 +469,8 @@ else:
             st.markdown("#### 🚨 Active Departmental Routing Feed")
             for item in proposals[:3]:
                 st.markdown(f"""
-                    <div style="background-color: rgba(15, 23, 42, 0.9); border-left: 4px solid #34d399; padding: 10px 14px; border-radius: 6px; margin-bottom: 8px;">
-                        <b>[{item['priority_level']}]</b> <b>{item['project_title']} ({item['qr_ref_id']})</b> — Assigned: <b>{item['target_officer']}</b>. Status: <span style="color: #34d399;">{item['status']}</span>
+                    <div style="background-color: rgba(15, 23, 42, 0.9); border-left: 4px solid #38bdf8; padding: 12px 16px; border-radius: 6px; margin-bottom: 8px;">
+                        <b>[{item['priority_level']}]</b> <b>{item['project_title']} ({item['qr_ref_id']})</b> — Assigned: <b>{item['target_officer']}</b>. Status: <span style="color: #38bdf8;">{item['status']}</span>
                     </div>
                 """, unsafe_allow_html=True)
 
@@ -476,7 +544,7 @@ else:
     # TIER 3: SENIOR MANAGEMENT PORTAL & PAYMENT GATEWAY MANAGER
     # ==========================================
     elif st.session_state["active_user_role"] == "Senior Management (Solicited Tenders & Payment Control)":
-        st.markdown("<h3 style='color: #ffffff;'>🏛️ Senior Management: Internal Bidding Payment Control & Tender Audit</h3>", unsafe_allow_html=True)
+        st.markdown("<div class='section-hdr'>🏛️ Senior Management: Internal Bidding Payment Control & Tender Audit</div>", unsafe_allow_html=True)
         
         tab_pay_mgr, tab_tend_audit = st.tabs(["💳 Organizational Bidding Payment Gateway Manager", "💼 Solicited Tenders Audit Trail"])
 
@@ -520,7 +588,7 @@ else:
     # TIER 4: EXECUTIVE REPORTING & EXPORTS
     # ==========================================
     elif st.session_state["active_user_role"] == "📊 Executive Reporting & Exports":
-        st.markdown("<h3 style='color: #ffffff;'>📊 Executive Reporting & Data Export Suite</h3>", unsafe_allow_html=True)
+        st.markdown("<div class='section-hdr'>📊 Executive Reporting & Data Export Suite</div>", unsafe_allow_html=True)
         
         proposals = db.fetch_all_proposals()
         if len(proposals) == 0:
@@ -542,16 +610,16 @@ else:
     # TIER 5: AUDIT LOGS & COMPLIANCE TRAIL
     # ==========================================
     elif st.session_state["active_user_role"] == "📜 Audit Logs & Compliance Trail":
-        st.markdown("<h3 style='color: #ffffff;'>📜 System Audit Logs & Tamper-Evident Trail</h3>", unsafe_allow_html=True)
+        st.markdown("<div class='section-hdr'>📜 System Audit Logs & Tamper-Evident Trail</div>", unsafe_allow_html=True)
         logs = db.fetch_audit_logs()
         if len(logs) == 0:
             st.info("ℹ️ No audit logs recorded yet.")
         else:
             for log in logs:
                 st.markdown(f"""
-                    <div style="background-color: rgba(15, 23, 42, 0.7); border: 1px solid #334155; padding: 10px 14px; border-radius: 6px; margin-bottom: 8px;">
-                        <span style="color: #94a3b8; font-size: 12px;">[{log['timestamp']}]</span> 
-                        <b style="color: #34d399;">{log['user_role']}</b> — 
+                    <div style="background-color: rgba(15, 23, 42, 0.85); border: 1px solid #334155; padding: 12px 16px; border-radius: 6px; margin-bottom: 8px;">
+                        <span style="color: #94a3b8; font-size: 13px;">[{log['timestamp']}]</span> 
+                        <b style="color: #38bdf8;">{log['user_role']}</b> — 
                         <code>{log['action']}</code> 
                         (QR: <b>{log['qr_ref_id']}</b>) — {log['details']}
                     </div>
