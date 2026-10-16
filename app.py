@@ -11,6 +11,7 @@ import qr_generator as qrg
 import dispatcher as disp
 import ocr_parser as ocr
 import qr_scanner as scanner
+import security_guard as sec
 
 # Page Configuration
 st.set_page_config(
@@ -31,12 +32,10 @@ st.markdown("""
             font-family: 'Plus Jakarta Sans', sans-serif !important;
         }
 
-        /* Typography Override */
         h1, h2, h3, h4, h5, h6, label, p, span, div {
             font-family: 'Plus Jakarta Sans', sans-serif !important;
         }
 
-        /* Header Banner */
         .main-header {
             background: linear-gradient(135deg, #0a192f 0%, #0d2137 100%);
             padding: 24px 28px;
@@ -46,7 +45,6 @@ st.markdown("""
             margin-bottom: 24px;
         }
 
-        /* Uniform Section Headings */
         .section-hdr {
             color: #38bdf8 !important;
             font-size: 19px !important;
@@ -58,7 +56,6 @@ st.markdown("""
             margin-bottom: 14px;
         }
 
-        /* Dropdown & Inputs Styling */
         div[data-baseweb="select"] > div, input, textarea {
             background-color: #0f172a !important;
             border: 1px solid #334155 !important;
@@ -68,7 +65,6 @@ st.markdown("""
             font-size: 14px !important;
         }
 
-        /* Clickable Tabs */
         button[data-baseweb="tab"] {
             background-color: rgba(15, 23, 42, 0.85) !important;
             border: 1px solid #334155 !important;
@@ -97,7 +93,6 @@ st.markdown("""
             box-shadow: 0 6px 16px rgba(2, 132, 199, 0.5) !important;
         }
 
-        /* Cards & Notices */
         .card-box {
             background-color: rgba(15, 23, 42, 0.85);
             border: 1px solid #334155;
@@ -267,14 +262,14 @@ else:
                 st.markdown("##### 🏢 1. Vendor & Corporate Details")
                 col_u1, col_u2 = st.columns(2)
                 with col_u1:
-                    vendor_name = st.text_input("Vendor Organization Name*", placeholder="e.g., Apex Global Technologies Ltd")
-                    cac_num = st.text_input("CAC Registration Number (RC / BN)*", placeholder="RC-1234567")
-                    vendor_email = st.text_input("Official Dispatch Email (for Auto-Receipt)*", placeholder="vendor@apextech.com")
-                    vendor_phone = st.text_input("Vendor Phone / SMS Gateway Contact*", placeholder="+234 802 000 0000")
+                    vendor_name_raw = st.text_input("Vendor Organization Name*", placeholder="e.g., Apex Global Technologies Ltd")
+                    cac_num_raw = st.text_input("CAC Registration Number (RC / BN)*", placeholder="RC-1234567")
+                    vendor_email_raw = st.text_input("Official Dispatch Email (for Auto-Receipt)*", placeholder="vendor@apextech.com")
+                    vendor_phone_raw = st.text_input("Vendor Phone / SMS Gateway Contact*", placeholder="+234 802 000 0000")
                 with col_u2:
-                    project_title = st.text_input("Proposal Title*", placeholder="e.g., Smart Digital Library & Research Vault")
+                    project_title_raw = st.text_input("Proposal Title*", placeholder="e.g., Smart Digital Library & Research Vault")
                     prop_cat = st.selectbox("Sector-Mapped Proposal Type", sector_categories)
-                    target_officer = st.text_input("Target Departmental Officer Email*", placeholder="director.research@entity.org")
+                    target_officer_raw = st.text_input("Target Departmental Officer Email*", placeholder="director.research@entity.org")
                     priority_lvl = st.selectbox("Priority Level", ["Standard Review", "High Priority / Urgent Attention", "Executive Fast-Track"])
 
                 st.markdown("##### 📁 2. Statutory & Verification Bundle Checklists")
@@ -293,56 +288,74 @@ else:
                     chk_bank = st.checkbox("Bank Reference Letter & Audited Financials", value=True)
                     chk_nda = st.checkbox("Non-Disclosure Agreement (NDA) & ISO Certs", value=True)
 
-                st.markdown("##### 📄 3. Physical Document Scanning & Live OCR Ingestion")
+                st.markdown("##### 📄 3. Physical Document Scanning & Security Screening")
                 scanned_pdf = st.file_uploader("Upload Scanned Proposal Document (PDF)", type=["pdf"])
 
-                btn_sub_unsol = st.form_submit_button("Execute Live OCR, Generate QR Badge & Route Pitch", use_container_width=True)
+                btn_sub_unsol = st.form_submit_button("Execute Security Inspection, Live OCR & Route Pitch", use_container_width=True)
 
                 if btn_sub_unsol:
+                    # Sanitize All Text Inputs
+                    vendor_name = sec.sanitize_text_input(vendor_name_raw)
+                    cac_num = sec.sanitize_text_input(cac_num_raw)
+                    vendor_email = sec.sanitize_text_input(vendor_email_raw)
+                    vendor_phone = sec.sanitize_text_input(vendor_phone_raw)
+                    project_title = sec.sanitize_text_input(project_title_raw)
+                    target_officer = sec.sanitize_text_input(target_officer_raw)
+
                     if not vendor_name or not cac_num or not vendor_email or not project_title or not target_officer or not scanned_pdf:
                         st.error("⚠️ Please complete all required fields and upload the scanned proposal PDF.")
                     else:
-                        with st.spinner("🔄 Executing live OCR text extraction, writing to DB, and generating QR badge..."):
-                            pdf_bytes = scanned_pdf.getvalue()
-                            ocr_result = ocr.extract_pdf_content(pdf_bytes)
+                        pdf_bytes = scanned_pdf.getvalue()
+                        safe_filename = sec.sanitize_filename(scanned_pdf.name)
 
-                            unique_hash = random.randint(1000, 9999)
-                            qr_ref_id = f"NV-QREF-{datetime.now().strftime('%Y%m%d%H%M%S')}-{unique_hash}"
-                            
-                            proposal_rec = {
-                                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                "type": f"Unsolicited ({prop_cat})",
-                                "vendor": vendor_name,
-                                "cac": cac_num,
-                                "email": vendor_email,
-                                "phone": vendor_phone,
-                                "address": "Provided in Filing",
-                                "title": project_title,
-                                "target_officer": target_officer,
-                                "priority": priority_lvl,
-                                "qr_ref": qr_ref_id,
-                                "status": "Routed & Pending Directorate Review",
-                                "kyb_status": "Verified Active (CAC & Statutory Clearances)",
-                                "score": 96.5,
-                                "estimated_cost": ocr_result["detected_cost"],
-                                "ai_summary": f"Live OCR Extracted ({ocr_result['page_count']} Pages): {ocr_result['summary']}",
-                                "payment_ref": "Exempt (Unsolicited Pitch)"
-                            }
-                            
-                            db.save_proposal(proposal_rec)
-                            qr_img = qrg.generate_qr_badge(qr_ref_id, vendor_name, project_title)
-                            
-                            disp.send_vendor_acknowledgement(vendor_email, vendor_phone, vendor_name, qr_ref_id, project_title)
-                            disp.trigger_officer_priority_alert(target_officer, priority_lvl, qr_ref_id, project_title, vendor_name)
+                        # Deep Security Inspection (Anti-Malware & Anti-DoS Check)
+                        is_safe, sec_msg = sec.inspect_pdf_payload(pdf_bytes, safe_filename)
 
-                        st.success(f"🎉 Live OCR Extraction Complete & Pitch Registered! **QR Ref: {qr_ref_id}**")
-                        
-                        col_r1, col_r2 = st.columns([1, 2])
-                        with col_r1:
-                            st.image(qr_img, width=160, caption=f"Printable Pass Badge ({qr_ref_id})")
-                            st.download_button("💾 Download Badge PNG", data=qr_img, file_name=f"{qr_ref_id}_badge.png", mime="image/png")
-                        with col_r2:
-                            st.info(f"📄 **OCR Analysis Summary:**\n- Pages Processed: **{ocr_result['page_count']}**\n- Detected Cost/Budget: **{ocr_result['detected_cost']}**\n- Priority Alert dispatched to **{target_officer}**")
+                        if not is_safe:
+                            st.error(f"❌ {sec_msg}")
+                            db.log_event("Security Guard", "MALWARE_BLOCKED", "N/A", f"Blocked unsafe file '{safe_filename}' from vendor '{vendor_name}'")
+                        else:
+                            st.success(f"🛡️ NITDA Cybersecurity Inspection: {sec_msg}")
+                            with st.spinner("🔄 Executing live OCR text extraction, writing to DB, and generating QR badge..."):
+                                ocr_result = ocr.extract_pdf_content(pdf_bytes)
+
+                                unique_hash = random.randint(1000, 9999)
+                                qr_ref_id = f"NV-QREF-{datetime.now().strftime('%Y%m%d%H%M%S')}-{unique_hash}"
+                                
+                                proposal_rec = {
+                                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    "type": f"Unsolicited ({prop_cat})",
+                                    "vendor": vendor_name,
+                                    "cac": cac_num,
+                                    "email": vendor_email,
+                                    "phone": vendor_phone,
+                                    "address": "Provided in Filing",
+                                    "title": project_title,
+                                    "target_officer": target_officer,
+                                    "priority": priority_lvl,
+                                    "qr_ref": qr_ref_id,
+                                    "status": "Routed & Pending Directorate Review",
+                                    "kyb_status": "Verified Active (CAC & Statutory Clearances)",
+                                    "score": 96.5,
+                                    "estimated_cost": ocr_result["detected_cost"],
+                                    "ai_summary": f"Live OCR Extracted ({ocr_result['page_count']} Pages): {ocr_result['summary']}",
+                                    "payment_ref": "Exempt (Unsolicited Pitch)"
+                                }
+                                
+                                db.save_proposal(proposal_rec)
+                                qr_img = qrg.generate_qr_badge(qr_ref_id, vendor_name, project_title)
+                                
+                                disp.send_vendor_acknowledgement(vendor_email, vendor_phone, vendor_name, qr_ref_id, project_title)
+                                disp.trigger_officer_priority_alert(target_officer, priority_lvl, qr_ref_id, project_title, vendor_name)
+
+                            st.success(f"🎉 Live OCR Extraction Complete & Pitch Registered! **QR Ref: {qr_ref_id}**")
+                            
+                            col_r1, col_r2 = st.columns([1, 2])
+                            with col_r1:
+                                st.image(qr_img, width=160, caption=f"Printable Pass Badge ({qr_ref_id})")
+                                st.download_button("💾 Download Badge PNG", data=qr_img, file_name=f"{qr_ref_id}_badge.png", mime="image/png")
+                            with col_r2:
+                                st.info(f"📄 **OCR Analysis Summary:**\n- Pages Processed: **{ocr_result['page_count']}**\n- Detected Cost/Budget: **{ocr_result['detected_cost']}**\n- Priority Alert dispatched to **{target_officer}**")
 
         # TAB B: SOLICITED TENDERS
         with tab_solicited:
@@ -366,15 +379,15 @@ else:
                 st.markdown("##### 🏢 1. RFP Call & Bidder Meta")
                 col_s1, col_s2 = st.columns(2)
                 with col_s1:
-                    rfp_ref = st.text_input("RFP / Tender Call Reference Number*", placeholder="e.g., RFP-2026-NASS-INFRA-01")
-                    bidder_name = st.text_input("Invited Bidder / Contractor Name*", placeholder="e.g., PrimeBuilder Consortium Ltd")
-                    bidder_cac = st.text_input("CAC Registration Number (RC/BN)*", placeholder="RC-998877")
-                    bidder_email = st.text_input("Bidder Official Dispatch Email*", placeholder="tender@primebuilder.com")
+                    rfp_ref_raw = st.text_input("RFP / Tender Call Reference Number*", placeholder="e.g., RFP-2026-NASS-INFRA-01")
+                    bidder_name_raw = st.text_input("Invited Bidder / Contractor Name*", placeholder="e.g., PrimeBuilder Consortium Ltd")
+                    bidder_cac_raw = st.text_input("CAC Registration Number (RC/BN)*", placeholder="RC-998877")
+                    bidder_email_raw = st.text_input("Bidder Official Dispatch Email*", placeholder="tender@primebuilder.com")
                 with col_s2:
-                    tender_title = st.text_input("Contract / Procurement Title*", placeholder="e.g., Construction of High-Performance Computing Vault")
-                    target_comm_email = st.text_input("Target Evaluation Committee Email*", placeholder="tender.board@entity.org")
-                    bid_bond_ref = st.text_input("Bid Security / Bank Guarantee Ref (if applicable)", placeholder="BG-2026-99182")
-                    payment_ref_input = st.text_input("Bidding Fee Payment Transaction Ref / Receipt Number*", placeholder="e.g., RRR-1029-4482-PAY")
+                    tender_title_raw = st.text_input("Contract / Procurement Title*", placeholder="e.g., Construction of High-Performance Computing Vault")
+                    target_comm_email_raw = st.text_input("Target Evaluation Committee Email*", placeholder="tender.board@entity.org")
+                    bid_bond_ref_raw = st.text_input("Bid Security / Bank Guarantee Ref (if applicable)", placeholder="BG-2026-99182")
+                    payment_ref_input_raw = st.text_input("Bidding Fee Payment Transaction Ref / Receipt Number*", placeholder="e.g., RRR-1029-4482-PAY")
 
                 st.markdown("##### 📋 2. Comprehensive Statutory & Mandatory Procurement Audit")
                 
@@ -405,12 +418,21 @@ else:
                     s_affid = st.checkbox("Legal Sworn Affidavit (Non-Conviction & Non-Receivership)", value=True)
                     s_boq = st.checkbox("Tender Submission Form & Priced BOQ / Financial Proposal", value=True)
 
-                st.markdown("##### 📄 3. Formal Tender Package Upload & OCR Audit")
+                st.markdown("##### 📄 3. Formal Tender Package Upload & Security Audit")
                 solicited_pdf = st.file_uploader("Upload Scanned Tender Package (Technical & Financial Bids PDF)", type=["pdf"])
 
-                btn_sub_sol = st.form_submit_button("Audit BPP/Statutory Compliance & Verify Payment", use_container_width=True)
+                btn_sub_sol = st.form_submit_button("Audit Cybersecurity & BPP Compliance, Verify Payment", use_container_width=True)
 
                 if btn_sub_sol:
+                    # Sanitize Inputs
+                    rfp_ref = sec.sanitize_text_input(rfp_ref_raw)
+                    bidder_name = sec.sanitize_text_input(bidder_name_raw)
+                    bidder_cac = sec.sanitize_text_input(bidder_cac_raw)
+                    bidder_email = sec.sanitize_text_input(bidder_email_raw)
+                    tender_title = sec.sanitize_text_input(tender_title_raw)
+                    target_comm_email = sec.sanitize_text_input(target_comm_email_raw)
+                    payment_ref_input = sec.sanitize_text_input(payment_ref_input_raw)
+
                     if not rfp_ref or not bidder_name or not bidder_email or not tender_title or not solicited_pdf:
                         st.error("⚠️ Please fill in all required tender reference fields and upload the bid package.")
                     elif payment_required and not payment_ref_input:
@@ -419,41 +441,51 @@ else:
                         st.error("❌ Mandatory Statutory Disqualification: Missing essential BPP, TCC, PenCom, ITF, NSITF, or Sworn Affidavit clearances.")
                     else:
                         pdf_sol_bytes = solicited_pdf.getvalue()
-                        ocr_sol_res = ocr.extract_pdf_content(pdf_sol_bytes)
+                        safe_sol_filename = sec.sanitize_filename(solicited_pdf.name)
 
-                        unique_hash_sol = random.randint(1000, 9999)
-                        solicited_qr = f"NV-SOLICIT-{datetime.now().strftime('%Y%m%d%H%M%S')}-{unique_hash_sol}"
-                        
-                        sol_record = {
-                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "type": "Solicited Tender Response",
-                            "vendor": bidder_name,
-                            "cac": bidder_cac,
-                            "email": bidder_email,
-                            "phone": "In RFP Filing",
-                            "address": "In RFP Filing",
-                            "title": f"[{rfp_ref}] {tender_title}",
-                            "target_officer": target_comm_email,
-                            "priority": priority_sol,
-                            "qr_ref": solicited_qr,
-                            "status": "Solicited Tender Registered (Full Statutory & Payment Pass)",
-                            "kyb_status": "Verified White-list (CAC, TCC, PenCom, ITF, NSITF, BPP)",
-                            "score": 99.2,
-                            "estimated_cost": ocr_sol_res["detected_cost"],
-                            "ai_summary": f"Full statutory & payment audit PASSED. OCR Text Analysis ({ocr_sol_res['page_count']} Pages): {ocr_sol_res['summary']}",
-                            "payment_ref": payment_ref_input if payment_required else "Fee Waived"
-                        }
-                        db.save_proposal(sol_record)
-                        qr_img_sol = qrg.generate_qr_badge(solicited_qr, bidder_name, tender_title)
-                        
-                        st.success(f"🎉 Statutory & Payment Compliance PASSED! **Tracking Pass: {solicited_qr}**")
-                        
-                        col_sr1, col_sr2 = st.columns([1, 2])
-                        with col_sr1:
-                            st.image(qr_img_sol, width=150, caption=f"Tender Badge: {solicited_qr}")
-                            st.download_button("💾 Download Tender Badge PNG", data=qr_img_sol, file_name=f"{solicited_qr}_badge.png", mime="image/png")
-                        with col_sr2:
-                            st.info(f"✉️ **Tender Board Dispatch Summary:**\n- White-list status granted for **{bidder_name}**\n- Payment Ref: **{payment_ref_input}**\n- Routed to Tender Committee (**{target_comm_email}**)")
+                        # Deep Security Inspection
+                        is_safe, sec_msg = sec.inspect_pdf_payload(pdf_sol_bytes, safe_sol_filename)
+
+                        if not is_safe:
+                            st.error(f"❌ {sec_msg}")
+                            db.log_event("Security Guard", "MALWARE_BLOCKED", "N/A", f"Blocked unsafe tender file '{safe_sol_filename}' from bidder '{bidder_name}'")
+                        else:
+                            st.success(f"🛡️ NITDA Cybersecurity Inspection: {sec_msg}")
+                            ocr_sol_res = ocr.extract_pdf_content(pdf_sol_bytes)
+
+                            unique_hash_sol = random.randint(1000, 9999)
+                            solicited_qr = f"NV-SOLICIT-{datetime.now().strftime('%Y%m%d%H%M%S')}-{unique_hash_sol}"
+                            
+                            sol_record = {
+                                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "type": "Solicited Tender Response",
+                                "vendor": bidder_name,
+                                "cac": bidder_cac,
+                                "email": bidder_email,
+                                "phone": "In RFP Filing",
+                                "address": "In RFP Filing",
+                                "title": f"[{rfp_ref}] {tender_title}",
+                                "target_officer": target_comm_email,
+                                "priority": priority_sol,
+                                "qr_ref": solicited_qr,
+                                "status": "Solicited Tender Registered (Full Statutory, Security & Payment Pass)",
+                                "kyb_status": "Verified White-list (CAC, TCC, PenCom, ITF, NSITF, BPP)",
+                                "score": 99.2,
+                                "estimated_cost": ocr_sol_res["detected_cost"],
+                                "ai_summary": f"Full statutory, cybersecurity & payment audit PASSED. OCR Text Analysis ({ocr_sol_res['page_count']} Pages): {ocr_sol_res['summary']}",
+                                "payment_ref": payment_ref_input if payment_required else "Fee Waived"
+                            }
+                            db.save_proposal(sol_record)
+                            qr_img_sol = qrg.generate_qr_badge(solicited_qr, bidder_name, tender_title)
+                            
+                            st.success(f"🎉 Statutory & Payment Compliance PASSED! **Tracking Pass: {solicited_qr}**")
+                            
+                            col_sr1, col_sr2 = st.columns([1, 2])
+                            with col_sr1:
+                                st.image(qr_img_sol, width=150, caption=f"Tender Badge: {solicited_qr}")
+                                st.download_button("💾 Download Tender Badge PNG", data=qr_img_sol, file_name=f"{solicited_qr}_badge.png", mime="image/png")
+                            with col_sr2:
+                                st.info(f"✉️ **Tender Board Dispatch Summary:**\n- White-list status granted for **{bidder_name}**\n- Payment Ref: **{payment_ref_input}**\n- Routed to Tender Committee (**{target_comm_email}**)")
 
     # ==========================================
     # TIER 2: STRATEGIC DIRECTORATE PORTAL
@@ -502,9 +534,9 @@ else:
                         scanned_search_id = scanned_id
 
             with tab_text_qr:
-                manual_input = st.text_input("Enter QR Reference ID Manually", placeholder="e.g., NV-QREF-...")
-                if manual_input:
-                    scanned_search_id = manual_input
+                manual_input_raw = st.text_input("Enter QR Reference ID Manually", placeholder="e.g., NV-QREF-...")
+                if manual_input_raw:
+                    scanned_search_id = sec.sanitize_text_input(manual_input_raw)
 
             st.markdown("---")
             for item in proposals:
@@ -556,13 +588,15 @@ else:
                 col_p1, col_p2 = st.columns(2)
                 with col_p1:
                     req_payment_toggle = st.checkbox("Require Tender Processing / Bidding Fee Payment", value=payment_required)
-                    fee_amt = st.text_input("Required Tender Bidding Fee Amount", value=bidding_fee_amount)
+                    fee_amt_raw = st.text_input("Required Tender Bidding Fee Amount", value=bidding_fee_amount)
                 with col_p2:
-                    pay_instr = st.text_area("Payment Instructions / Remita Gateway Account Notes", value=payment_instructions)
+                    pay_instr_raw = st.text_area("Payment Instructions / Remita Gateway Account Notes", value=payment_instructions)
 
                 btn_save_pay = st.form_submit_button("Save Organizational Payment Rules", use_container_width=True)
 
                 if btn_save_pay:
+                    fee_amt = sec.sanitize_text_input(fee_amt_raw)
+                    pay_instr = sec.sanitize_text_input(pay_instr_raw)
                     db.set_setting("payment_required", str(req_payment_toggle))
                     db.set_setting("bidding_fee_amount", fee_amt)
                     db.set_setting("payment_instructions", pay_instr)
