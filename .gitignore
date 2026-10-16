@@ -17,3 +17,7 @@ proposals.db
 .vscode/
 
 security_logs.db
+
+nexusvault.db
+*.db
+
