@@ -1,14 +1,15 @@
 ﻿version: '3.8'
+
 services:
-  vectra-proposal-portal:
+  nexusvault-app:
     build: .
-    image: vectra-proposal-portal:latest
-    container_name: vectra_proposal_intake_portal
-    restart: always
+    container_name: nexusvault_sovereign_node
     ports:
-      - "8502:8502"
+      - "8501:8501"
+    volumes:
+      - ./nexusvault.db:/app/nexusvault.db
     environment:
-      - STREAMLIT_SERVER_HEADLESS=true
-      - STREAMLIT_SERVER_ENABLE_CORS=false
-      - STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=true
-      - GBB_GXCP_ENVIRONMENT=production
+      - ENABLE_LIVE_EMAIL=False
+      - SMTP_SERVER=smtp.gmail.com
+      - SMTP_PORT=587
+    restart: unless-stopped
