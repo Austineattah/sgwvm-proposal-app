@@ -12,6 +12,8 @@ import dispatcher as disp
 import ocr_parser as ocr
 import qr_scanner as scanner
 import security_guard as sec
+import blockchain_ledger as chain
+import report_generator as cert_gen
 
 # Page Configuration
 st.set_page_config(
@@ -166,10 +168,10 @@ else:
         st.markdown("### 🔐 Role Gateways")
         selected_role_view = st.radio(
             "Select Portal Access Gate",
-            ["Front Desk (Proposal Intake & KYB)", "Strategic Directorate (AI & Financial Appraisals)", "Senior Management (Solicited Tenders & Payment Control)", "📊 Executive Reporting & Exports", "📜 Audit Logs & Compliance Trail"]
+            ["Front Desk (Proposal Intake & KYB)", "Strategic Directorate (AI & Financial Appraisals)", "Senior Management (Solicited Tenders & Payment Control)", "📊 Executive Reporting & Exports", "⛓️ Cryptographic Proof Ledger", "📜 Audit Logs & Compliance Trail"]
         )
 
-        if selected_role_view not in ["Front Desk (Proposal Intake & KYB)", "📊 Executive Reporting & Exports", "📜 Audit Logs & Compliance Trail"]:
+        if selected_role_view not in ["Front Desk (Proposal Intake & KYB)", "📊 Executive Reporting & Exports", "⛓️ Cryptographic Proof Ledger", "📜 Audit Logs & Compliance Trail"]:
             st.markdown("---")
             st.markdown("⚠️ **Restricted Directorate Area**")
             entered_password = st.text_input("Enter Directorate Passcode", type="password", key="role_passcode")
@@ -294,7 +296,6 @@ else:
                 btn_sub_unsol = st.form_submit_button("Execute Security Inspection, Live OCR & Route Pitch", use_container_width=True)
 
                 if btn_sub_unsol:
-                    # Sanitize All Text Inputs
                     vendor_name = sec.sanitize_text_input(vendor_name_raw)
                     cac_num = sec.sanitize_text_input(cac_num_raw)
                     vendor_email = sec.sanitize_text_input(vendor_email_raw)
@@ -308,7 +309,6 @@ else:
                         pdf_bytes = scanned_pdf.getvalue()
                         safe_filename = sec.sanitize_filename(scanned_pdf.name)
 
-                        # Deep Security Inspection (Anti-Malware & Anti-DoS Check)
                         is_safe, sec_msg = sec.inspect_pdf_payload(pdf_bytes, safe_filename)
 
                         if not is_safe:
@@ -316,12 +316,15 @@ else:
                             db.log_event("Security Guard", "MALWARE_BLOCKED", "N/A", f"Blocked unsafe file '{safe_filename}' from vendor '{vendor_name}'")
                         else:
                             st.success(f"🛡️ NITDA Cybersecurity Inspection: {sec_msg}")
-                            with st.spinner("🔄 Executing live OCR text extraction, writing to DB, and generating QR badge..."):
+                            with st.spinner("🔄 Executing OCR text extraction, SHA-256 block hash, and generating QR badge..."):
                                 ocr_result = ocr.extract_pdf_content(pdf_bytes)
 
                                 unique_hash = random.randint(1000, 9999)
                                 qr_ref_id = f"NV-QREF-{datetime.now().strftime('%Y%m%d%H%M%S')}-{unique_hash}"
                                 
+                                # Record Cryptographic SHA-256 Hash Proof Block
+                                block_proof = chain.record_cryptographic_proof(qr_ref_id, vendor_name, project_title, pdf_bytes)
+
                                 proposal_rec = {
                                     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                     "type": f"Unsolicited ({prop_cat})",
@@ -348,7 +351,8 @@ else:
                                 disp.send_vendor_acknowledgement(vendor_email, vendor_phone, vendor_name, qr_ref_id, project_title)
                                 disp.trigger_officer_priority_alert(target_officer, priority_lvl, qr_ref_id, project_title, vendor_name)
 
-                            st.success(f"🎉 Live OCR Extraction Complete & Pitch Registered! **QR Ref: {qr_ref_id}**")
+                            st.success(f"🎉 Live OCR & Cryptographic Hash Proof Complete! **QR Ref: {qr_ref_id}**")
+                            st.info(f"⛓️ **SHA-256 Document Hash:** {block_proof['document_sha256']} (Recorded in Merkle Ledger Block #{block_proof['block_index']})")
                             
                             col_r1, col_r2 = st.columns([1, 2])
                             with col_r1:
@@ -424,7 +428,6 @@ else:
                 btn_sub_sol = st.form_submit_button("Audit Cybersecurity & BPP Compliance, Verify Payment", use_container_width=True)
 
                 if btn_sub_sol:
-                    # Sanitize Inputs
                     rfp_ref = sec.sanitize_text_input(rfp_ref_raw)
                     bidder_name = sec.sanitize_text_input(bidder_name_raw)
                     bidder_cac = sec.sanitize_text_input(bidder_cac_raw)
@@ -443,7 +446,6 @@ else:
                         pdf_sol_bytes = solicited_pdf.getvalue()
                         safe_sol_filename = sec.sanitize_filename(solicited_pdf.name)
 
-                        # Deep Security Inspection
                         is_safe, sec_msg = sec.inspect_pdf_payload(pdf_sol_bytes, safe_sol_filename)
 
                         if not is_safe:
@@ -456,6 +458,9 @@ else:
                             unique_hash_sol = random.randint(1000, 9999)
                             solicited_qr = f"NV-SOLICIT-{datetime.now().strftime('%Y%m%d%H%M%S')}-{unique_hash_sol}"
                             
+                            # Record SHA-256 Proof Block
+                            block_proof = chain.record_cryptographic_proof(solicited_qr, bidder_name, tender_title, pdf_sol_bytes)
+
                             sol_record = {
                                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                 "type": "Solicited Tender Response",
@@ -466,7 +471,7 @@ else:
                                 "address": "In RFP Filing",
                                 "title": f"[{rfp_ref}] {tender_title}",
                                 "target_officer": target_comm_email,
-                                "priority": priority_sol,
+                                "priority": "High Priority",
                                 "qr_ref": solicited_qr,
                                 "status": "Solicited Tender Registered (Full Statutory, Security & Payment Pass)",
                                 "kyb_status": "Verified White-list (CAC, TCC, PenCom, ITF, NSITF, BPP)",
@@ -479,7 +484,8 @@ else:
                             qr_img_sol = qrg.generate_qr_badge(solicited_qr, bidder_name, tender_title)
                             
                             st.success(f"🎉 Statutory & Payment Compliance PASSED! **Tracking Pass: {solicited_qr}**")
-                            
+                            st.info(f"⛓️ **SHA-256 Tender Document Hash:** {block_proof['document_sha256']} (Block #{block_proof['block_index']})")
+
                             col_sr1, col_sr2 = st.columns([1, 2])
                             with col_sr1:
                                 st.image(qr_img_sol, width=150, caption=f"Tender Badge: {solicited_qr}")
@@ -567,10 +573,24 @@ else:
                         </div>
                     """, unsafe_allow_html=True)
 
-                    if st.button(f"⚡ Activate Directorate Action for {item['qr_ref_id']}", key=f"act_{item['qr_ref_id']}"):
-                        db.update_proposal_status(item['qr_ref_id'], "Approved by Directorate for Execution", "Strategic Directorate")
-                        st.success(f"✅ Action activated for {item['qr_ref_id']}!")
-                        st.rerun()
+                    col_act1, col_act2 = st.columns(2)
+                    with col_act1:
+                        if st.button(f"⚡ Activate Directorate Action for {item['qr_ref_id']}", key=f"act_{item['qr_ref_id']}"):
+                            db.update_proposal_status(item['qr_ref_id'], "Approved by Directorate for Execution", "Strategic Directorate")
+                            st.success(f"✅ Action activated for {item['qr_ref_id']}!")
+                            st.rerun()
+                    with col_act2:
+                        cert_png = cert_gen.generate_evaluation_certificate(
+                            item['qr_ref_id'], item['vendor_name'], item['project_title'],
+                            item['status'], item['compliance_score'], item['estimated_cost'], item['ai_summary']
+                        )
+                        st.download_button(
+                            label="📜 Download Official Evaluation Certificate",
+                            data=cert_png,
+                            file_name=f"{item['qr_ref_id']}_Certificate.png",
+                            mime="image/png",
+                            use_container_width=True
+                        )
 
     # ==========================================
     # TIER 3: SENIOR MANAGEMENT PORTAL & PAYMENT GATEWAY MANAGER
@@ -641,7 +661,31 @@ else:
             )
 
     # ==========================================
-    # TIER 5: AUDIT LOGS & COMPLIANCE TRAIL
+    # TIER 5: CRYPTOGRAPHIC PROOF LEDGER
+    # ==========================================
+    elif st.session_state["active_user_role"] == "⛓️ Cryptographic Proof Ledger":
+        st.markdown("<div class='section-hdr'>⛓️ Cryptographic SHA-256 Merkle-Tree Proof Ledger</div>", unsafe_allow_html=True)
+        st.info("This append-only ledger records immutable SHA-256 hashes of every submitted bid and proposal binder for court-grade anti-tampering verification.")
+        
+        ledger_blocks = chain.get_ledger()
+        if len(ledger_blocks) == 0:
+            st.warning("⚠️ No cryptographic proof blocks recorded yet. Submit a proposal to generate the genesis block!")
+        else:
+            for block in reversed(ledger_blocks):
+                st.markdown(f"""
+                    <div style="background-color: rgba(15, 23, 42, 0.9); border: 1px solid #1d4ed8; border-left: 5px solid #38bdf8; padding: 14px 18px; border-radius: 8px; margin-bottom: 12px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #38bdf8; font-weight: 800;">BLOCK #{block['block_index']}</span>
+                            <span style="color: #94a3b8; font-size: 12px;">{block['timestamp']}</span>
+                        </div>
+                        <p style="margin: 6px 0; font-size: 14px;"><b>QR Ref:</b> <code>{block['qr_ref_id']}</code> | <b>Vendor:</b> {block['vendor_name']}</p>
+                        <p style="margin: 2px 0; font-size: 12px; color: #34d399;"><b>SHA-256 Hash:</b> <code>{block['document_sha256']}</code></p>
+                        <p style="margin: 2px 0; font-size: 11px; color: #64748b;"><b>Previous Block Hash:</b> <code>{block['previous_block_hash']}</code></p>
+                    </div>
+                """, unsafe_allow_html=True)
+
+    # ==========================================
+    # TIER 6: AUDIT LOGS & COMPLIANCE TRAIL
     # ==========================================
     elif st.session_state["active_user_role"] == "📜 Audit Logs & Compliance Trail":
         st.markdown("<div class='section-hdr'>📜 System Audit Logs & Tamper-Evident Trail</div>", unsafe_allow_html=True)
