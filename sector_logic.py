@@ -5,26 +5,27 @@ def render_sector_onboarding_wizard():
     if "custom_portal_heading" not in st.session_state:
         st.session_state["custom_portal_heading"] = 'NEXUSVAULT TECHNOLOGIES "SUPER INTELLIGENCE - AGENTIC AI PROPOSAL INTAKE PORTAL"'
 
-    # Global Font Import & Dark Theme
+    # Global Font Import & Glassmorphism Theme
     st.markdown("""
         <style>
-            @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=Roboto:wght@400;500;700&display=swap');
+            @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
             .stApp {
-                background-color: #070d19 !important;
-                color: #ffffff !important;
+                background: radial-gradient(circle at 50% 0%, #0d1b2a 0%, #070d19 70%) !important;
+                color: #f8fafc !important;
                 font-family: 'Plus Jakarta Sans', sans-serif !important;
             }
 
             .section-hdr {
                 color: #38bdf8 !important;
-                font-size: 19px !important;
+                font-size: 20px !important;
                 font-weight: 800 !important;
                 letter-spacing: 0.3px !important;
                 border-left: 4px solid #38bdf8;
-                padding-left: 10px;
-                margin-top: 15px;
-                margin-bottom: 15px;
+                padding-left: 12px;
+                margin-top: 22px;
+                margin-bottom: 16px;
+                text-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
             }
 
             label, div[data-baseweb="select"] span {
@@ -34,34 +35,35 @@ def render_sector_onboarding_wizard():
             }
 
             div[data-baseweb="select"] > div {
-                background-color: #0f172a !important;
-                border: 1px solid #334155 !important;
+                background-color: rgba(15, 23, 42, 0.75) !important;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
                 color: #ffffff !important;
-                border-radius: 8px !important;
+                border-radius: 10px !important;
+                backdrop-filter: blur(10px) !important;
             }
         </style>
     """, unsafe_allow_html=True)
 
-    # Executive Banner
+    # Glassmorphism Executive Banner
     st.markdown(f"""
-        <div style="background: linear-gradient(135deg, #0a192f 0%, #0d2137 100%); padding: 28px 32px; border-radius: 12px; border: 2px solid #1d4ed8; box-shadow: 0 10px 28px rgba(10, 25, 47, 0.85); margin-bottom: 24px;">
+        <div style="background: linear-gradient(135deg, rgba(10, 25, 47, 0.85) 0%, rgba(13, 33, 55, 0.85) 100%); backdrop-filter: blur(16px); padding: 32px 36px; border-radius: 16px; border: 1px solid rgba(56, 189, 248, 0.25); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(56, 189, 248, 0.1); margin-bottom: 28px;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px;">
                 <div style="flex: 1; min-width: 320px;">
-                    <h1 style="color: #ffffff !important; margin: 0 0 10px 0; font-size: 24px; font-weight: 900; letter-spacing: 0.5px; line-height: 1.3; font-family: 'Plus Jakarta Sans', sans-serif;">
+                    <h1 style="color: #ffffff !important; margin: 0 0 10px 0; font-size: 25px; font-weight: 900; letter-spacing: 0.4px; line-height: 1.3; font-family: 'Plus Jakarta Sans', sans-serif; text-shadow: 0 2px 10px rgba(0,0,0,0.5);">
                         🛡️ {st.session_state["custom_portal_heading"]}
                     </h1>
                     <p style="color: #cbd5e1 !important; margin: 0; font-size: 15px; font-weight: 500; line-height: 1.5; font-family: 'Plus Jakarta Sans', sans-serif;">
                         Initialize your secure organizational node, configure your domain scope, and deploy your sovereign enterprise proposal intake gateway.
                     </p>
                 </div>
-                <div style="display: flex; align-items: center; background-color: rgba(15, 23, 42, 0.8); border: 2px solid #008751; border-radius: 10px; padding: 12px 18px; gap: 12px;">
-                    <svg width="40" height="26" viewBox="0 0 3 2" style="border-radius: 3px; box-shadow: 0 2px 6px rgba(0,0,0,0.5);">
+                <div style="display: flex; align-items: center; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(10px); border: 1px solid rgba(0, 135, 81, 0.5); border-radius: 12px; padding: 12px 20px; gap: 14px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+                    <svg width="42" height="28" viewBox="0 0 3 2" style="border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.6);">
                         <rect width="1" height="2" x="0" fill="#008751"/>
                         <rect width="1" height="2" x="1" fill="#FFFFFF"/>
                         <rect width="1" height="2" x="2" fill="#008751"/>
                     </svg>
                     <div>
-                        <div style="color: #ffffff; font-size: 12px; font-weight: 800; letter-spacing: 0.5px; font-family: 'Plus Jakarta Sans', sans-serif;">FEDERAL REPUBLIC</div>
+                        <div style="color: #ffffff; font-size: 12px; font-weight: 800; letter-spacing: 0.6px; font-family: 'Plus Jakarta Sans', sans-serif;">FEDERAL REPUBLIC</div>
                         <div style="color: #34d399; font-size: 10px; font-weight: 700; font-family: 'Plus Jakarta Sans', sans-serif;">OF NIGERIA</div>
                     </div>
                 </div>

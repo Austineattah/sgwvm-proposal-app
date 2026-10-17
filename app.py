@@ -25,14 +25,15 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Global Typography (Plus Jakarta Sans) & High-Contrast Obsidian Theme
+# Global High-End Glassmorphism CSS System
 st.markdown("""
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=Roboto:wght@400;500;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
+        /* Dark Radial Gradient Background */
         .stApp {
-            background-color: #070d19 !important;
-            color: #ffffff !important;
+            background: radial-gradient(circle at 50% -20%, #0f2744 0%, #070d19 65%) !important;
+            color: #f8fafc !important;
             font-family: 'Plus Jakarta Sans', sans-serif !important;
         }
 
@@ -40,69 +41,86 @@ st.markdown("""
             font-family: 'Plus Jakarta Sans', sans-serif !important;
         }
 
+        /* Glassmorphism Header Panel */
         .main-header {
-            background: linear-gradient(135deg, #0a192f 0%, #0d2137 100%);
-            padding: 24px 28px;
-            border-radius: 12px;
-            border: 2px solid #1d4ed8;
-            box-shadow: 0 10px 28px rgba(10, 25, 47, 0.85);
-            margin-bottom: 24px;
+            background: linear-gradient(135deg, rgba(10, 25, 47, 0.85) 0%, rgba(15, 39, 68, 0.85) 100%);
+            backdrop-filter: blur(16px);
+            padding: 26px 30px;
+            border-radius: 14px;
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(56, 189, 248, 0.1);
+            margin-bottom: 26px;
         }
 
+        /* Glowing Section Titles */
         .section-hdr {
             color: #38bdf8 !important;
-            font-size: 19px !important;
+            font-size: 20px !important;
             font-weight: 800 !important;
             letter-spacing: 0.3px !important;
             border-left: 4px solid #38bdf8;
-            padding-left: 10px;
-            margin-top: 18px;
-            margin-bottom: 14px;
+            padding-left: 12px;
+            margin-top: 22px;
+            margin-bottom: 16px;
+            text-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
         }
 
+        /* Form Inputs with Frosted Glass Look */
         div[data-baseweb="select"] > div, input, textarea {
-            background-color: #0f172a !important;
-            border: 1px solid #334155 !important;
+            background-color: rgba(15, 23, 42, 0.75) !important;
+            border: 1px solid rgba(255, 255, 255, 0.12) !important;
             color: #ffffff !important;
-            border-radius: 8px !important;
+            border-radius: 10px !important;
             font-family: 'Plus Jakarta Sans', sans-serif !important;
             font-size: 14px !important;
+            backdrop-filter: blur(10px) !important;
+            transition: all 0.2s ease-in-out !important;
         }
 
+        div[data-baseweb="select"] > div:hover, input:focus, textarea:focus {
+            border-color: #38bdf8 !important;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.2) !important;
+        }
+
+        /* Clickable Tabs Styling */
         button[data-baseweb="tab"] {
-            background-color: rgba(15, 23, 42, 0.85) !important;
-            border: 1px solid #334155 !important;
-            border-radius: 8px 8px 0px 0px !important;
+            background-color: rgba(15, 23, 42, 0.65) !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-radius: 10px 10px 0px 0px !important;
             padding: 12px 24px !important;
-            color: #cbd5e1 !important;
+            color: #94a3b8 !important;
             font-weight: 700 !important;
-            font-size: 15px !important;
+            font-size: 14px !important;
             margin-right: 6px !important;
+            backdrop-filter: blur(10px) !important;
             transition: all 0.25s ease-in-out !important;
         }
 
         button[data-baseweb="tab"]:hover {
             color: #ffffff !important;
-            background-color: rgba(30, 58, 138, 0.6) !important;
-            border-color: #60a5fa !important;
+            background-color: rgba(30, 58, 138, 0.5) !important;
+            border-color: rgba(56, 189, 248, 0.4) !important;
         }
 
         button[data-baseweb="tab"][aria-selected="true"] {
             background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
             color: #ffffff !important;
-            border: 2px solid #38bdf8 !important;
-            border-bottom: 4px solid #38bdf8 !important;
-            font-weight: 900 !important;
-            font-size: 16px !important;
-            box-shadow: 0 6px 16px rgba(2, 132, 199, 0.5) !important;
+            border: 1px solid #38bdf8 !important;
+            border-bottom: 3px solid #38bdf8 !important;
+            font-weight: 800 !important;
+            font-size: 15px !important;
+            box-shadow: 0 6px 18px rgba(2, 132, 199, 0.45) !important;
         }
 
+        /* Card Container Boxes */
         .card-box {
-            background-color: rgba(15, 23, 42, 0.85);
-            border: 1px solid #334155;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 18px;
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 22px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
         }
 
         .checklist-hdr {
@@ -111,16 +129,18 @@ st.markdown("""
             font-weight: 800;
             margin-top: 10px;
             margin-bottom: 8px;
-            border-bottom: 2px solid rgba(56, 189, 248, 0.4);
-            padding-bottom: 4px;
+            border-bottom: 1px solid rgba(56, 189, 248, 0.3);
+            padding-bottom: 6px;
         }
 
         .procurement-notice {
-            background-color: rgba(220, 38, 38, 0.15);
+            background-color: rgba(220, 38, 38, 0.12);
+            backdrop-filter: blur(10px);
             border-left: 5px solid #ef4444;
-            border-radius: 8px;
-            padding: 18px 22px;
-            margin-bottom: 22px;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 15px rgba(220, 38, 38, 0.2);
         }
     </style>
 """, unsafe_allow_html=True)
@@ -130,7 +150,6 @@ if "portal_initialized" not in st.session_state:
 if "active_user_role" not in st.session_state:
     st.session_state["active_user_role"] = "Front Desk Officer"
 
-# Check if node is approved in DB
 is_node_approved = db.get_setting("node_approved", "False") == "True"
 
 if not is_node_approved and not st.session_state.get("developer_access_granted", False):
@@ -156,8 +175,8 @@ else:
         """, unsafe_allow_html=True)
     with col_hdr2:
         st.markdown("""
-            <div style="display: flex; align-items: center; justify-content: flex-end; background-color: rgba(15, 23, 42, 0.85); border: 2px solid #008751; border-radius: 10px; padding: 12px 16px; gap: 12px; margin-top: 4px;">
-                <svg width="42" height="28" viewBox="0 0 3 2" style="border-radius: 3px; box-shadow: 0 2px 6px rgba(0,0,0,0.5);">
+            <div style="display: flex; align-items: center; justify-content: flex-end; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(10px); border: 1px solid rgba(0, 135, 81, 0.5); border-radius: 12px; padding: 12px 18px; gap: 12px; margin-top: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+                <svg width="42" height="28" viewBox="0 0 3 2" style="border-radius: 4px; box-shadow: 0 2px 6px rgba(0,0,0,0.6);">
                     <rect width="1" height="2" x="0" fill="#008751"/>
                     <rect width="1" height="2" x="1" fill="#FFFFFF"/>
                     <rect width="1" height="2" x="2" fill="#008751"/>
@@ -255,19 +274,15 @@ else:
     bidding_fee_amount = db.get_setting("bidding_fee_amount", "₦50,000")
     payment_instructions = db.get_setting("payment_instructions", "Pay via Federal Remita RRR / Commercial Bank Deposit to Account: 101-223344-01")
 
-    # ==========================================
-    # TIER 1: FRONT DESK OFFICER PORTAL (DUAL TAB WITH AUTO-SAVE DRAFTS)
-    # ==========================================
+    # FRONT DESK PORTAL
     if st.session_state["active_user_role"] == "Front Desk (Proposal Intake & KYB)":
         st.markdown("<div class='section-hdr'>📥 Front Desk: Intake Gateway & Verification Engine</div>", unsafe_allow_html=True)
         
         tab_unsolicited, tab_solicited = st.tabs(["💡 Unsolicited Proposal Pitch Gate", "🏛️ Statutory Solicited Tender / RFP Submission Gate"])
 
-        # TAB A: UNSOLICITED PROPOSALS
         with tab_unsolicited:
             st.markdown("<h3 style='color: #38bdf8; font-size: 18px;'>Unsolicited Pitch Intake & 2-Bundle Statutory Verification</h3>", unsafe_allow_html=True)
 
-            # Auto-Save Draft Recovery Check
             saved_unsol_draft = draft_mgr.get_draft("unsolicited_pitch")
             if saved_unsol_draft:
                 st.warning(f"⚠️ Unsaved Draft Detected from {saved_unsol_draft.get('last_saved', 'Recent Session')}.")
@@ -396,7 +411,6 @@ else:
                             with col_r2:
                                 st.info(f"📄 **OCR Analysis Summary:**\n- Pages Processed: **{ocr_result['page_count']}**\n- Detected Cost/Budget: **{ocr_result['detected_cost']}**\n- Priority Alert dispatched to **{target_officer}**")
 
-        # TAB B: SOLICITED TENDERS
         with tab_solicited:
             st.markdown("""
                 <div class="procurement-notice">
@@ -527,9 +541,7 @@ else:
                             with col_sr2:
                                 st.info(f"✉️ **Tender Board Dispatch Summary:**\n- White-list status granted for **{bidder_name}**\n- Payment Ref: **{payment_ref_input}**\n- Routed to Tender Committee (**{target_comm_email}**)")
 
-    # ==========================================
-    # TIER 2: STRATEGIC DIRECTORATE PORTAL
-    # ==========================================
+    # STRATEGIC DIRECTORATE
     elif st.session_state["active_user_role"] == "Strategic Directorate (AI & Financial Appraisals)":
         st.markdown("<div class='section-hdr'>🤖 Strategic Directorate: Persistent Inbox & Optical QR Pass Scanner</div>", unsafe_allow_html=True)
 
@@ -626,9 +638,7 @@ else:
                             use_container_width=True
                         )
 
-    # ==========================================
-    # TIER 3: SENIOR MANAGEMENT PORTAL & PAYMENT GATEWAY MANAGER
-    # ==========================================
+    # SENIOR MANAGEMENT
     elif st.session_state["active_user_role"] == "Senior Management (Solicited Tenders & Payment Control)":
         st.markdown("<div class='section-hdr'>🏛️ Senior Management: Internal Bidding Payment Control & Tender Audit</div>", unsafe_allow_html=True)
         
@@ -672,9 +682,7 @@ else:
                         st.write(f"**Compliance Score:** {sp['compliance_score']}%")
                         st.write(f"**Live OCR Executive Summary:** {sp['ai_summary']}")
 
-    # ==========================================
-    # TIER 4: EXECUTIVE REPORTING & EXPORTS
-    # ==========================================
+    # EXECUTIVE REPORTING
     elif st.session_state["active_user_role"] == "📊 Executive Reporting & Exports":
         st.markdown("<div class='section-hdr'>📊 Executive Reporting & Data Export Suite</div>", unsafe_allow_html=True)
         
@@ -694,9 +702,7 @@ else:
                 use_container_width=True
             )
 
-    # ==========================================
-    # TIER 5: CRYPTOGRAPHIC PROOF LEDGER
-    # ==========================================
+    # CRYPTOGRAPHIC PROOF LEDGER
     elif st.session_state["active_user_role"] == "⛓️ Cryptographic Proof Ledger":
         st.markdown("<div class='section-hdr'>⛓️ Cryptographic SHA-256 Merkle-Tree Proof Ledger</div>", unsafe_allow_html=True)
         st.info("This append-only ledger records immutable SHA-256 hashes of every submitted bid and proposal binder for court-grade anti-tampering verification.")
@@ -707,20 +713,18 @@ else:
         else:
             for block in reversed(ledger_blocks):
                 st.markdown(f"""
-                    <div style="background-color: rgba(15, 23, 42, 0.9); border: 1px solid #1d4ed8; border-left: 5px solid #38bdf8; padding: 14px 18px; border-radius: 8px; margin-bottom: 12px;">
+                    <div style="background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(56, 189, 248, 0.3); border-left: 5px solid #38bdf8; padding: 16px 20px; border-radius: 10px; margin-bottom: 14px; box-shadow: 0 8px 20px rgba(0,0,0,0.4);">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="color: #38bdf8; font-weight: 800;">BLOCK #{block['block_index']}</span>
-                            <span style="color: #94a3b8; font-size: 12px;">{block['timestamp']}</span>
+                            <span style="color: #38bdf8; font-weight: 800; font-size: 15px;">BLOCK #{block['block_index']}</span>
+                            <span style="color: #94a3b8; font-size: 12px; font-family: 'JetBrains Mono', monospace;">{block['timestamp']}</span>
                         </div>
-                        <p style="margin: 6px 0; font-size: 14px;"><b>QR Ref:</b> <code>{block['qr_ref_id']}</code> | <b>Vendor:</b> {block['vendor_name']}</p>
-                        <p style="margin: 2px 0; font-size: 12px; color: #34d399;"><b>SHA-256 Hash:</b> <code>{block['document_sha256']}</code></p>
-                        <p style="margin: 2px 0; font-size: 11px; color: #64748b;"><b>Previous Block Hash:</b> <code>{block['previous_block_hash']}</code></p>
+                        <p style="margin: 8px 0; font-size: 14px;"><b>QR Ref:</b> <code style="color: #38bdf8;">{block['qr_ref_id']}</code> | <b>Vendor:</b> {block['vendor_name']}</p>
+                        <p style="margin: 4px 0; font-size: 12px; color: #34d399; font-family: 'JetBrains Mono', monospace;"><b>SHA-256 Hash:</b> {block['document_sha256']}</p>
+                        <p style="margin: 2px 0; font-size: 11px; color: #64748b; font-family: 'JetBrains Mono', monospace;"><b>Prev Block Hash:</b> {block['previous_block_hash']}</p>
                     </div>
                 """, unsafe_allow_html=True)
 
-    # ==========================================
-    # TIER 6: AUDIT LOGS & COMPLIANCE TRAIL
-    # ==========================================
+    # AUDIT LOGS
     elif st.session_state["active_user_role"] == "📜 Audit Logs & Compliance Trail":
         st.markdown("<div class='section-hdr'>📜 System Audit Logs & Tamper-Evident Trail</div>", unsafe_allow_html=True)
         logs = db.fetch_audit_logs()
@@ -729,16 +733,14 @@ else:
         else:
             for log in logs:
                 st.markdown(f"""
-                    <div style="background-color: rgba(15, 23, 42, 0.85); border: 1px solid #334155; padding: 12px 16px; border-radius: 6px; margin-bottom: 8px;">
-                        <span style="color: #94a3b8; font-size: 13px;">[{log['timestamp']}]</span> 
+                    <div style="background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.08); padding: 12px 16px; border-radius: 8px; margin-bottom: 8px;">
+                        <span style="color: #94a3b8; font-size: 13px; font-family: 'JetBrains Mono', monospace;">[{log['timestamp']}]</span> 
                         <b style="color: #38bdf8;">{log['user_role']}</b> — 
                         <code>{log['action']}</code> 
                         (QR: <b>{log['qr_ref_id']}</b>) — {log['details']}
                     </div>
                 """, unsafe_allow_html=True)
 
-    # ==========================================
-    # TIER 7: DEVELOPER MASTER CONSOLE
-    # ==========================================
+    # DEVELOPER MASTER CONSOLE
     elif st.session_state["active_user_role"] == "🛠️ Developer Master Console":
         dev_ui.render_developer_master_console()
