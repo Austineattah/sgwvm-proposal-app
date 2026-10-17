@@ -1,11 +1,12 @@
 ﻿import streamlit as st
 import database as db
+import uuid
+import re
 
 def render_sector_onboarding_wizard():
     if "custom_portal_heading" not in st.session_state:
         st.session_state["custom_portal_heading"] = 'NEXUSVAULT TECHNOLOGIES "SUPER INTELLIGENCE - AGENTIC AI PROPOSAL INTAKE PORTAL"'
 
-    # Global Font Import & Glassmorphism Theme
     st.markdown("""
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
@@ -44,7 +45,6 @@ def render_sector_onboarding_wizard():
         </style>
     """, unsafe_allow_html=True)
 
-    # Glassmorphism Executive Banner
     st.markdown(f"""
         <div style="background: linear-gradient(135deg, rgba(10, 25, 47, 0.85) 0%, rgba(13, 33, 55, 0.85) 100%); backdrop-filter: blur(16px); padding: 32px 36px; border-radius: 16px; border: 1px solid rgba(56, 189, 248, 0.25); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(56, 189, 248, 0.1); margin-bottom: 28px;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px;">
@@ -78,6 +78,10 @@ def render_sector_onboarding_wizard():
             In accordance with platform security protocols, **access to the portal is pending internal authorization from the Platform Developer / Systems Admin**.
         """)
         
+        if st.button("⬅️ Return to Portal Mode Selector"):
+            st.session_state["portal_mode"] = "select_mode"
+            st.rerun()
+
         st.markdown("---")
         st.markdown("<div class='section-hdr'>🔑 Developer Internal Access Activation Console</div>", unsafe_allow_html=True)
         with st.form("developer_approval_form"):
@@ -89,6 +93,8 @@ def render_sector_onboarding_wizard():
                     st.session_state["developer_access_granted"] = True
                     st.session_state["portal_initialized"] = True
                     db.set_setting("node_approved", "True")
+                    if "current_client_id" in st.session_state:
+                        db.update_client_approval(st.session_state["current_client_id"], "True")
                     st.success("✅ Developer Authorization Verified! Launching Enterprise Workspace...")
                     st.rerun()
                 else:
@@ -138,6 +144,25 @@ def render_sector_onboarding_wizard():
             if not corp_name or not corp_email or not corp_phone or not corp_address:
                 st.error("⚠️ Please fill in all required organizational entity fields marked with an asterisk (*).")
             else:
+                client_id = str(uuid.uuid4())[:8]
+                client_slug = re.sub(r'[^a-zA-Z0-9]', '', corp_name.lower())[:15] + "_" + client_id
+
+                client_record = {
+                    "client_id": client_id,
+                    "client_slug": client_slug,
+                    "corp_name": corp_name,
+                    "entity_type": entity_type,
+                    "corp_email": corp_email,
+                    "corp_phone": corp_phone,
+                    "corp_address": corp_address,
+                    "admin_email": admin_email,
+                    "sub_package": sub_package,
+                    "custom_title": custom_title_input,
+                    "is_approved": "False"
+                }
+                db.register_client(client_record)
+
+                st.session_state["current_client_id"] = client_id
                 st.session_state["onboarding_submitted"] = True
                 st.session_state["entity_type"] = entity_type
                 st.session_state["corp_name"] = corp_name

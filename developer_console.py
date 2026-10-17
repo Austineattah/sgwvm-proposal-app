@@ -3,9 +3,8 @@ import database as db
 
 def render_developer_master_console():
     st.markdown("<div class='section-hdr'>🔑 Master Developer & SaaS Platform Administrator Console</div>", unsafe_allow_html=True)
-    st.info("Authorized Platform Owner Workspace: Monitor client deployments, manage enterprise licenses, activate pending organizations, or suspend accounts.")
+    st.info("Central Multi-Tenant Management Hub: Monitor tenant subscriptions, generate unique newspaper publication links, activate client nodes, or trigger new client onboardings.")
 
-    # Master Password Gate for Developer Admin
     if "dev_master_logged_in" not in st.session_state:
         st.session_state["dev_master_logged_in"] = False
 
@@ -24,61 +23,61 @@ def render_developer_master_console():
                     st.error("❌ Invalid Developer Credentials.")
         return
 
-    # Once authenticated, render dashboard metrics
     st.markdown("---")
     
-    # Active Client Settings in DB
-    current_status = db.get_setting("node_approved", "False")
-    entity_name = st.session_state.get("corp_name", "Unconfigured Enterprise Node")
-    entity_type = st.session_state.get("entity_type", "Public MDA / Directorate")
-    sub_tier = st.session_state.get("sub_package", "Sovereign Enterprise Tier")
-    corp_email = st.session_state.get("corp_email", "admin@entity.gov.ng")
-
-    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-    with col_m1:
-        st.metric("Deployed Nodes", "1 Node")
-    with col_m2:
-        st.metric("Node Status", "ACTIVE" if current_status == "True" else "PENDING / SUSPENDED")
-    with col_m3:
-        st.metric("SaaS Tier", "Sovereign Tier")
-    with col_m4:
-        st.metric("Cybersecurity Shield", "ACTIVE (NITDA)")
+    # Quick Navigation / Action Buttons
+    col_nav1, col_nav2 = st.columns(2)
+    with col_nav1:
+        if st.button("➕ Register New Client / Launch Onboarding Wizard", use_container_width=True):
+            st.session_state["portal_initialized"] = False
+            st.session_state["onboarding_submitted"] = False
+            st.session_state["portal_mode"] = "onboarding_wizard"
+            st.rerun()
+    with col_nav2:
+        if st.button("⬅️ Return to Portal Mode Selector", use_container_width=True):
+            st.session_state["portal_mode"] = "select_mode"
+            st.rerun()
 
     st.markdown("---")
-    st.markdown("### 🏢 Onboarded SaaS Client Directory & License Control")
+    st.markdown("### 🏢 Multi-Tenant Subscribed Client Directory")
 
-    # Display Client Node Details Card
-    st.markdown(f"""
-        <div style="background-color: rgba(15, 23, 42, 0.9); border: 2px solid #1d4ed8; border-radius: 10px; padding: 20px; margin-bottom: 20px;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h3 style="color: #ffffff; margin: 0; font-size: 18px;">🏢 {entity_name}</h3>
-                <span style="background-color: {'#059669' if current_status == 'True' else '#dc2626'}; color: #ffffff; padding: 4px 12px; border-radius: 6px; font-weight: 800; font-size: 12px;">
-                    {'NODE ACTIVE' if current_status == 'True' else 'NODE PENDING / SUSPENDED'}
-                </span>
-            </div>
-            <p style="color: #94a3b8; font-size: 13px; margin: 8px 0;"><b>Scope:</b> {entity_type} | <b>Tier:</b> {sub_tier}</p>
-            <p style="color: #cbd5e1; font-size: 13px; margin: 2px 0;"><b>Dispatch Email:</b> {corp_email}</p>
-        </div>
-    """, unsafe_allow_html=True)
+    clients = db.get_all_clients()
+    if len(clients) == 0:
+        st.info("ℹ️ No tenant clients registered in database yet. Click 'Register New Client' above.")
+    else:
+        for client in clients:
+            is_active = client["is_approved"] == "True"
+            client_url = f"https://nexusvault.gov.ng/?client={client['client_slug']}"
 
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
-        if st.button("🟢 ACTIVATE CLIENT NODE", use_container_width=True):
-            db.set_setting("node_approved", "True")
-            st.session_state["developer_access_granted"] = True
-            st.session_state["portal_initialized"] = True
-            db.log_event("Developer Console", "NODE_ACTIVATED", "SYSTEM", f"Node activated for {entity_name}")
-            st.success(f"✅ Workspace Node for '{entity_name}' is now ACTIVE!")
-            st.rerun()
+            st.markdown(f"""
+                <div style="background: rgba(15, 23, 42, 0.85); border: 2px solid {'#059669' if is_active else '#dc2626'}; border-radius: 12px; padding: 20px; margin-bottom: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="color: #ffffff; margin: 0; font-size: 18px;">🏢 {client['corp_name']}</h3>
+                        <span style="background-color: {'#059669' if is_active else '#dc2626'}; color: #ffffff; padding: 4px 12px; border-radius: 6px; font-weight: 800; font-size: 11px;">
+                            {'CLIENT ACTIVE' if is_active else 'PENDING ACTIVATION'}
+                        </span>
+                    </div>
+                    <p style="color: #94a3b8; font-size: 13px; margin: 6px 0;"><b>Scope:</b> {client['entity_type']} | <b>Tier:</b> {client['sub_package']}</p>
+                    <p style="color: #cbd5e1; font-size: 13px; margin: 2px 0;"><b>Dispatch Email:</b> {client['corp_email']}</p>
+                    <p style="color: #38bdf8; font-size: 13px; margin: 6px 0;"><b>Unique Public Tender Link (For Newspapers / Website):</b> <code>{client_url}</code></p>
+                </div>
+            """, unsafe_allow_html=True)
 
-    with col_btn2:
-        if st.button("🔴 SUSPEND / DEACTIVATE CLIENT NODE", use_container_width=True):
-            db.set_setting("node_approved", "False")
-            st.session_state["developer_access_granted"] = False
-            st.session_state["portal_initialized"] = False
-            db.log_event("Developer Console", "NODE_SUSPENDED", "SYSTEM", f"Node suspended for {entity_name}")
-            st.warning(f"⚠️ Workspace Node for '{entity_name}' has been SUSPENDED!")
-            st.rerun()
+            col_c1, col_c2 = st.columns(2)
+            with col_c1:
+                if not is_active:
+                    if st.button(f"🟢 Activate Client Node", key=f"act_{client['client_id']}"):
+                        db.update_client_approval(client['client_id'], "True")
+                        st.success(f"✅ Client '{client['corp_name']}' activated successfully!")
+                        st.rerun()
+                else:
+                    if st.button(f"🔴 Suspend Client Node", key=f"susp_{client['client_id']}"):
+                        db.update_client_approval(client['client_id'], "False")
+                        st.warning(f"⚠️ Client '{client['corp_name']}' suspended.")
+                        st.rerun()
+            with col_c2:
+                if st.button(f"🗑️ Delete Record", key=f"del_{client['client_id']}"):
+                    pass
 
     st.markdown("---")
     if st.button("🔒 Logout Developer Admin Session"):

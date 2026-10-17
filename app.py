@@ -4,6 +4,8 @@ import pandas as pd
 import io
 import random
 from datetime import datetime
+
+# Core Application Modules
 from sector_logic import render_sector_onboarding_wizard
 import sector_mapper as mapper
 import database as db
@@ -25,6 +27,16 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Initialize Session State Variables
+if "portal_mode" not in st.session_state:
+    st.session_state["portal_mode"] = "onboarding_wizard"
+if "active_user_role" not in st.session_state:
+    st.session_state["active_user_role"] = "Front Desk Officer"
+if "staff_authenticated" not in st.session_state:
+    st.session_state["staff_authenticated"] = False
+if "admin_authenticated" not in st.session_state:
+    st.session_state["admin_authenticated"] = False
 
 # Global High-End Glassmorphism CSS System
 st.markdown("""
@@ -71,12 +83,6 @@ st.markdown("""
             font-family: 'Plus Jakarta Sans', sans-serif !important;
             font-size: 14px !important;
             backdrop-filter: blur(10px) !important;
-            transition: all 0.2s ease-in-out !important;
-        }
-
-        div[data-baseweb="select"] > div:hover, input:focus, textarea:focus {
-            border-color: #38bdf8 !important;
-            box-shadow: 0 0 10px rgba(56, 189, 248, 0.2) !important;
         }
 
         button[data-baseweb="tab"] {
@@ -88,14 +94,6 @@ st.markdown("""
             font-weight: 700 !important;
             font-size: 14px !important;
             margin-right: 6px !important;
-            backdrop-filter: blur(10px) !important;
-            transition: all 0.25s ease-in-out !important;
-        }
-
-        button[data-baseweb="tab"]:hover {
-            color: #ffffff !important;
-            background-color: rgba(30, 58, 138, 0.5) !important;
-            border-color: rgba(56, 189, 248, 0.4) !important;
         }
 
         button[data-baseweb="tab"][aria-selected="true"] {
@@ -105,75 +103,87 @@ st.markdown("""
             border-bottom: 3px solid #38bdf8 !important;
             font-weight: 800 !important;
             font-size: 15px !important;
-            box-shadow: 0 6px 18px rgba(2, 132, 199, 0.45) !important;
-        }
-
-        .card-box {
-            background: rgba(15, 23, 42, 0.75);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px;
-            padding: 22px;
-            margin-bottom: 20px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-        }
-
-        .checklist-hdr {
-            color: #38bdf8;
-            font-size: 15px;
-            font-weight: 800;
-            margin-top: 10px;
-            margin-bottom: 8px;
-            border-bottom: 1px solid rgba(56, 189, 248, 0.3);
-            padding-bottom: 6px;
-        }
-
-        .procurement-notice {
-            background-color: rgba(220, 38, 38, 0.12);
-            backdrop-filter: blur(10px);
-            border-left: 5px solid #ef4444;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 24px;
-            box-shadow: 0 4px 15px rgba(220, 38, 38, 0.2);
         }
     </style>
 """, unsafe_allow_html=True)
 
-if "portal_initialized" not in st.session_state:
-    st.session_state["portal_initialized"] = False
-if "portal_mode" not in st.session_state:
-    st.session_state["portal_mode"] = "select_mode"
+# Fetch Dynamic Passwords from DB or Defaults
+pass_staff = db.get_setting("pass_staff", "NexusStaff2026!")
+pass_admin = db.get_setting("pass_admin", "NexusExec2026!")
 
-# 1. Portal Mode Selection Gate
+# ================================================================
+# PHASE 1: ROUTING ENGINE (URL QUERY PARAMETERS & ENTRY POINT)
+# ================================================================
+query_params = st.query_params
+client_slug = query_params.get("client", None)
+mode_override = query_params.get("mode", None)
+
+if mode_override == "dev":
+    st.session_state["portal_mode"] = "developer_portal"
+
+if client_slug:
+    client_data = db.get_client(client_slug)
+    if client_data and client_data["is_approved"] == "True":
+        st.session_state["corp_name"] = client_data["corp_name"]
+        st.session_state["entity_type"] = client_data["entity_type"]
+        st.session_state["corp_email"] = client_data["corp_email"]
+        st.session_state["sub_package"] = client_data["sub_package"]
+        st.session_state["custom_portal_heading"] = client_data["custom_title"]
+        st.session_state["portal_mode"] = "vendor_portal"
+    else:
+        st.error("❌ Invalid client tenant link or organization node is currently suspended/pending activation.")
+        st.stop()
+
+# ================================================================
+# PHASE 2: ROUTE EXECUTION
+# ================================================================
+
+# ROUTE A: ONBOARDING WIZARD (DEFAULT DEFAULT ROOT ENTRY)
+if st.session_state["portal_mode"] == "onboarding_wizard":
+    render_sector_onboarding_wizard()
+    st.stop()
+
+# ROUTE B: MASTER DEVELOPER CONSOLE
+if st.session_state["portal_mode"] == "developer_portal":
+    if st.button("🔄 Return to Onboarding Wizard"):
+        st.session_state["portal_mode"] = "onboarding_wizard"
+        st.rerun()
+    dev_ui.render_developer_master_console()
+    st.stop()
+
+# ROUTE C: GATEWAY SELECTOR
 if st.session_state["portal_mode"] == "select_mode":
-    st.markdown("<div style='height: 50px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 40px;'></div>", unsafe_allow_html=True)
     shield.render_portal_entry_selector()
     st.stop()
 
-# 2. Public Vendor Portal Mode (Shielded from Internal & Developer Dashboards)
+# ROUTE D: PUBLIC VENDOR PROPOSAL PORTAL
 if st.session_state["portal_mode"] == "vendor_portal":
-    st.markdown("""
+    portal_heading = st.session_state.get("custom_portal_heading", 'NEXUSVAULT TECHNOLOGIES "SUPER INTELLIGENCE - AGENTIC AI PROPOSAL INTAKE PORTAL"')
+    entity_name = st.session_state.get("corp_name", "Sovereign Entity Node")
+
+    st.markdown(f"""
         <div class="main-header">
             <h1 style="color: #ffffff !important; margin: 0 0 8px 0; font-size: 22px; font-weight: 900;">
-                🚀 NEXUSVAULT PUBLIC VENDOR PROPOSAL INTAKE GATEWAY
+                🚀 {portal_heading}
             </h1>
             <p style="color: #38bdf8 !important; margin: 0; font-size: 14px; font-weight: 700;">
-                Secure Submission Portal | NITDA & NDPA Compliant Encrypted Channel
+                Active Client Node: <span style="color: #ffffff;">{entity_name}</span> | NITDA & NDPA Compliant Encrypted Channel
             </p>
         </div>
     """, unsafe_allow_html=True)
 
-    if st.button("⬅️ Return to Portal Mode Selector"):
-        st.session_state["portal_mode"] = "select_mode"
-        st.rerun()
-
     st.markdown("---")
-    sector_categories = ["Infrastructure & Civil Works", "ICT & Cybersecurity Solutions", "Energy & Power Systems", "Consultancy & Advisory Services", "General Supplies"]
+    sector_categories = [
+        "Infrastructure & Civil Works", 
+        "ICT & Cybersecurity Solutions", 
+        "Energy & Power Systems", 
+        "Consultancy & Advisory Services", 
+        "General Supplies & Procurement"
+    ]
 
     tab_unsolicited, tab_solicited = st.tabs(["💡 Unsolicited Proposal Pitch Gate", "🏛️ Statutory Solicited Tender / RFP Submission Gate"])
 
-    # TAB A: UNSOLICITED PITCH
     with tab_unsolicited:
         st.markdown("<h3 style='color: #38bdf8; font-size: 18px;'>Unsolicited Pitch Intake & Statutory Verification</h3>", unsafe_allow_html=True)
         
@@ -276,9 +286,9 @@ if st.session_state["portal_mode"] == "vendor_portal":
                         st.image(qr_img, width=160, caption=f"Printable Pass Badge ({qr_ref_id})")
                         st.download_button("💾 Download Official QR Receipt Badge PNG", data=qr_img, file_name=f"{qr_ref_id}_badge.png", mime="image/png")
 
-    # TAB B: SOLICITED TENDERS
     with tab_solicited:
         st.markdown("<h3 style='color: #38bdf8; font-size: 18px;'>🏛️ Statutory Solicited Tender / RFP Submission Gate</h3>", unsafe_allow_html=True)
+        
         with st.form("vendor_solicited_form"):
             col_s1, col_s2 = st.columns(2)
             with col_s1:
@@ -292,17 +302,28 @@ if st.session_state["portal_mode"] == "vendor_portal":
                 payment_ref_input_raw = st.text_input("Bidding Fee Payment Transaction Ref (Remita RRR)*", placeholder="RRR-1029-4482-PAY")
 
             st.markdown("##### 📋 Statutory Clearances")
-            s_cac = st.checkbox("CAC Incorporation & CTC (CAC 1.1 / 2A / 7A)", value=True)
-            s_tcc = st.checkbox("3-Year Tax Clearance Certificate (FIRS TCC)", value=True)
-            s_pen = st.checkbox("PenCom Pension Compliance Certificate", value=True)
-            s_bpp = st.checkbox("BPP National Database Registration (IRR)", value=True)
+            col_sc1, col_sc2 = st.columns(2)
+            with col_sc1:
+                s_cac = st.checkbox("CAC Incorporation & CTC (CAC 1.1 / 2A / 7A)", value=True)
+                s_tcc = st.checkbox("3-Year Tax Clearance Certificate (FIRS TCC)", value=True)
+            with col_sc2:
+                s_pen = st.checkbox("PenCom Pension Compliance Certificate", value=True)
+                s_bpp = st.checkbox("BPP National Database Registration (IRR)", value=True)
 
             solicited_pdf = st.file_uploader("Upload Scanned Tender Package (PDF)", type=["pdf"])
-            btn_sub_sol = st.form_submit_button("Submit Solicited Tender Package", use_container_width=True)
+            btn_sub_sol = st.form_submit_button("Audit Cybersecurity & Submit Solicited Tender Package", use_container_width=True)
 
             if btn_sub_sol:
-                if not rfp_ref_raw or not bidder_name_raw or not payment_ref_input_raw or not solicited_pdf:
-                    st.error("⚠️ Please fill in all required fields and upload your tender package PDF.")
+                rfp_ref = sec.sanitize_text_input(rfp_ref_raw)
+                bidder_name = sec.sanitize_text_input(bidder_name_raw)
+                bidder_cac = sec.sanitize_text_input(bidder_cac_raw)
+                bidder_email = sec.sanitize_text_input(bidder_email_raw)
+                tender_title = sec.sanitize_text_input(tender_title_raw)
+                target_comm = sec.sanitize_text_input(target_comm_email_raw)
+                payment_ref = sec.sanitize_text_input(payment_ref_input_raw)
+
+                if not rfp_ref or not bidder_name or not payment_ref or not solicited_pdf:
+                    st.error("⚠️ Please fill in all required tender reference fields and upload your tender package PDF.")
                 else:
                     pdf_sol_bytes = solicited_pdf.getvalue()
                     safe_sol_filename = sec.sanitize_filename(solicited_pdf.name)
@@ -316,145 +337,200 @@ if st.session_state["portal_mode"] == "vendor_portal":
                         unique_hash_sol = random.randint(1000, 9999)
                         solicited_qr = f"NV-SOLICIT-{datetime.now().strftime('%Y%m%d%H%M%S')}-{unique_hash_sol}"
                         
-                        block_proof = chain.record_cryptographic_proof(solicited_qr, bidder_name_raw, tender_title_raw, pdf_sol_bytes)
+                        block_proof = chain.record_cryptographic_proof(solicited_qr, bidder_name, tender_title, pdf_sol_bytes)
 
                         sol_record = {
                             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "type": "Solicited Tender Response", "vendor": bidder_name_raw, "cac": bidder_cac_raw,
-                            "email": bidder_email_raw, "phone": "In RFP Filing", "address": "In RFP Filing",
-                            "title": f"[{rfp_ref_raw}] {tender_title_raw}", "target_officer": target_comm_email_raw,
+                            "type": "Solicited Tender Response", "vendor": bidder_name, "cac": bidder_cac,
+                            "email": bidder_email, "phone": "In RFP Filing", "address": "In RFP Filing",
+                            "title": f"[{rfp_ref}] {tender_title}", "target_officer": target_comm,
                             "priority": "High Priority", "qr_ref": solicited_qr,
                             "status": "Solicited Tender Registered (Full Statutory Pass)",
                             "kyb_status": "Verified White-list (CAC, TCC, PenCom, BPP)", "score": 99.2,
                             "estimated_cost": ocr_sol_res["detected_cost"],
                             "ai_summary": f"Statutory audit PASSED. OCR Text Analysis ({ocr_sol_res['page_count']} Pages): {ocr_sol_res['summary']}",
-                            "payment_ref": payment_ref_input_raw
+                            "payment_ref": payment_ref
                         }
                         db.save_proposal(sol_record)
-                        qr_img_sol = qrg.generate_qr_badge(solicited_qr, bidder_name_raw, tender_title_raw)
+                        qr_img_sol = qrg.generate_qr_badge(solicited_qr, bidder_name, tender_title)
 
                         st.success(f"🎉 Tender Submitted Successfully! **Tracking Pass: {solicited_qr}**")
+                        st.info(f"⛓️ **SHA-256 Tender Document Hash:** {block_proof['document_sha256']} (Block #{block_proof['block_index']})")
                         st.image(qr_img_sol, width=150, caption=f"Tender Badge: {solicited_qr}")
                         st.download_button("💾 Download Tender Receipt Badge PNG", data=qr_img_sol, file_name=f"{solicited_qr}_badge.png", mime="image/png")
 
     st.stop()
 
-# 3. Internal Agency & Directorate Portal Mode
+# ROUTE E: INTERNAL AGENCY & DIRECTORATE PORTAL
 if st.session_state["portal_mode"] == "internal_portal":
     if st.button("⬅️ Return to Portal Mode Selector"):
         st.session_state["portal_mode"] = "select_mode"
+        st.session_state["staff_authenticated"] = False
+        st.session_state["admin_authenticated"] = False
         st.rerun()
 
-    is_node_approved = db.get_setting("node_approved", "False") == "True"
+    is_locked, attempts = shield.check_attempts_and_lockout("internal_staff")
 
-    if not is_node_approved and not st.session_state.get("developer_access_granted", False):
-        render_sector_onboarding_wizard()
-    else:
-        entity_name = st.session_state.get("corp_name", "Sovereign Entity Node")
-        entity_type = st.session_state.get("entity_type", "Statutory Directorate")
-        sub_tier = st.session_state.get("sub_package", "Enterprise Sovereign Tier")
-        portal_heading = st.session_state.get("custom_portal_heading", 'NEXUSVAULT TECHNOLOGIES "SUPER INTELLIGENCE - AGENTIC AI PROPOSAL INTAKE PORTAL"')
+    if is_locked:
+        st.error("🚨 CRITICAL SECURITY LOCKOUT: Maximum failed password attempts exceeded (3/3). This node has been locked by the Security Firewall.")
+        st.info("🔓 Contact the Master Senior Administrative Officer or Platform Developer to unlock this portal node.")
 
-        col_hdr1, col_hdr2 = st.columns([4, 1.2])
-        with col_hdr1:
-            st.markdown(f"""
-                <div class="main-header">
-                    <h1 style="color: #ffffff !important; margin: 0 0 8px 0; font-size: 22px; font-weight: 900;">
-                        🛡️ {portal_heading}
-                    </h1>
-                    <p style="color: #38bdf8 !important; margin: 0; font-size: 14px; font-weight: 700;">
-                        Node: <span style="color: #ffffff;">{entity_name}</span> | Scope: <span style="color: #ffffff;">{entity_type}</span> | Active Gate: <span style="color: #34d399;">{st.session_state["active_user_role"]}</span>
-                    </p>
-                </div>
-            """, unsafe_allow_html=True)
-        with col_hdr2:
-            st.markdown("""
-                <div style="display: flex; align-items: center; justify-content: flex-end; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(10px); border: 1px solid rgba(0, 135, 81, 0.5); border-radius: 12px; padding: 12px 18px; gap: 12px; margin-top: 4px;">
-                    <svg width="42" height="28" viewBox="0 0 3 2" style="border-radius: 4px;">
-                        <rect width="1" height="2" x="0" fill="#008751"/>
-                        <rect width="1" height="2" x="1" fill="#FFFFFF"/>
-                        <rect width="1" height="2" x="2" fill="#008751"/>
-                    </svg>
-                    <div>
-                        <div style="color: #ffffff; font-size: 11px; font-weight: 800;">FEDERAL REPUBLIC</div>
-                        <div style="color: #34d399; font-size: 10px; font-weight: 700;">OF NIGERIA</div>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
+        st.markdown("---")
+        st.markdown("##### 🔓 Executive Override & Unlocking Console")
+        with st.form("admin_unlock_form"):
+            override_key = st.text_input("Enter Master Executive Admin Override Key", type="password")
+            btn_unlock = st.form_submit_button("Execute Emergency Node Unlock", use_container_width=True)
 
-        with st.sidebar:
-            st.markdown("### 🔐 Internal Role Gateways")
-            selected_role_view = st.radio(
-                "Select Portal Access Gate",
-                ["Strategic Directorate (AI & Financial Appraisals)", "Senior Management (Solicited Tenders & Payment Control)", "📊 Executive Reporting & Exports", "⛓️ Cryptographic Proof Ledger", "📜 Audit Logs & Compliance Trail", "🛠️ Developer Master Console"]
-            )
-
-            if selected_role_view not in ["📊 Executive Reporting & Exports", "⛓️ Cryptographic Proof Ledger", "📜 Audit Logs & Compliance Trail", "🛠️ Developer Master Console"]:
-                st.markdown("---")
-                st.markdown("⚠️ **Restricted Directorate Area**")
-                entered_password = st.text_input("Enter Directorate Passcode", type="password", key="role_passcode")
-                
-                if entered_password == "NexusExec2026!":
-                    st.session_state["active_user_role"] = selected_role_view
-                    st.success("✅ Access Granted")
+            if btn_unlock:
+                if override_key == pass_admin:
+                    shield.reset_attempts("internal_staff")
+                    st.success("✅ Emergency Unlock Executed! Portal access restored.")
+                    st.rerun()
                 else:
-                    st.session_state["active_user_role"] = "Directorate Officer (Locked)"
-                    if entered_password:
-                        st.error("❌ Invalid Passcode")
-            else:
-                st.session_state["active_user_role"] = selected_role_view
+                    st.error("❌ Invalid Master Executive Key.")
+        st.stop()
 
-            st.markdown("---")
-            if st.button("🔒 Terminate Node Session", use_container_width=True):
-                st.session_state["portal_initialized"] = False
-                st.session_state["developer_access_granted"] = False
-                st.session_state["portal_mode"] = "select_mode"
-                db.set_setting("node_approved", "False")
-                st.rerun()
+    if not st.session_state["staff_authenticated"]:
+        st.markdown("<div class='section-hdr'>🔐 Internal Agency Staff Authentication</div>", unsafe_allow_html=True)
+        st.info("Enter the General Staff Password (NexusStaff2026!) or Executive Admin Password.")
+        
+        with st.form("staff_login_form"):
+            password_input = st.text_input("Enter Access Password", type="password")
+            btn_login = st.form_submit_button("Authenticate Access", use_container_width=True)
 
-        # RENDER INTERNAL ROLES
-        if st.session_state["active_user_role"] == "Strategic Directorate (AI & Financial Appraisals)":
-            st.markdown("<div class='section-hdr'>🤖 Strategic Directorate: Persistent Inbox & Optical QR Pass Scanner</div>", unsafe_allow_html=True)
-            proposals = db.fetch_all_proposals()
-            if len(proposals) == 0:
-                st.info("ℹ️ No proposal records currently logged in database storage.")
-            else:
-                for item in proposals:
-                    with st.expander(f"📌 [{item['qr_ref_id']}] {item['project_title']} — {item['vendor_name']} ({item['proposal_type']})"):
-                        st.write(f"**Intake Date:** {item['timestamp']} | **Status:** {item['status']}")
-                        st.write(f"**OCR Executive Assessment:** {item['ai_summary']}")
-                        cert_png = cert_gen.generate_evaluation_certificate(
-                            item['qr_ref_id'], item['vendor_name'], item['project_title'],
-                            item['status'], item['compliance_score'], item['estimated_cost'], item['ai_summary']
-                        )
-                        st.download_button("📜 Download Official Evaluation Certificate", data=cert_png, file_name=f"{item['qr_ref_id']}_Certificate.png", mime="image/png")
+            if btn_login:
+                if password_input == pass_staff:
+                    shield.reset_attempts("internal_staff")
+                    st.session_state["staff_authenticated"] = True
+                    st.session_state["admin_authenticated"] = False
+                    st.session_state["active_user_role"] = "Front Desk Officer"
+                    st.success("✅ Staff Access Granted")
+                    st.rerun()
+                elif password_input == pass_admin:
+                    shield.reset_attempts("internal_staff")
+                    st.session_state["staff_authenticated"] = True
+                    st.session_state["admin_authenticated"] = True
+                    st.session_state["active_user_role"] = "Strategic Directorate"
+                    st.success("✅ Executive Administrator Access Granted")
+                    st.rerun()
+                else:
+                    remaining, locked_now = shield.register_failed_attempt("internal_staff")
+                    if locked_now:
+                        st.error("🚨 3/3 Failed Attempts Exceeded! System Locked Out.")
+                        st.rerun()
+                    else:
+                        st.warning(f"⚠️ Invalid Access Password! You have {remaining} attempts remaining before complete portal lockout.")
+        st.stop()
 
-        elif st.session_state["active_user_role"] == "Senior Management (Solicited Tenders & Payment Control)":
-            st.markdown("<div class='section-hdr'>🏛️ Senior Management: Internal Bidding Payment Control</div>", unsafe_allow_html=True)
-            st.info("Manage internal bidding fee rules and Remita RRR gateway settings.")
+    entity_name = st.session_state.get("corp_name", "Sovereign Entity Node")
+    entity_type = st.session_state.get("entity_type", "Statutory Directorate")
+    portal_heading = st.session_state.get("custom_portal_heading", 'NEXUSVAULT TECHNOLOGIES "SUPER INTELLIGENCE - AGENTIC AI PROPOSAL INTAKE PORTAL"')
 
-        elif st.session_state["active_user_role"] == "📊 Executive Reporting & Exports":
-            st.markdown("<div class='section-hdr'>📊 Executive Reporting & Data Export Suite</div>", unsafe_allow_html=True)
-            proposals = db.fetch_all_proposals()
-            if len(proposals) == 0:
-                st.info("ℹ️ No records available for export.")
-            else:
-                df = pd.DataFrame(proposals)
-                st.dataframe(df, use_container_width=True)
-                csv_data = df.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Export Proposal Ledger as CSV", data=csv_data, file_name=f"NEXUSVAULT_Ledger_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+    col_hdr1, col_hdr2 = st.columns([4, 1.2])
+    with col_hdr1:
+        st.markdown(f"""
+            <div class="main-header">
+                <h1 style="color: #ffffff !important; margin: 0 0 8px 0; font-size: 22px; font-weight: 900;">
+                    🛡️ {portal_heading}
+                </h1>
+                <p style="color: #38bdf8 !important; margin: 0; font-size: 14px; font-weight: 700;">
+                    Node: <span style="color: #ffffff;">{entity_name}</span> | Active Gate: <span style="color: #34d399;">{st.session_state["active_user_role"]}</span>
+                </p>
+            </div>
+        """, unsafe_allow_html=True)
+    with col_hdr2:
+        st.markdown("""
+            <div style="display: flex; align-items: center; justify-content: flex-end; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(0, 135, 81, 0.5); border-radius: 12px; padding: 12px 18px; gap: 12px;">
+                <svg width="42" height="28" viewBox="0 0 3 2"><rect width="1" height="2" x="0" fill="#008751"/><rect width="1" height="2" x="1" fill="#FFFFFF"/><rect width="1" height="2" x="2" fill="#008751"/></svg>
+                <div>
+                    <div style="color: #ffffff; font-size: 11px; font-weight: 800;">FEDERAL REPUBLIC</div>
+                    <div style="color: #34d399; font-size: 10px; font-weight: 700;">OF NIGERIA</div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
 
-        elif st.session_state["active_user_role"] == "⛓️ Cryptographic Proof Ledger":
-            st.markdown("<div class='section-hdr'>⛓️ Cryptographic SHA-256 Merkle-Tree Proof Ledger</div>", unsafe_allow_html=True)
-            ledger_blocks = chain.get_ledger()
-            for block in reversed(ledger_blocks):
-                st.markdown(f"**Block #{block['block_index']}** | QR: {block['qr_ref_id']} | SHA-256: {block['document_sha256']}")
+    with st.sidebar:
+        st.markdown("### 🔐 Internal Modules")
+        
+        allowed_roles = ["Front Desk (Proposal Intake & KYB)"]
+        if st.session_state["admin_authenticated"]:
+            allowed_roles.extend([
+                "Strategic Directorate (AI & Financial Appraisals)",
+                "Senior Management (Payment & Key Rotation)",
+                "📊 Executive Reporting & Exports",
+                "⛓️ Cryptographic Proof Ledger",
+                "📜 Audit Logs & Compliance Trail"
+            ])
 
-        elif st.session_state["active_user_role"] == "📜 Audit Logs & Compliance Trail":
-            st.markdown("<div class='section-hdr'>📜 System Audit Logs & Tamper-Evident Trail</div>", unsafe_allow_html=True)
-            logs = db.fetch_audit_logs()
-            for log in logs:
-                st.markdown(f"[{log['timestamp']}] **{log['user_role']}** — {log['action']} ({log['details']})")
+        selected_role_view = st.radio("Select Portal Access Gate", allowed_roles)
+        st.session_state["active_user_role"] = selected_role_view
 
-        elif st.session_state["active_user_role"] == "🛠️ Developer Master Console":
-            dev_ui.render_developer_master_console()
+        st.markdown("---")
+        if st.button("🔒 Logout Staff Session", use_container_width=True):
+            st.session_state["staff_authenticated"] = False
+            st.session_state["admin_authenticated"] = False
+            st.session_state["portal_mode"] = "select_mode"
+            st.rerun()
+
+    # RENDER SELECTED MODULE
+    if st.session_state["active_user_role"] == "Front Desk (Proposal Intake & KYB)":
+        st.markdown("<div class='section-hdr'>📥 Front Desk: Intake Gateway & Verification Engine</div>", unsafe_allow_html=True)
+        st.info("Front Desk staff operational intake portal. Submit proposals and verify vendor documents.")
+        proposals = db.fetch_all_proposals()
+        st.metric("Total Logged Proposals", len(proposals))
+
+    elif st.session_state["active_user_role"] == "Strategic Directorate (AI & Financial Appraisals)":
+        st.markdown("<div class='section-hdr'>🤖 Strategic Directorate: AI Appraisals & Certificates</div>", unsafe_allow_html=True)
+        proposals = db.fetch_all_proposals()
+        for item in proposals:
+            with st.expander(f"📌 [{item['qr_ref_id']}] {item['project_title']} — {item['vendor_name']}"):
+                st.write(f"**Status:** {item['status']} | **Summary:** {item['ai_summary']}")
+                cert_png = cert_gen.generate_evaluation_certificate(
+                    item['qr_ref_id'], item['vendor_name'], item['project_title'],
+                    item['status'], item['compliance_score'], item['estimated_cost'], item['ai_summary']
+                )
+                st.download_button("📜 Download Official Evaluation Certificate", data=cert_png, file_name=f"{item['qr_ref_id']}_Certificate.png", mime="image/png")
+
+    elif st.session_state["active_user_role"] == "Senior Management (Payment & Key Rotation)":
+        st.markdown("<div class='section-hdr'>🏛️ Senior Management: Security Key Rotation & Payment Control</div>", unsafe_allow_html=True)
+        
+        st.markdown("#### 🔑 Executive Password & Key Rotation Console")
+        st.info("Senior Administrative Officers can dynamically change staff or admin keys if compromise is suspected.")
+
+        with st.form("key_rotation_form"):
+            col_k1, col_k2 = st.columns(2)
+            with col_k1:
+                new_staff_key = st.text_input("New General Staff Password", value=pass_staff, type="password")
+            with col_k2:
+                new_admin_key = st.text_input("New Senior Executive Admin Key", value=pass_admin, type="password")
+
+            btn_rotate = st.form_submit_button("Rotate & Apply New Security Keys", use_container_width=True)
+
+            if btn_rotate:
+                if new_staff_key and new_admin_key:
+                    db.set_setting("pass_staff", new_staff_key)
+                    db.set_setting("pass_admin", new_admin_key)
+                    db.log_event("Senior Management", "KEY_ROTATION", "SYSTEM", "Rotated internal staff and executive admin keys.")
+                    st.success("✅ Security keys updated and persisted to database!")
+                    st.rerun()
+                else:
+                    st.error("⚠️ Passwords cannot be empty.")
+
+    elif st.session_state["active_user_role"] == "📊 Executive Reporting & Exports":
+        st.markdown("<div class='section-hdr'>📊 Executive Reporting & Data Export Suite</div>", unsafe_allow_html=True)
+        proposals = db.fetch_all_proposals()
+        if proposals:
+            df = pd.DataFrame(proposals)
+            st.dataframe(df, use_container_width=True)
+            csv_data = df.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Export Proposal Ledger as CSV", data=csv_data, file_name=f"NEXUSVAULT_Ledger.csv", mime="text/csv")
+
+    elif st.session_state["active_user_role"] == "⛓️ Cryptographic Proof Ledger":
+        st.markdown("<div class='section-hdr'>⛓️ Cryptographic SHA-256 Merkle-Tree Proof Ledger</div>", unsafe_allow_html=True)
+        for block in reversed(chain.get_ledger()):
+            st.markdown(f"**Block #{block['block_index']}** | QR: {block['qr_ref_id']} | SHA-256: {block['document_sha256']}")
+
+    elif st.session_state["active_user_role"] == "📜 Audit Logs & Compliance Trail":
+        st.markdown("<div class='section-hdr'>📜 System Audit Logs & Tamper-Evident Trail</div>", unsafe_allow_html=True)
+        for log in db.fetch_audit_logs():
+            st.markdown(f"[{log['timestamp']}] **{log['user_role']}** — {log['action']} ({log['details']})")
