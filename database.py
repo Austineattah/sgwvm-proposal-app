@@ -83,7 +83,7 @@ def init_db():
         try:
             cursor.execute(f"ALTER TABLE clients ADD COLUMN {col_name} {col_def}")
         except sqlite3.OperationalError:
-            pass # Column already exists
+            pass
 
     conn.commit()
     conn.close()
@@ -222,5 +222,19 @@ def delete_client_permanently(client_id):
     cursor.execute("DELETE FROM clients WHERE client_id = ?", (client_id,))
     conn.commit()
     conn.close()
+
+def purge_expired_pending_clients():
+    """Soft-purges client records that have remained in 'Pending' for more than 7 days."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    threshold_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("SELECT client_id FROM clients WHERE is_approved = 'False' AND (is_purged != 'True' OR is_purged IS NULL) AND created_at < ?", (threshold_date,))
+    expired_clients = cursor.fetchall()
+    if expired_clients:
+        for ec in expired_clients:
+            cursor.execute("UPDATE clients SET is_purged = 'True' WHERE client_id = ?", (ec[0],))
+        conn.commit()
+    conn.close()
+    return len(expired_clients)
 
 init_db()
