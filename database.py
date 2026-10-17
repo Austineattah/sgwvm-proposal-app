@@ -72,25 +72,18 @@ def init_db():
     ''')
 
     # Safe Schema Migrations for existing DB files
-    try:
-        cursor.execute("ALTER TABLE clients ADD COLUMN lockout_status TEXT DEFAULT 'False'")
-    except sqlite3.OperationalError:
-        pass
+    columns_to_add = [
+        ("lockout_status", "TEXT DEFAULT 'False'"),
+        ("client_admin_pass", "TEXT DEFAULT 'NexusExec2026!'"),
+        ("created_at", "TEXT"),
+        ("is_purged", "TEXT DEFAULT 'False'")
+    ]
 
-    try:
-        cursor.execute("ALTER TABLE clients ADD COLUMN client_admin_pass TEXT DEFAULT 'NexusExec2026!'")
-    except sqlite3.OperationalError:
-        pass
-
-    try:
-        cursor.execute("ALTER TABLE clients ADD COLUMN created_at TEXT")
-    except sqlite3.OperationalError:
-        pass
-
-    try:
-        cursor.execute("ALTER TABLE clients ADD COLUMN is_purged TEXT DEFAULT 'False'")
-    except sqlite3.OperationalError:
-        pass
+    for col_name, col_def in columns_to_add:
+        try:
+            cursor.execute(f"ALTER TABLE clients ADD COLUMN {col_name} {col_def}")
+        except sqlite3.OperationalError:
+            pass # Column already exists
 
     conn.commit()
     conn.close()
@@ -126,27 +119,6 @@ def update_proposal_status(qr_ref, new_status, role):
     cursor.execute("UPDATE proposals SET status = ? WHERE qr_ref_id = ?", (new_status, qr_ref))
     conn.commit()
     conn.close()
-    log_event(role, "STATUS_UPDATE", qr_ref, f"Proposal status updated to '{new_status}'")
-
-def log_event(role, action, qr_ref, details):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cursor.execute('''
-        INSERT INTO audit_logs (timestamp, user_role, action, qr_ref_id, details)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (timestamp, role, action, qr_ref, details))
-    conn.commit()
-    conn.close()
-
-def fetch_audit_logs():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM audit_logs ORDER BY id DESC LIMIT 100")
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
 
 def set_setting(key, value):
     conn = sqlite3.connect(DB_FILE)
@@ -183,23 +155,21 @@ def get_client(client_slug):
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM clients WHERE client_slug = ? AND is_purged != 'True'", (client_slug,))
+    cursor.execute("SELECT * FROM clients WHERE client_slug = ? AND (is_purged != 'True' OR is_purged IS NULL)", (client_slug,))
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
 
 def get_all_clients():
-    """Returns all active non-purged clients."""
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM clients WHERE is_purged != 'True'")
+    cursor.execute("SELECT * FROM clients WHERE is_purged != 'True' OR is_purged IS NULL")
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
 
 def get_purged_clients():
-    """Returns all clients currently in the purge archive / trash bin."""
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -252,25 +222,5 @@ def delete_client_permanently(client_id):
     cursor.execute("DELETE FROM clients WHERE client_id = ?", (client_id,))
     conn.commit()
     conn.close()
-
-def purge_expired_pending_clients():
-    """
-    Soft-purges client records that have remained in 'Pending' (is_approved = 'False') 
-    for more than 7 days without payment or activation.
-    """
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    
-    threshold_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
-    cursor.execute("SELECT client_id, corp_name FROM clients WHERE is_approved = 'False' AND is_purged != 'True' AND created_at < ?", (threshold_date,))
-    expired_clients = cursor.fetchall()
-    
-    if expired_clients:
-        for ec in expired_clients:
-            cursor.execute("UPDATE clients SET is_purged = 'True' WHERE client_id = ?", (ec[0],))
-        conn.commit()
-            
-    conn.close()
-    return len(expired_clients)
 
 init_db()
