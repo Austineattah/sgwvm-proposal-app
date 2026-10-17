@@ -14,6 +14,8 @@ import qr_scanner as scanner
 import security_guard as sec
 import blockchain_ledger as chain
 import report_generator as cert_gen
+import developer_console as dev_ui
+import draft_manager as draft_mgr
 
 # Page Configuration
 st.set_page_config(
@@ -128,7 +130,10 @@ if "portal_initialized" not in st.session_state:
 if "active_user_role" not in st.session_state:
     st.session_state["active_user_role"] = "Front Desk Officer"
 
-if not st.session_state["portal_initialized"] or not st.session_state.get("developer_access_granted", False):
+# Check if node is approved in DB
+is_node_approved = db.get_setting("node_approved", "False") == "True"
+
+if not is_node_approved and not st.session_state.get("developer_access_granted", False):
     render_sector_onboarding_wizard()
 else:
     entity_name = st.session_state.get("corp_name", "Sovereign Entity Node")
@@ -168,10 +173,10 @@ else:
         st.markdown("### 🔐 Role Gateways")
         selected_role_view = st.radio(
             "Select Portal Access Gate",
-            ["Front Desk (Proposal Intake & KYB)", "Strategic Directorate (AI & Financial Appraisals)", "Senior Management (Solicited Tenders & Payment Control)", "📊 Executive Reporting & Exports", "⛓️ Cryptographic Proof Ledger", "📜 Audit Logs & Compliance Trail"]
+            ["Front Desk (Proposal Intake & KYB)", "Strategic Directorate (AI & Financial Appraisals)", "Senior Management (Solicited Tenders & Payment Control)", "📊 Executive Reporting & Exports", "⛓️ Cryptographic Proof Ledger", "📜 Audit Logs & Compliance Trail", "🛠️ Developer Master Console"]
         )
 
-        if selected_role_view not in ["Front Desk (Proposal Intake & KYB)", "📊 Executive Reporting & Exports", "⛓️ Cryptographic Proof Ledger", "📜 Audit Logs & Compliance Trail"]:
+        if selected_role_view not in ["Front Desk (Proposal Intake & KYB)", "📊 Executive Reporting & Exports", "⛓️ Cryptographic Proof Ledger", "📜 Audit Logs & Compliance Trail", "🛠️ Developer Master Console"]:
             st.markdown("---")
             st.markdown("⚠️ **Restricted Directorate Area**")
             entered_password = st.text_input("Enter Directorate Passcode", type="password", key="role_passcode")
@@ -241,6 +246,7 @@ else:
             st.session_state["portal_initialized"] = False
             st.session_state["developer_access_granted"] = False
             st.session_state["onboarding_submitted"] = False
+            db.set_setting("node_approved", "False")
             st.rerun()
 
     sector_categories = mapper.get_sector_proposal_categories(entity_type)
@@ -250,7 +256,7 @@ else:
     payment_instructions = db.get_setting("payment_instructions", "Pay via Federal Remita RRR / Commercial Bank Deposit to Account: 101-223344-01")
 
     # ==========================================
-    # TIER 1: FRONT DESK OFFICER PORTAL (DUAL TAB)
+    # TIER 1: FRONT DESK OFFICER PORTAL (DUAL TAB WITH AUTO-SAVE DRAFTS)
     # ==========================================
     if st.session_state["active_user_role"] == "Front Desk (Proposal Intake & KYB)":
         st.markdown("<div class='section-hdr'>📥 Front Desk: Intake Gateway & Verification Engine</div>", unsafe_allow_html=True)
@@ -260,18 +266,32 @@ else:
         # TAB A: UNSOLICITED PROPOSALS
         with tab_unsolicited:
             st.markdown("<h3 style='color: #38bdf8; font-size: 18px;'>Unsolicited Pitch Intake & 2-Bundle Statutory Verification</h3>", unsafe_allow_html=True)
+
+            # Auto-Save Draft Recovery Check
+            saved_unsol_draft = draft_mgr.get_draft("unsolicited_pitch")
+            if saved_unsol_draft:
+                st.warning(f"⚠️ Unsaved Draft Detected from {saved_unsol_draft.get('last_saved', 'Recent Session')}.")
+                if st.button("🔄 Restore Saved Pitch Draft"):
+                    st.session_state["draft_unsol_vendor"] = saved_unsol_draft.get("vendor", "")
+                    st.session_state["draft_unsol_cac"] = saved_unsol_draft.get("cac", "")
+                    st.session_state["draft_unsol_email"] = saved_unsol_draft.get("email", "")
+                    st.session_state["draft_unsol_phone"] = saved_unsol_draft.get("phone", "")
+                    st.session_state["draft_unsol_title"] = saved_unsol_draft.get("title", "")
+                    st.session_state["draft_unsol_target"] = saved_unsol_draft.get("target_officer", "")
+                    st.success("✅ Form restored from draft!")
+
             with st.form("unsolicited_form"):
                 st.markdown("##### 🏢 1. Vendor & Corporate Details")
                 col_u1, col_u2 = st.columns(2)
                 with col_u1:
-                    vendor_name_raw = st.text_input("Vendor Organization Name*", placeholder="e.g., Apex Global Technologies Ltd")
-                    cac_num_raw = st.text_input("CAC Registration Number (RC / BN)*", placeholder="RC-1234567")
-                    vendor_email_raw = st.text_input("Official Dispatch Email (for Auto-Receipt)*", placeholder="vendor@apextech.com")
-                    vendor_phone_raw = st.text_input("Vendor Phone / SMS Gateway Contact*", placeholder="+234 802 000 0000")
+                    vendor_name_raw = st.text_input("Vendor Organization Name*", value=st.session_state.get("draft_unsol_vendor", ""), placeholder="e.g., Apex Global Technologies Ltd")
+                    cac_num_raw = st.text_input("CAC Registration Number (RC / BN)*", value=st.session_state.get("draft_unsol_cac", ""), placeholder="RC-1234567")
+                    vendor_email_raw = st.text_input("Official Dispatch Email (for Auto-Receipt)*", value=st.session_state.get("draft_unsol_email", ""), placeholder="vendor@apextech.com")
+                    vendor_phone_raw = st.text_input("Vendor Phone / SMS Gateway Contact*", value=st.session_state.get("draft_unsol_phone", ""), placeholder="+234 802 000 0000")
                 with col_u2:
-                    project_title_raw = st.text_input("Proposal Title*", placeholder="e.g., Smart Digital Library & Research Vault")
+                    project_title_raw = st.text_input("Proposal Title*", value=st.session_state.get("draft_unsol_title", ""), placeholder="e.g., Smart Digital Library & Research Vault")
                     prop_cat = st.selectbox("Sector-Mapped Proposal Type", sector_categories)
-                    target_officer_raw = st.text_input("Target Departmental Officer Email*", placeholder="director.research@entity.org")
+                    target_officer_raw = st.text_input("Target Departmental Officer Email*", value=st.session_state.get("draft_unsol_target", ""), placeholder="director.research@entity.org")
                     priority_lvl = st.selectbox("Priority Level", ["Standard Review", "High Priority / Urgent Attention", "Executive Fast-Track"])
 
                 st.markdown("##### 📁 2. Statutory & Verification Bundle Checklists")
@@ -293,7 +313,22 @@ else:
                 st.markdown("##### 📄 3. Physical Document Scanning & Security Screening")
                 scanned_pdf = st.file_uploader("Upload Scanned Proposal Document (PDF)", type=["pdf"])
 
-                btn_sub_unsol = st.form_submit_button("Execute Security Inspection, Live OCR & Route Pitch", use_container_width=True)
+                col_sub1, col_sub2 = st.columns([3, 1])
+                with col_sub1:
+                    btn_sub_unsol = st.form_submit_button("Execute Security Inspection, Live OCR & Route Pitch", use_container_width=True)
+                with col_sub2:
+                    btn_save_draft_unsol = st.form_submit_button("💾 Save Progress Draft", use_container_width=True)
+
+                if btn_save_draft_unsol:
+                    draft_mgr.save_draft("unsolicited_pitch", {
+                        "vendor": vendor_name_raw,
+                        "cac": cac_num_raw,
+                        "email": vendor_email_raw,
+                        "phone": vendor_phone_raw,
+                        "title": project_title_raw,
+                        "target_officer": target_officer_raw
+                    })
+                    st.success("💾 Form draft saved successfully!")
 
                 if btn_sub_unsol:
                     vendor_name = sec.sanitize_text_input(vendor_name_raw)
@@ -322,7 +357,6 @@ else:
                                 unique_hash = random.randint(1000, 9999)
                                 qr_ref_id = f"NV-QREF-{datetime.now().strftime('%Y%m%d%H%M%S')}-{unique_hash}"
                                 
-                                # Record Cryptographic SHA-256 Hash Proof Block
                                 block_proof = chain.record_cryptographic_proof(qr_ref_id, vendor_name, project_title, pdf_bytes)
 
                                 proposal_rec = {
@@ -350,6 +384,7 @@ else:
                                 
                                 disp.send_vendor_acknowledgement(vendor_email, vendor_phone, vendor_name, qr_ref_id, project_title)
                                 disp.trigger_officer_priority_alert(target_officer, priority_lvl, qr_ref_id, project_title, vendor_name)
+                                draft_mgr.clear_draft("unsolicited_pitch")
 
                             st.success(f"🎉 Live OCR & Cryptographic Hash Proof Complete! **QR Ref: {qr_ref_id}**")
                             st.info(f"⛓️ **SHA-256 Document Hash:** {block_proof['document_sha256']} (Recorded in Merkle Ledger Block #{block_proof['block_index']})")
@@ -458,7 +493,6 @@ else:
                             unique_hash_sol = random.randint(1000, 9999)
                             solicited_qr = f"NV-SOLICIT-{datetime.now().strftime('%Y%m%d%H%M%S')}-{unique_hash_sol}"
                             
-                            # Record SHA-256 Proof Block
                             block_proof = chain.record_cryptographic_proof(solicited_qr, bidder_name, tender_title, pdf_sol_bytes)
 
                             sol_record = {
@@ -702,3 +736,9 @@ else:
                         (QR: <b>{log['qr_ref_id']}</b>) — {log['details']}
                     </div>
                 """, unsafe_allow_html=True)
+
+    # ==========================================
+    # TIER 7: DEVELOPER MASTER CONSOLE
+    # ==========================================
+    elif st.session_state["active_user_role"] == "🛠️ Developer Master Console":
+        dev_ui.render_developer_master_console()
