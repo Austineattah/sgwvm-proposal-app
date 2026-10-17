@@ -10,7 +10,7 @@ from sector_logic import render_sector_onboarding_wizard
 import sector_mapper as mapper
 import database as db
 import qr_generator as qrg
-import dispatcher as disp
+import dispatcher as dispatcher_mod
 import ocr_parser as ocr
 import qr_scanner as scanner
 import security_guard as sec
@@ -28,7 +28,17 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize Session State Variables
+# ================================================================
+# PHASE 1: GLOBAL QUERY PARAMETER & MODE INTERCEPTION (?mode=dev)
+# ================================================================
+query_params = st.query_params
+mode_override = query_params.get("mode", None)
+client_slug = query_params.get("client", None)
+
+if mode_override == "dev":
+    st.session_state["portal_mode"] = "developer_portal"
+
+# Initialize Session State Variables if not set
 if "portal_mode" not in st.session_state:
     st.session_state["portal_mode"] = "onboarding_wizard"
 if "active_user_role" not in st.session_state:
@@ -112,16 +122,9 @@ pass_staff = db.get_setting("pass_staff", "NexusStaff2026!")
 pass_admin = db.get_setting("pass_admin", "NexusExec2026!")
 
 # ================================================================
-# PHASE 1: ROUTING ENGINE (URL QUERY PARAMETERS & ENTRY POINT)
+# PHASE 2: TENANT & ROUTE EXECUTION
 # ================================================================
-query_params = st.query_params
-client_slug = query_params.get("client", None)
-mode_override = query_params.get("mode", None)
-
-if mode_override == "dev":
-    st.session_state["portal_mode"] = "developer_portal"
-
-if client_slug:
+if client_slug and mode_override != "dev":
     client_data = db.get_client(client_slug)
     if client_data and client_data["is_approved"] == "True":
         st.session_state["corp_name"] = client_data["corp_name"]
@@ -134,16 +137,7 @@ if client_slug:
         st.error("❌ Invalid client tenant link or organization node is currently suspended/pending activation.")
         st.stop()
 
-# ================================================================
-# PHASE 2: ROUTE EXECUTION
-# ================================================================
-
-# ROUTE A: ONBOARDING WIZARD (DEFAULT DEFAULT ROOT ENTRY)
-if st.session_state["portal_mode"] == "onboarding_wizard":
-    render_sector_onboarding_wizard()
-    st.stop()
-
-# ROUTE B: MASTER DEVELOPER CONSOLE
+# ROUTE A: MASTER DEVELOPER CONSOLE (?mode=dev)
 if st.session_state["portal_mode"] == "developer_portal":
     if st.button("🔄 Return to Onboarding Wizard"):
         st.session_state["portal_mode"] = "onboarding_wizard"
@@ -151,13 +145,12 @@ if st.session_state["portal_mode"] == "developer_portal":
     dev_ui.render_developer_master_console()
     st.stop()
 
-# ROUTE C: GATEWAY SELECTOR
-if st.session_state["portal_mode"] == "select_mode":
-    st.markdown("<div style='height: 40px;'></div>", unsafe_allow_html=True)
-    shield.render_portal_entry_selector()
+# ROUTE B: ONBOARDING WIZARD (DEFAULT ROOT ENTRY)
+if st.session_state["portal_mode"] == "onboarding_wizard":
+    render_sector_onboarding_wizard()
     st.stop()
 
-# ROUTE D: PUBLIC VENDOR PROPOSAL PORTAL
+# ROUTE C: PUBLIC VENDOR PROPOSAL PORTAL
 if st.session_state["portal_mode"] == "vendor_portal":
     portal_heading = st.session_state.get("custom_portal_heading", 'NEXUSVAULT TECHNOLOGIES "SUPER INTELLIGENCE - AGENTIC AI PROPOSAL INTAKE PORTAL"')
     entity_name = st.session_state.get("corp_name", "Sovereign Entity Node")
@@ -360,177 +353,3 @@ if st.session_state["portal_mode"] == "vendor_portal":
                         st.download_button("💾 Download Tender Receipt Badge PNG", data=qr_img_sol, file_name=f"{solicited_qr}_badge.png", mime="image/png")
 
     st.stop()
-
-# ROUTE E: INTERNAL AGENCY & DIRECTORATE PORTAL
-if st.session_state["portal_mode"] == "internal_portal":
-    if st.button("⬅️ Return to Portal Mode Selector"):
-        st.session_state["portal_mode"] = "select_mode"
-        st.session_state["staff_authenticated"] = False
-        st.session_state["admin_authenticated"] = False
-        st.rerun()
-
-    is_locked, attempts = shield.check_attempts_and_lockout("internal_staff")
-
-    if is_locked:
-        st.error("🚨 CRITICAL SECURITY LOCKOUT: Maximum failed password attempts exceeded (3/3). This node has been locked by the Security Firewall.")
-        st.info("🔓 Contact the Master Senior Administrative Officer or Platform Developer to unlock this portal node.")
-
-        st.markdown("---")
-        st.markdown("##### 🔓 Executive Override & Unlocking Console")
-        with st.form("admin_unlock_form"):
-            override_key = st.text_input("Enter Master Executive Admin Override Key", type="password")
-            btn_unlock = st.form_submit_button("Execute Emergency Node Unlock", use_container_width=True)
-
-            if btn_unlock:
-                if override_key == pass_admin:
-                    shield.reset_attempts("internal_staff")
-                    st.success("✅ Emergency Unlock Executed! Portal access restored.")
-                    st.rerun()
-                else:
-                    st.error("❌ Invalid Master Executive Key.")
-        st.stop()
-
-    if not st.session_state["staff_authenticated"]:
-        st.markdown("<div class='section-hdr'>🔐 Internal Agency Staff Authentication</div>", unsafe_allow_html=True)
-        st.info("Enter the General Staff Password (NexusStaff2026!) or Executive Admin Password.")
-        
-        with st.form("staff_login_form"):
-            password_input = st.text_input("Enter Access Password", type="password")
-            btn_login = st.form_submit_button("Authenticate Access", use_container_width=True)
-
-            if btn_login:
-                if password_input == pass_staff:
-                    shield.reset_attempts("internal_staff")
-                    st.session_state["staff_authenticated"] = True
-                    st.session_state["admin_authenticated"] = False
-                    st.session_state["active_user_role"] = "Front Desk Officer"
-                    st.success("✅ Staff Access Granted")
-                    st.rerun()
-                elif password_input == pass_admin:
-                    shield.reset_attempts("internal_staff")
-                    st.session_state["staff_authenticated"] = True
-                    st.session_state["admin_authenticated"] = True
-                    st.session_state["active_user_role"] = "Strategic Directorate"
-                    st.success("✅ Executive Administrator Access Granted")
-                    st.rerun()
-                else:
-                    remaining, locked_now = shield.register_failed_attempt("internal_staff")
-                    if locked_now:
-                        st.error("🚨 3/3 Failed Attempts Exceeded! System Locked Out.")
-                        st.rerun()
-                    else:
-                        st.warning(f"⚠️ Invalid Access Password! You have {remaining} attempts remaining before complete portal lockout.")
-        st.stop()
-
-    entity_name = st.session_state.get("corp_name", "Sovereign Entity Node")
-    entity_type = st.session_state.get("entity_type", "Statutory Directorate")
-    portal_heading = st.session_state.get("custom_portal_heading", 'NEXUSVAULT TECHNOLOGIES "SUPER INTELLIGENCE - AGENTIC AI PROPOSAL INTAKE PORTAL"')
-
-    col_hdr1, col_hdr2 = st.columns([4, 1.2])
-    with col_hdr1:
-        st.markdown(f"""
-            <div class="main-header">
-                <h1 style="color: #ffffff !important; margin: 0 0 8px 0; font-size: 22px; font-weight: 900;">
-                    🛡️ {portal_heading}
-                </h1>
-                <p style="color: #38bdf8 !important; margin: 0; font-size: 14px; font-weight: 700;">
-                    Node: <span style="color: #ffffff;">{entity_name}</span> | Active Gate: <span style="color: #34d399;">{st.session_state["active_user_role"]}</span>
-                </p>
-            </div>
-        """, unsafe_allow_html=True)
-    with col_hdr2:
-        st.markdown("""
-            <div style="display: flex; align-items: center; justify-content: flex-end; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(0, 135, 81, 0.5); border-radius: 12px; padding: 12px 18px; gap: 12px;">
-                <svg width="42" height="28" viewBox="0 0 3 2"><rect width="1" height="2" x="0" fill="#008751"/><rect width="1" height="2" x="1" fill="#FFFFFF"/><rect width="1" height="2" x="2" fill="#008751"/></svg>
-                <div>
-                    <div style="color: #ffffff; font-size: 11px; font-weight: 800;">FEDERAL REPUBLIC</div>
-                    <div style="color: #34d399; font-size: 10px; font-weight: 700;">OF NIGERIA</div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-
-    with st.sidebar:
-        st.markdown("### 🔐 Internal Modules")
-        
-        allowed_roles = ["Front Desk (Proposal Intake & KYB)"]
-        if st.session_state["admin_authenticated"]:
-            allowed_roles.extend([
-                "Strategic Directorate (AI & Financial Appraisals)",
-                "Senior Management (Payment & Key Rotation)",
-                "📊 Executive Reporting & Exports",
-                "⛓️ Cryptographic Proof Ledger",
-                "📜 Audit Logs & Compliance Trail"
-            ])
-
-        selected_role_view = st.radio("Select Portal Access Gate", allowed_roles)
-        st.session_state["active_user_role"] = selected_role_view
-
-        st.markdown("---")
-        if st.button("🔒 Logout Staff Session", use_container_width=True):
-            st.session_state["staff_authenticated"] = False
-            st.session_state["admin_authenticated"] = False
-            st.session_state["portal_mode"] = "select_mode"
-            st.rerun()
-
-    # RENDER SELECTED MODULE
-    if st.session_state["active_user_role"] == "Front Desk (Proposal Intake & KYB)":
-        st.markdown("<div class='section-hdr'>📥 Front Desk: Intake Gateway & Verification Engine</div>", unsafe_allow_html=True)
-        st.info("Front Desk staff operational intake portal. Submit proposals and verify vendor documents.")
-        proposals = db.fetch_all_proposals()
-        st.metric("Total Logged Proposals", len(proposals))
-
-    elif st.session_state["active_user_role"] == "Strategic Directorate (AI & Financial Appraisals)":
-        st.markdown("<div class='section-hdr'>🤖 Strategic Directorate: AI Appraisals & Certificates</div>", unsafe_allow_html=True)
-        proposals = db.fetch_all_proposals()
-        for item in proposals:
-            with st.expander(f"📌 [{item['qr_ref_id']}] {item['project_title']} — {item['vendor_name']}"):
-                st.write(f"**Status:** {item['status']} | **Summary:** {item['ai_summary']}")
-                cert_png = cert_gen.generate_evaluation_certificate(
-                    item['qr_ref_id'], item['vendor_name'], item['project_title'],
-                    item['status'], item['compliance_score'], item['estimated_cost'], item['ai_summary']
-                )
-                st.download_button("📜 Download Official Evaluation Certificate", data=cert_png, file_name=f"{item['qr_ref_id']}_Certificate.png", mime="image/png")
-
-    elif st.session_state["active_user_role"] == "Senior Management (Payment & Key Rotation)":
-        st.markdown("<div class='section-hdr'>🏛️ Senior Management: Security Key Rotation & Payment Control</div>", unsafe_allow_html=True)
-        
-        st.markdown("#### 🔑 Executive Password & Key Rotation Console")
-        st.info("Senior Administrative Officers can dynamically change staff or admin keys if compromise is suspected.")
-
-        with st.form("key_rotation_form"):
-            col_k1, col_k2 = st.columns(2)
-            with col_k1:
-                new_staff_key = st.text_input("New General Staff Password", value=pass_staff, type="password")
-            with col_k2:
-                new_admin_key = st.text_input("New Senior Executive Admin Key", value=pass_admin, type="password")
-
-            btn_rotate = st.form_submit_button("Rotate & Apply New Security Keys", use_container_width=True)
-
-            if btn_rotate:
-                if new_staff_key and new_admin_key:
-                    db.set_setting("pass_staff", new_staff_key)
-                    db.set_setting("pass_admin", new_admin_key)
-                    db.log_event("Senior Management", "KEY_ROTATION", "SYSTEM", "Rotated internal staff and executive admin keys.")
-                    st.success("✅ Security keys updated and persisted to database!")
-                    st.rerun()
-                else:
-                    st.error("⚠️ Passwords cannot be empty.")
-
-    elif st.session_state["active_user_role"] == "📊 Executive Reporting & Exports":
-        st.markdown("<div class='section-hdr'>📊 Executive Reporting & Data Export Suite</div>", unsafe_allow_html=True)
-        proposals = db.fetch_all_proposals()
-        if proposals:
-            df = pd.DataFrame(proposals)
-            st.dataframe(df, use_container_width=True)
-            csv_data = df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Export Proposal Ledger as CSV", data=csv_data, file_name=f"NEXUSVAULT_Ledger.csv", mime="text/csv")
-
-    elif st.session_state["active_user_role"] == "⛓️ Cryptographic Proof Ledger":
-        st.markdown("<div class='section-hdr'>⛓️ Cryptographic SHA-256 Merkle-Tree Proof Ledger</div>", unsafe_allow_html=True)
-        for block in reversed(chain.get_ledger()):
-            st.markdown(f"**Block #{block['block_index']}** | QR: {block['qr_ref_id']} | SHA-256: {block['document_sha256']}")
-
-    elif st.session_state["active_user_role"] == "📜 Audit Logs & Compliance Trail":
-        st.markdown("<div class='section-hdr'>📜 System Audit Logs & Tamper-Evident Trail</div>", unsafe_allow_html=True)
-        for log in db.fetch_audit_logs():
-            st.markdown(f"[{log['timestamp']}] **{log['user_role']}** — {log['action']} ({log['details']})")

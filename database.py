@@ -1,11 +1,12 @@
 ﻿import sqlite3
 import json
 import os
+from datetime import datetime, timedelta
 
 DB_FILE = "nexusvault_sovereign.db"
 
 def init_db():
-    """Initializes SQLite tables for proposals, audit logs, system settings, and multi-tenant clients."""
+    """Initializes SQLite tables and automatically performs schema migrations for missing columns."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     
@@ -53,7 +54,7 @@ def init_db():
         )
     ''')
 
-    # Multi-Tenant Client Registry Table (with lockout & password tracking)
+    # Multi-Tenant Client Registry Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS clients (
             client_id TEXT PRIMARY KEY,
@@ -66,11 +67,30 @@ def init_db():
             admin_email TEXT,
             sub_package TEXT,
             custom_title TEXT,
-            is_approved TEXT,
-            lockout_status TEXT DEFAULT 'False',
-            client_admin_pass TEXT DEFAULT 'NexusExec2026!'
+            is_approved TEXT
         )
     ''')
+
+    # Safe Schema Migrations for existing DB files
+    try:
+        cursor.execute("ALTER TABLE clients ADD COLUMN lockout_status TEXT DEFAULT 'False'")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE clients ADD COLUMN client_admin_pass TEXT DEFAULT 'NexusExec2026!'")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE clients ADD COLUMN created_at TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE clients ADD COLUMN is_purged TEXT DEFAULT 'False'")
+    except sqlite3.OperationalError:
+        pass
 
     conn.commit()
     conn.close()
@@ -146,14 +166,15 @@ def get_setting(key, default=""):
 def register_client(data):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cursor.execute('''
         INSERT OR IGNORE INTO clients 
-        (client_id, client_slug, corp_name, entity_type, corp_email, corp_phone, corp_address, admin_email, sub_package, custom_title, is_approved, lockout_status, client_admin_pass)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'False', 'NexusExec2026!')
+        (client_id, client_slug, corp_name, entity_type, corp_email, corp_phone, corp_address, admin_email, sub_package, custom_title, is_approved, lockout_status, client_admin_pass, created_at, is_purged)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'False', 'NexusExec2026!', ?, 'False')
     ''', (
         data["client_id"], data["client_slug"], data["corp_name"], data["entity_type"],
         data["corp_email"], data["corp_phone"], data["corp_address"], data["admin_email"],
-        data["sub_package"], data["custom_title"], data["is_approved"]
+        data["sub_package"], data["custom_title"], data["is_approved"], current_time
     ))
     conn.commit()
     conn.close()
@@ -162,16 +183,27 @@ def get_client(client_slug):
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM clients WHERE client_slug = ?", (client_slug,))
+    cursor.execute("SELECT * FROM clients WHERE client_slug = ? AND is_purged != 'True'", (client_slug,))
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
 
 def get_all_clients():
+    """Returns all active non-purged clients."""
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM clients")
+    cursor.execute("SELECT * FROM clients WHERE is_purged != 'True'")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def get_purged_clients():
+    """Returns all clients currently in the purge archive / trash bin."""
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM clients WHERE is_purged = 'True'")
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
@@ -196,5 +228,49 @@ def reset_client_password(client_id, new_pass):
     cursor.execute("UPDATE clients SET client_admin_pass = ?, lockout_status = 'False' WHERE client_id = ?", (new_pass, client_id))
     conn.commit()
     conn.close()
+
+def purge_client(client_id):
+    """Soft-deletes a client by moving them to the purge archive."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE clients SET is_purged = 'True' WHERE client_id = ?", (client_id,))
+    conn.commit()
+    conn.close()
+
+def restore_client(client_id):
+    """Restores a client from the purge archive back to active status."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE clients SET is_purged = 'False' WHERE client_id = ?", (client_id,))
+    conn.commit()
+    conn.close()
+
+def delete_client_permanently(client_id):
+    """Permanently deletes a client record from the database."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM clients WHERE client_id = ?", (client_id,))
+    conn.commit()
+    conn.close()
+
+def purge_expired_pending_clients():
+    """
+    Soft-purges client records that have remained in 'Pending' (is_approved = 'False') 
+    for more than 7 days without payment or activation.
+    """
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    threshold_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("SELECT client_id, corp_name FROM clients WHERE is_approved = 'False' AND is_purged != 'True' AND created_at < ?", (threshold_date,))
+    expired_clients = cursor.fetchall()
+    
+    if expired_clients:
+        for ec in expired_clients:
+            cursor.execute("UPDATE clients SET is_purged = 'True' WHERE client_id = ?", (ec[0],))
+        conn.commit()
+            
+    conn.close()
+    return len(expired_clients)
 
 init_db()
