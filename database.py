@@ -53,7 +53,7 @@ def init_db():
         )
     ''')
 
-    # Multi-Tenant Client Registry Table
+    # Multi-Tenant Client Registry Table (with lockout & password tracking)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS clients (
             client_id TEXT PRIMARY KEY,
@@ -66,7 +66,9 @@ def init_db():
             admin_email TEXT,
             sub_package TEXT,
             custom_title TEXT,
-            is_approved TEXT
+            is_approved TEXT,
+            lockout_status TEXT DEFAULT 'False',
+            client_admin_pass TEXT DEFAULT 'NexusExec2026!'
         )
     ''')
 
@@ -145,9 +147,9 @@ def register_client(data):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO clients 
-        (client_id, client_slug, corp_name, entity_type, corp_email, corp_phone, corp_address, admin_email, sub_package, custom_title, is_approved)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO clients 
+        (client_id, client_slug, corp_name, entity_type, corp_email, corp_phone, corp_address, admin_email, sub_package, custom_title, is_approved, lockout_status, client_admin_pass)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'False', 'NexusExec2026!')
     ''', (
         data["client_id"], data["client_slug"], data["corp_name"], data["entity_type"],
         data["corp_email"], data["corp_phone"], data["corp_address"], data["admin_email"],
@@ -178,6 +180,20 @@ def update_client_approval(client_id, status):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("UPDATE clients SET is_approved = ? WHERE client_id = ?", (str(status), client_id))
+    conn.commit()
+    conn.close()
+
+def update_client_lockout(client_id, lockout_status):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE clients SET lockout_status = ? WHERE client_id = ?", (str(lockout_status), client_id))
+    conn.commit()
+    conn.close()
+
+def reset_client_password(client_id, new_pass):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE clients SET client_admin_pass = ?, lockout_status = 'False' WHERE client_id = ?", (new_pass, client_id))
     conn.commit()
     conn.close()
 
