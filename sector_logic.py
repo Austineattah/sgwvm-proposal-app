@@ -92,7 +92,7 @@ def render_sector_onboarding_wizard():
         </style>
     """, unsafe_allow_html=True)
 
-    # 1. LANDING WELCOME BANNER CARD
+    # 1. LANDING WELCOME BANNER CARD WITH PROMINENT TOP COMPLIANCE BADGE
     st.markdown(f"""
         <div style="background: linear-gradient(135deg, rgba(10, 25, 47, 0.85) 0%, rgba(13, 33, 55, 0.85) 100%); backdrop-filter: blur(16px); padding: 32px 36px; border-radius: 16px; border: 1px solid rgba(56, 189, 248, 0.25); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(56, 189, 248, 0.1); margin-bottom: 20px;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px;">
@@ -100,9 +100,12 @@ def render_sector_onboarding_wizard():
                     <h1 style="color: #ffffff !important; margin: 0 0 10px 0; font-size: 25px; font-weight: 900; letter-spacing: 0.4px; line-height: 1.3; font-family: 'Plus Jakarta Sans', sans-serif;">
                         🛡️ {st.session_state["custom_portal_heading"]}
                     </h1>
-                    <p style="color: #cbd5e1 !important; margin: 0; font-size: 15px; font-weight: 500; line-height: 1.5; font-family: 'Plus Jakarta Sans', sans-serif;">
+                    <p style="color: #cbd5e1 !important; margin: 0 0 14px 0; font-size: 15px; font-weight: 500; line-height: 1.5; font-family: 'Plus Jakarta Sans', sans-serif;">
                         Initialize your secure organizational node, configure your domain scope, and deploy your sovereign enterprise proposal intake gateway.
                     </p>
+                    <div style="display: inline-flex; align-items: center; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 8px; padding: 6px 14px; gap: 8px;">
+                        <span style="color: #38bdf8; font-size: 13px; font-weight: 800;">🔒 NEXUSVAULT_TECH Sovereign Enterprise Engine • NITDA / NDPA Compliant</span>
+                    </div>
                 </div>
                 <div style="display: flex; align-items: center; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(10px); border: 1px solid rgba(0, 135, 81, 0.5); border-radius: 12px; padding: 12px 20px; gap: 14px;">
                     <svg width="42" height="28" viewBox="0 0 3 2" style="border-radius: 4px;">
