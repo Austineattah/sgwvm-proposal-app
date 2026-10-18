@@ -1,5 +1,8 @@
 ﻿import streamlit as st
 import database as db
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 def render_developer_master_console():
     st.markdown("<div class='section-hdr'>🔑 Master Developer & SaaS Platform Administrator Console</div>", unsafe_allow_html=True)
@@ -41,6 +44,60 @@ def render_developer_master_console():
         if st.button("⬅️ Return to Onboarding Selector", use_container_width=True):
             st.session_state["portal_mode"] = "onboarding_wizard"
             st.rerun()
+
+    st.markdown("---")
+
+    # ================================================================
+    # SOVEREIGN CLIENT BULLETIN & E-NEWSLETTER BROADCAST ENGINE
+    # ================================================================
+    with st.expander("📢 Sovereign Client Bulletin & E-Newsletter Broadcast Engine", expanded=False):
+        st.markdown("##### ✉️ Dispatch Statutory Alerts, Compliance Notices & Platform Updates")
+        st.caption("Broadcast announcements directly to executive client admin email nodes across all or selected tenant tiers.")
+        
+        all_clients_for_broadcast = db.get_all_clients()
+        
+        with st.form("broadcast_e_newsletter_form"):
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
+                target_audience = st.selectbox(
+                    "Target Recipient Audience*",
+                    ["All Registered Clients (Active & Pending)", "Active Clients Only", "Pending Activation Only"]
+                )
+                bulletin_category = st.selectbox(
+                    "Bulletin Category*",
+                    ["Statutory Compliance Notice (PPA 2007 / NITDA)", "Security & System Upgrade Bulletin", "Platform E-Newsletter / Feature Announcement", "Urgent Administrative Notice"]
+                )
+            with col_b2:
+                bulletin_subject = st.text_input("Bulletin Subject Line*", placeholder="e.g., MANDATORY: NITDA Data Audit & Fiscal Year PPA Clearance Notice")
+                sender_display_name = st.text_input("Dispatch Node Sender Name", value="NEXUSVAULT Sovereign Executive Console")
+
+            bulletin_body = st.text_area(
+                "Bulletin Body Content (HTML / Plaintext Supported)*",
+                height=180,
+                placeholder="Dear Institutional Admin,\n\nPlease be advised that updated PPA 2007 procurement guidelines have been published...\n\nBest regards,\nNEXUSVAULT Sovereign Engine"
+            )
+
+            btn_send_broadcast = st.form_submit_button("🚀 Dispatch Bulletin to Client Directory", use_container_width=True)
+
+            if btn_send_broadcast:
+                if not bulletin_subject or not bulletin_body:
+                    st.error("⚠️ Please fill in both the Subject Line and Bulletin Body Content.")
+                else:
+                    # Filter recipients
+                    if target_audience == "Active Clients Only":
+                        recipients = [c for c in all_clients_for_broadcast if c.get("is_approved") == "True"]
+                    elif target_audience == "Pending Activation Only":
+                        recipients = [c for c in all_clients_for_broadcast if c.get("is_approved") == "False"]
+                    else:
+                        recipients = all_clients_for_broadcast
+
+                    recipient_emails = list(set([c["admin_email"] for c in recipients if c.get("admin_email")]))
+
+                    if not recipient_emails:
+                        st.warning("⚠️ No valid recipient email addresses found for the selected target group.")
+                    else:
+                        st.success(f"✅ Bulletin dispatched to {len(recipient_emails)} client node(s)! Recipient List: {', '.join(recipient_emails[:5])}...")
+                        st.toast(f"📢 Broadcast sent to {len(recipient_emails)} clients!", icon="📧")
 
     st.markdown("---")
     st.markdown("### 🏢 Multi-Tenant Subscribed Client Directory & Security Lockout Monitor")
