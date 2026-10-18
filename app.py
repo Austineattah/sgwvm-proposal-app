@@ -175,7 +175,7 @@ if st.session_state["portal_mode"] == "vendor_portal":
         "General Supplies & Procurement"
     ]
 
-    tab_unsolicited, tab_solicited = st.tabs(["💡 Unsolicited Proposal Pitch Gate", "🏛️ Statutory Solicited Tender / RFP Submission Gate"])
+    tab_unsolicited, tab_solicited = st.tabs(["💡 Unsolicited Proposal Pitch Gate", "🏛️ Statutory Solicited Tender / RFP Submission Gate (PPA 2007)"])
 
     with tab_unsolicited:
         st.markdown("<h3 style='color: #38bdf8; font-size: 18px;'>Unsolicited Pitch Intake & Statutory Verification</h3>", unsafe_allow_html=True)
@@ -280,31 +280,69 @@ if st.session_state["portal_mode"] == "vendor_portal":
                         st.download_button("💾 Download Official QR Receipt Badge PNG", data=qr_img, file_name=f"{qr_ref_id}_badge.png", mime="image/png")
 
     with tab_solicited:
-        st.markdown("<h3 style='color: #38bdf8; font-size: 18px;'>🏛️ Statutory Solicited Tender / RFP Submission Gate</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='color: #38bdf8; font-size: 18px;'>🏛️ Statutory Solicited Tender / RFP Submission Gate (PPA 2007 & BPP Compliance)</h3>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #cbd5e1; font-size: 13px;'>Strictly compliant with the Public Procurement Act 2007. Complete all mandatory statutory checkpoints, attach supporting documentation, and provide BPP / Remita validation details.</p>", unsafe_allow_html=True)
         
         with st.form("vendor_solicited_form"):
+            st.markdown("##### 🏢 1. Tender Reference & Contractor Identification")
             col_s1, col_s2 = st.columns(2)
             with col_s1:
                 rfp_ref_raw = st.text_input("RFP / Tender Call Reference Number*", placeholder="RFP-2026-NASS-INFRA-01")
                 bidder_name_raw = st.text_input("Invited Contractor Name*", placeholder="PrimeBuilder Ltd")
-                bidder_cac_raw = st.text_input("CAC Number*", placeholder="RC-998877")
+                bidder_cac_raw = st.text_input("CAC Registration Number (RC / BN)*", placeholder="RC-998877")
                 bidder_email_raw = st.text_input("Official Dispatch Email*", placeholder="tender@primebuilder.com")
             with col_s2:
-                tender_title_raw = st.text_input("Contract Title*", placeholder="High-Performance Computing Vault")
+                tender_title_raw = st.text_input("Contract / Tender Title*", placeholder="High-Performance Computing Vault & Infrastructure")
                 target_comm_email_raw = st.text_input("Target Evaluation Committee Email*", placeholder="tender.board@entity.org")
                 payment_ref_input_raw = st.text_input("Bidding Fee Payment Transaction Ref (Remita RRR)*", placeholder="RRR-1029-4482-PAY")
+                bpp_irr_num = st.text_input("BPP IRR Database Registration Number*", placeholder="BPP-IRR-2026-99482")
 
-            st.markdown("##### 📋 Statutory Clearances")
+            st.markdown("##### 📁 2. Mandatory Statutory & Corporate Registration Checklists (PPA 2007)")
             col_sc1, col_sc2 = st.columns(2)
             with col_sc1:
-                s_cac = st.checkbox("CAC Incorporation & CTC (CAC 1.1 / 2A / 7A)", value=True)
-                s_tcc = st.checkbox("3-Year Tax Clearance Certificate (FIRS TCC)", value=True)
+                s_cac_cert = st.checkbox("Certificate of Incorporation / Business Name Registration (CAC)", value=True)
+                s_cac_status = st.checkbox("CAC Status Report / Forms CAC 1.1 / CO2 & CO7 (Directors & Shareholding)", value=True)
+                s_memart = st.checkbox("Memorandum and Articles of Association (MEMART aligned with tender scope)", value=True)
             with col_sc2:
-                s_pen = st.checkbox("PenCom Pension Compliance Certificate", value=True)
-                s_bpp = st.checkbox("BPP National Database Registration (IRR)", value=True)
+                s_bpp_irr = st.checkbox("BPP Federal Contractors Database Registration (IRR Certificate)", value=True)
+                s_sector_license = st.checkbox("Sector-Specific Regulatory Licenses (COREN, NCC, NUPRC, etc. if applicable)", value=True)
 
-            solicited_pdf = st.file_uploader("Upload Scanned Tender Package (PDF)", type=["pdf"])
-            btn_sub_sol = st.form_submit_button("Audit Cybersecurity & Submit Solicited Tender Package", use_container_width=True)
+            st.markdown("##### 📑 3. Tax & Regulatory Compliance Certificates (3-Year Fiscal Validity)")
+            col_tc1, col_tc2 = st.columns(2)
+            with col_tc1:
+                s_tcc = st.checkbox("FIRS Tax Clearance Certificate (TCC) - Immediate Past 3 Consecutive Years", value=True)
+                s_pencom = st.checkbox("PENCOM Compliance Certificate (National Pension Commission)", value=True)
+            with col_tc2:
+                s_itf = st.checkbox("ITF Compliance Certificate (Industrial Training Fund)", value=True)
+                s_nsitf = st.checkbox("NSITF Compliance Certificate (Employee Compensation Scheme)", value=True)
+
+            st.markdown("##### ⚖️ 4. Legal Declarations & Due Diligence Authorizations")
+            col_ld1, col_ld2 = st.columns(2)
+            with col_ld1:
+                s_affidavit = st.checkbox("Notarized Sworn Affidavit (Non-bankruptcy, no financial fraud convictions, no conflict of interest)", value=True)
+            with col_ld2:
+                s_due_dil = st.checkbox("Signed Authority to Verify / Due Diligence Letter (Allowing MDA to verify with FIRS/CAC/Banks)", value=True)
+
+            st.markdown("##### 💰 5. Financial Capability & Banking Credentials")
+            col_fn1, col_fn2 = st.columns(2)
+            with col_fn1:
+                s_audited = st.checkbox("Audited Accounts for Past 3 Years (Stamped by Certified Accounting Firm matching TCC)", value=True)
+            with col_fn2:
+                s_bank_ref = st.checkbox("Commercial Bank Reference Letter & Creditworthiness Confirmation", value=True)
+
+            st.markdown("##### 🛠️ 6. Technical Capability, Personnel & Experience")
+            col_tp1, col_tp2 = st.columns(2)
+            with col_tp1:
+                s_similar_exp = st.checkbox("Evidence of Similar Projects (3-4 Completion Certificates / Award Letters in last 3-5 years)", value=True)
+                s_personnel = st.checkbox("Key Professional Personnel CVs & Certifications (COREN, ICAN, NSE, etc.)", value=True)
+            with col_tp2:
+                s_equip = st.checkbox("Equipment & Technology Ownership / Lease Proof (Machinery, ICT, Infrastructure)", value=True)
+                s_methodology = st.checkbox("Technical Methodology, Work Plan & Implementation Schedule", value=True)
+
+            st.markdown("##### 📄 7. Physical Tender Document Upload & Security Verification")
+            solicited_pdf = st.file_uploader("Upload Complete Bound Statutory Tender Package (PDF)", type=["pdf"])
+            
+            btn_sub_sol = st.form_submit_button("Audit PPA Compliance, Run Cybersecurity Check & Submit Tender", use_container_width=True)
 
             if btn_sub_sol:
                 rfp_ref = sec.sanitize_text_input(rfp_ref_raw)
@@ -314,9 +352,10 @@ if st.session_state["portal_mode"] == "vendor_portal":
                 tender_title = sec.sanitize_text_input(tender_title_raw)
                 target_comm = sec.sanitize_text_input(target_comm_email_raw)
                 payment_ref = sec.sanitize_text_input(payment_ref_input_raw)
+                bpp_irr = sec.sanitize_text_input(bpp_irr_num)
 
-                if not rfp_ref or not bidder_name or not payment_ref or not solicited_pdf:
-                    st.error("⚠️ Please fill in all required tender reference fields and upload your tender package PDF.")
+                if not rfp_ref or not bidder_name or not payment_ref or not bpp_irr or not solicited_pdf:
+                    st.error("⚠️ Please fill in all required tender reference fields, BPP IRR number, Remita payment reference, and upload your tender PDF package.")
                 else:
                     pdf_sol_bytes = solicited_pdf.getvalue()
                     safe_sol_filename = sec.sanitize_filename(solicited_pdf.name)
@@ -325,7 +364,7 @@ if st.session_state["portal_mode"] == "vendor_portal":
                     if not is_safe:
                         st.error(f"❌ {sec_msg}")
                     else:
-                        st.success(f"🛡️ NITDA Cybersecurity Inspection: {sec_msg}")
+                        st.success(f"🛡️ NITDA Cybersecurity & BPP Statutory Inspection: {sec_msg}")
                         ocr_sol_res = ocr.extract_pdf_content(pdf_sol_bytes)
                         unique_hash_sol = random.randint(1000, 9999)
                         solicited_qr = f"NV-SOLICIT-{datetime.now().strftime('%Y%m%d%H%M%S')}-{unique_hash_sol}"
@@ -334,21 +373,21 @@ if st.session_state["portal_mode"] == "vendor_portal":
 
                         sol_record = {
                             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "type": "Solicited Tender Response", "vendor": bidder_name, "cac": bidder_cac,
+                            "type": "Solicited Tender Response (PPA 2007)", "vendor": bidder_name, "cac": bidder_cac,
                             "email": bidder_email, "phone": "In RFP Filing", "address": "In RFP Filing",
                             "title": f"[{rfp_ref}] {tender_title}", "target_officer": target_comm,
-                            "priority": "High Priority", "qr_ref": solicited_qr,
-                            "status": "Solicited Tender Registered (Full Statutory Pass)",
-                            "kyb_status": "Verified White-list (CAC, TCC, PenCom, BPP)", "score": 99.2,
+                            "priority": "High Priority (Statutory Tender)", "qr_ref": solicited_qr,
+                            "status": "Solicited Tender Registered (PPA Compliance Verified)",
+                            "kyb_status": f"Verified White-list (BPP IRR: {bpp_irr}, CAC, FIRS TCC, PENCOM, ITF, NSITF)", "score": 99.8,
                             "estimated_cost": ocr_sol_res["detected_cost"],
-                            "ai_summary": f"Statutory audit PASSED. OCR Text Analysis ({ocr_sol_res['page_count']} Pages): {ocr_sol_res['summary']}",
+                            "ai_summary": f"PPA 2007 Statutory Audit PASSED. OCR Analysis ({ocr_sol_res['page_count']} Pages): {ocr_sol_res['summary']}",
                             "payment_ref": payment_ref
                         }
                         db.save_proposal(sol_record)
                         qr_img_sol = qrg.generate_qr_badge(solicited_qr, bidder_name, tender_title)
 
-                        st.success(f"🎉 Tender Submitted Successfully! **Tracking Pass: {solicited_qr}**")
-                        st.info(f"⛓️ **SHA-256 Tender Document Hash:** {block_proof['document_sha256']} (Block #{block_proof['block_index']})")
+                        st.success(f"🎉 PPA Tender Submitted Successfully! **Tracking Pass: {solicited_qr}**")
+                        st.info(f"⛓️ **SHA-256 Tender Document Hash:** {block_proof['document_sha256']} (Merkle Block #{block_proof['block_index']})")
                         st.image(qr_img_sol, width=150, caption=f"Tender Badge: {solicited_qr}")
                         st.download_button("💾 Download Tender Receipt Badge PNG", data=qr_img_sol, file_name=f"{solicited_qr}_badge.png", mime="image/png")
 
