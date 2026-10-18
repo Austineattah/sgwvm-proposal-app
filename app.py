@@ -1,394 +1,147 @@
 ﻿import streamlit as st
-import base64
-import pandas as pd
-import io
-import random
-from datetime import datetime
+import datetime
+from theme_manager import ThemeManager
+from schedule_enforcer import ScheduleEnforcer
+from payment_gatekeeper import PaymentGatekeeper
+from session_resume import SessionResumeManager
+from complaint_desk import ComplaintDesk
+from postgres_adapter import PostgresStorage
 
-# Core Application Modules
-from sector_logic import render_sector_onboarding_wizard
-import sector_mapper as mapper
-import database as db
-import qr_generator as qrg
-import dispatcher as dispatcher_mod
-import ocr_parser as ocr
-import qr_scanner as scanner
-import security_guard as sec
-import blockchain_ledger as chain
-import report_generator as cert_gen
-import developer_console as dev_ui
-import draft_manager as draft_mgr
-import auth_shield as shield
+# --- STORAGE ADAPTER INITIALIZATION (PostgreSQL with Fallback) ---
+class InMemoryStorage:
+    def __init__(self):
+        self.store = {}
+    def upsert(self, key: str, value: dict) -> bool:
+        self.store[key] = value
+        return True
+    def get(self, key: str) -> dict:
+        return self.store.get(key)
+    def save(self, key: str, value: dict):
+        self.store[key] = value
 
-# Page Configuration
-st.set_page_config(
-    page_title="NEXUSVAULT Sovereign Enterprise Portal",
-    page_icon="🛡️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+if "db" not in st.session_state:
+    try:
+        # Attempt connection to persistent PostgreSQL database
+        st.session_state.db = PostgresStorage()
+        st.sidebar.success("🔗 Connected to PostgreSQL Database")
+    except Exception:
+        # Fallback to in-memory storage if PostgreSQL service is offline
+        st.session_state.db = InMemoryStorage()
+        st.sidebar.warning("⚠️ Using Temporary Memory Store (PostgreSQL offline)")
 
-# ================================================================
-# PHASE 1: GLOBAL QUERY PARAMETER & MODE INTERCEPTION (?mode=dev)
-# ================================================================
-query_params = st.query_params
-mode_override = query_params.get("mode", None)
-client_slug = query_params.get("client", None)
+# --- 1. PRIORITY 1: THEME MANAGEMENT ---
+st.set_page_config(page_title="NexusVault Proposal Intake Portal", layout="wide")
+theme_mode = st.sidebar.selectbox("Select Portal Theme", ["DEEP_BLUE", "SHARP_MAGENTA", "DYNAMIC_10MIN"])
+st.markdown(ThemeManager.get_theme_css(theme_mode), unsafe_allow_html=True)
 
-if mode_override == "dev":
-    st.session_state["portal_mode"] = "developer_portal"
+st.title("🏛️ Super Intelligence - Agentic AI Proposal Intake Portal")
+st.markdown("### NexusVault Technologies Ltd & Federal Public Sector Procurement Gateway")
 
-# Initialize Session State Variables if not set
-if "portal_mode" not in st.session_state:
-    st.session_state["portal_mode"] = "onboarding_wizard"
-if "active_user_role" not in st.session_state:
-    st.session_state["active_user_role"] = "Front Desk Officer"
-if "staff_authenticated" not in st.session_state:
-    st.session_state["staff_authenticated"] = False
-if "admin_authenticated" not in st.session_state:
-    st.session_state["admin_authenticated"] = False
+# --- MOCK CLIENT MDA CONFIGURATION ---
+client_config = {
+    "slug": "nitda",
+    "mda_name": "National Information Technology Development Agency (NITDA)",
+    "pre_bidding_cutoff": "2026-12-31T23:59:59+00:00",
+    "final_bidding_cutoff": "2026-12-31T23:59:59+00:00",
+    "payment_gateway": "remita",
+    "gateway_api_key": "live_key_sample",
+    "gateway_merchant_id": "MERCH-001"
+}
 
-# Global High-End Glassmorphism CSS System
-st.markdown("""
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+# --- 2. PRIORITY 2: SCHEDULE ENFORCER ---
+status_text, is_open, metrics = ScheduleEnforcer.check_bidding_status(client_config)
+st.sidebar.markdown(f"**Portal Status:** `{status_text}`")
+st.sidebar.markdown(f"⏱️ Time Remaining: **{metrics['days']}d {metrics['hours']}h {metrics['minutes']}m**")
 
-        .stApp {
-            background: radial-gradient(circle at 50% -20%, #0f2744 0%, #070d19 65%) !important;
-            color: #f8fafc !important;
-            font-family: 'Plus Jakarta Sans', sans-serif !important;
-        }
-
-        h1, h2, h3, h4, h5, h6, label, p, span, div {
-            font-family: 'Plus Jakarta Sans', sans-serif !important;
-        }
-
-        .main-header {
-            background: linear-gradient(135deg, rgba(10, 25, 47, 0.85) 0%, rgba(15, 39, 68, 0.85) 100%);
-            backdrop-filter: blur(16px);
-            padding: 26px 30px;
-            border-radius: 14px;
-            border: 1px solid rgba(56, 189, 248, 0.25);
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(56, 189, 248, 0.1);
-            margin-bottom: 26px;
-        }
-
-        .section-hdr {
-            color: #38bdf8 !important;
-            font-size: 20px !important;
-            font-weight: 800 !important;
-            letter-spacing: 0.3px !important;
-            border-left: 4px solid #38bdf8;
-            padding-left: 12px;
-            margin-top: 22px;
-            margin-bottom: 16px;
-            text-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
-        }
-
-        div[data-baseweb="select"] > div, input, textarea {
-            background-color: rgba(15, 23, 42, 0.75) !important;
-            border: 1px solid rgba(255, 255, 255, 0.12) !important;
-            color: #ffffff !important;
-            border-radius: 10px !important;
-            font-family: 'Plus Jakarta Sans', sans-serif !important;
-            font-size: 14px !important;
-            backdrop-filter: blur(10px) !important;
-        }
-
-        button[data-baseweb="tab"] {
-            background-color: rgba(15, 23, 42, 0.65) !important;
-            border: 1px solid rgba(255, 255, 255, 0.08) !important;
-            border-radius: 10px 10px 0px 0px !important;
-            padding: 12px 24px !important;
-            color: #94a3b8 !important;
-            font-weight: 700 !important;
-            font-size: 14px !important;
-            margin-right: 6px !important;
-        }
-
-        button[data-baseweb="tab"][aria-selected="true"] {
-            background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
-            color: #ffffff !important;
-            border: 1px solid #38bdf8 !important;
-            border-bottom: 3px solid #38bdf8 !important;
-            font-weight: 800 !important;
-            font-size: 15px !important;
-        }
-    </style>
-""", unsafe_allow_html=True)
-
-# Fetch Dynamic Passwords from DB or Defaults
-pass_staff = db.get_setting("pass_staff", "NexusStaff2026!")
-pass_admin = db.get_setting("pass_admin", "NexusExec2026!")
-
-# ================================================================
-# PHASE 2: TENANT & ROUTE EXECUTION
-# ================================================================
-if client_slug and mode_override != "dev":
-    client_data = db.get_client(client_slug)
-    if client_data and client_data["is_approved"] == "True":
-        st.session_state["corp_name"] = client_data["corp_name"]
-        st.session_state["entity_type"] = client_data["entity_type"]
-        st.session_state["corp_email"] = client_data["corp_email"]
-        st.session_state["sub_package"] = client_data["sub_package"]
-        st.session_state["custom_portal_heading"] = client_data["custom_title"]
-        st.session_state["portal_mode"] = "vendor_portal"
-    else:
-        st.error("❌ Invalid client tenant link or organization node is currently suspended/pending activation.")
-        st.stop()
-
-# ROUTE A: MASTER DEVELOPER CONSOLE (?mode=dev)
-if st.session_state["portal_mode"] == "developer_portal":
-    if st.button("🔄 Return to Onboarding Wizard"):
-        st.session_state["portal_mode"] = "onboarding_wizard"
-        st.rerun()
-    dev_ui.render_developer_master_console()
+if not is_open:
+    st.error("⚠️ The bidding window for this solicitation is currently CLOSED or under evaluation. Submissions are disabled.")
     st.stop()
 
-# ROUTE B: ONBOARDING WIZARD (DEFAULT ROOT ENTRY)
-if st.session_state["portal_mode"] == "onboarding_wizard":
-    render_sector_onboarding_wizard()
-    st.stop()
+# --- NAVIGATION TABS ---
+tab1, tab2, tab3 = st.tabs(["🚀 New Submission / Payment Gate", "📂 Resume Draft Session", "🛠️ Complaint & Support Desk"])
 
-# ROUTE C: PUBLIC VENDOR PROPOSAL PORTAL
-if st.session_state["portal_mode"] == "vendor_portal":
-    portal_heading = st.session_state.get("custom_portal_heading", 'NEXUSVAULT TECHNOLOGIES "SUPER INTELLIGENCE - AGENTIC AI PROPOSAL INTAKE PORTAL"')
-    entity_name = st.session_state.get("corp_name", "Sovereign Entity Node")
+# --- TAB 1: PAYMENT GATE & INTAKE ---
+with tab1:
+    st.subheader("Step 1: Pre-Bidding Payment & Access Gate")
+    vendor_email = st.text_input("Official Vendor Corporate Email", key="pay_email")
+    tx_ref = st.text_input("Bank Transaction Reference / Remita Retrieval Reference (RRR)", key="pay_ref")
 
-    st.markdown(f"""
-        <div class="main-header">
-            <h1 style="color: #ffffff !important; margin: 0 0 8px 0; font-size: 22px; font-weight: 900;">
-                🚀 {portal_heading}
-            </h1>
-            <p style="color: #38bdf8 !important; margin: 0; font-size: 14px; font-weight: 700;">
-                Active Client Node: <span style="color: #ffffff;">{entity_name}</span> | NITDA & NDPA Compliant Encrypted Channel
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
+    if st.button("Verify Payment & Unlock Portal"):
+        if not vendor_email or not tx_ref:
+            st.warning("Please provide both email and transaction reference.")
+        else:
+            result = PaymentGatekeeper.verify_payment_and_unlock(client_config, vendor_email, tx_ref)
+            if result["success"]:
+                st.success(result["message"])
+                st.info(f"🔑 Your QR Tracking Code: `{result['tracking_code']}` (Save this code to resume later!)")
+                st.session_state["unlocked_tracking"] = result["tracking_code"]
+                st.session_state["unlocked_email"] = vendor_email
+            else:
+                st.error(result["message"])
 
-    st.markdown("---")
-    sector_categories = [
-        "Infrastructure & Civil Works", 
-        "ICT & Cybersecurity Solutions", 
-        "Energy & Power Systems", 
-        "Consultancy & Advisory Services", 
-        "General Supplies & Procurement"
-    ]
-
-    tab_unsolicited, tab_solicited = st.tabs(["💡 Unsolicited Proposal Pitch Gate", "🏛️ Statutory Solicited Tender / RFP Submission Gate (PPA 2007)"])
-
-    with tab_unsolicited:
-        st.markdown("<h3 style='color: #38bdf8; font-size: 18px;'>Unsolicited Pitch Intake & Statutory Verification</h3>", unsafe_allow_html=True)
+    if st.session_state.get("unlocked_tracking"):
+        st.markdown("---")
+        st.subheader("Step 2: Solicited Vendor Document Intake Portal")
+        st.success(f"Session Active | Tracking Key: {st.session_state['unlocked_tracking']}")
         
-        saved_unsol_draft = draft_mgr.get_draft("unsolicited_pitch")
-        if saved_unsol_draft:
-            st.warning(f"⚠️ Unsaved Draft Detected from {saved_unsol_draft.get('last_saved', 'Recent Session')}.")
-            if st.button("🔄 Restore Saved Pitch Draft"):
-                st.session_state["draft_unsol_vendor"] = saved_unsol_draft.get("vendor", "")
-                st.session_state["draft_unsol_cac"] = saved_unsol_draft.get("cac", "")
-                st.session_state["draft_unsol_email"] = saved_unsol_draft.get("email", "")
-                st.session_state["draft_unsol_phone"] = saved_unsol_draft.get("phone", "")
-                st.session_state["draft_unsol_title"] = saved_unsol_draft.get("title", "")
-                st.session_state["draft_unsol_target"] = saved_unsol_draft.get("target_officer", "")
-                st.success("✅ Form restored from draft!")
+        company_name = st.text_input("Registered Corporate Name")
+        cac_number = st.text_input("CAC Registration Number (RC/BN)")
+        firs_tcc = st.file_uploader("Upload 3-Year FIRS Tax Clearance Certificate (PDF)", type=["pdf"])
+        technical_proposal = st.file_uploader("Upload Technical Proposal (PDF)", type=["pdf"])
 
-        with st.form("vendor_unsolicited_form"):
-            st.markdown("##### 🏢 1. Vendor & Corporate Details")
-            col_u1, col_u2 = st.columns(2)
-            with col_u1:
-                vendor_name_raw = st.text_input("Vendor Organization Name*", value=st.session_state.get("draft_unsol_vendor", ""), placeholder="e.g., Apex Global Technologies Ltd")
-                cac_num_raw = st.text_input("CAC Registration Number (RC / BN)*", value=st.session_state.get("draft_unsol_cac", ""), placeholder="RC-1234567")
-                vendor_email_raw = st.text_input("Official Dispatch Email (for Auto-Receipt)*", value=st.session_state.get("draft_unsol_email", ""), placeholder="vendor@apextech.com")
-                vendor_phone_raw = st.text_input("Vendor Phone / SMS Gateway Contact*", value=st.session_state.get("draft_unsol_phone", ""), placeholder="+234 802 000 0000")
-            with col_u2:
-                project_title_raw = st.text_input("Proposal Title*", value=st.session_state.get("draft_unsol_title", ""), placeholder="e.g., Smart Digital Library & Research Vault")
-                prop_cat = st.selectbox("Sector-Mapped Proposal Type", sector_categories)
-                target_officer_raw = st.text_input("Target Departmental Officer Email*", value=st.session_state.get("draft_unsol_target", ""), placeholder="director.research@entity.org")
-                priority_lvl = st.selectbox("Priority Level", ["Standard Review", "High Priority / Urgent Attention", "Executive Fast-Track"])
+        resume_mgr = SessionResumeManager(st.session_state.db)
+        if st.button("💾 Auto-Save Draft Progress"):
+            draft_data = {"company_name": company_name, "cac_number": cac_number}
+            resume_mgr.save_draft_state(st.session_state["unlocked_tracking"], st.session_state["unlocked_email"], draft_data)
+            st.success("Draft state saved successfully to persistent database! You can safely close your browser and resume later.")
 
-            st.markdown("##### 📁 2. Statutory Compliance Checklists")
-            col_chk1, col_chk2 = st.columns(2)
-            with col_chk1:
-                chk_cover = st.checkbox("Cover Letter / Intent Letter Addressed to Head", value=True)
-                chk_tech = st.checkbox("Detailed Technical Proposal & Architecture", value=True)
-                chk_fin = st.checkbox("Commercial Breakdown & ROI Model", value=True)
-            with col_chk2:
-                chk_cac = st.checkbox("Certificate of Incorporation / CAC Status", value=True)
-                chk_tin = st.checkbox("Tax Identification Number (TIN) / Tax Clearance", value=True)
-                chk_pen = st.checkbox("Pension & Social Security Permits (PENCOM/NSITF)", value=True)
+# --- TAB 2: RESUME DRAFT ---
+with tab2:
+    st.subheader("Resume Saved Submission Session")
+    res_code = st.text_input("Enter Your QR Tracking Code")
+    res_email = st.text_input("Enter Vendor Corporate Email")
 
-            st.markdown("##### 📄 3. Physical Document Scanning & Security Screening")
-            scanned_pdf = st.file_uploader("Upload Scanned Proposal Document (PDF)", type=["pdf"])
+    if st.button("Restore Session"):
+        resume_mgr = SessionResumeManager(st.session_state.db)
+        data = resume_mgr.resume_session(res_code, res_email)
+        if data:
+            st.success("Session restored successfully from database!")
+            st.json(data)
+        else:
+            st.error("Invalid tracking code or email combination.")
 
-            col_sub1, col_sub2 = st.columns([3, 1])
-            with col_sub1:
-                btn_sub_unsol = st.form_submit_button("Execute Security Inspection, Live OCR & Submit Proposal", use_container_width=True)
-            with col_sub2:
-                btn_save_draft_unsol = st.form_submit_button("💾 Save Progress Draft", use_container_width=True)
+# --- TAB 3: COMPLAINT & SUPPORT DESK ---
+with tab3:
+    st.subheader("Vendor Support & Issue Resolution Desk")
+    st.markdown("Experiencing payment timeouts, network drops, or gateway debits without confirmation? Log a ticket below.")
 
-            if btn_save_draft_unsol:
-                draft_mgr.save_draft("unsolicited_pitch", {
-                    "vendor": vendor_name_raw, "cac": cac_num_raw, "email": vendor_email_raw,
-                    "phone": vendor_phone_raw, "title": project_title_raw, "target_officer": target_officer_raw
-                })
-                st.success("💾 Form draft saved successfully!")
+    c_email = st.text_input("Vendor Email", key="cmp_email")
+    c_phone = st.text_input("Phone Number", key="cmp_phone")
+    c_ref = st.text_input("Transaction / RRR Reference", key="cmp_ref")
+    c_issue = st.selectbox("Issue Category", ["Payment Timeout / Debit without QR", "Portal Access Failure", "Document Upload Error"])
+    c_narrative = st.text_area("Describe the issue in detail")
 
-            if btn_sub_unsol:
-                vendor_name = sec.sanitize_text_input(vendor_name_raw)
-                cac_num = sec.sanitize_text_input(cac_num_raw)
-                vendor_email = sec.sanitize_text_input(vendor_email_raw)
-                vendor_phone = sec.sanitize_text_input(vendor_phone_raw)
-                project_title = sec.sanitize_text_input(project_title_raw)
-                target_officer = sec.sanitize_text_input(target_officer_raw)
-
-                if not vendor_name or not cac_num or not vendor_email or not project_title or not target_officer or not scanned_pdf:
-                    st.error("⚠️ Please complete all required fields and upload the scanned proposal PDF.")
-                else:
-                    pdf_bytes = scanned_pdf.getvalue()
-                    safe_filename = sec.sanitize_filename(scanned_pdf.name)
-                    is_safe, sec_msg = sec.inspect_pdf_payload(pdf_bytes, safe_filename)
-
-                    if not is_safe:
-                        st.error(f"❌ {sec_msg}")
-                    else:
-                        st.success(f"🛡️ NITDA Cybersecurity Inspection: {sec_msg}")
-                        with st.spinner("🔄 Processing submission..."):
-                            ocr_result = ocr.extract_pdf_content(pdf_bytes)
-                            unique_hash = random.randint(1000, 9999)
-                            qr_ref_id = f"NV-QREF-{datetime.now().strftime('%Y%m%d%H%M%S')}-{unique_hash}"
-                            
-                            block_proof = chain.record_cryptographic_proof(qr_ref_id, vendor_name, project_title, pdf_bytes)
-
-                            proposal_rec = {
-                                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                "type": f"Unsolicited ({prop_cat})", "vendor": vendor_name, "cac": cac_num,
-                                "email": vendor_email, "phone": vendor_phone, "address": "Provided in Filing",
-                                "title": project_title, "target_officer": target_officer, "priority": priority_lvl,
-                                "qr_ref": qr_ref_id, "status": "Routed & Pending Directorate Review",
-                                "kyb_status": "Verified Active (CAC & Statutory Clearances)", "score": 96.5,
-                                "estimated_cost": ocr_result["detected_cost"],
-                                "ai_summary": f"Live OCR Extracted ({ocr_result['page_count']} Pages): {ocr_result['summary']}",
-                                "payment_ref": "Exempt (Unsolicited Pitch)"
-                            }
-                            db.save_proposal(proposal_rec)
-                            qr_img = qrg.generate_qr_badge(qr_ref_id, vendor_name, project_title)
-                            draft_mgr.clear_draft("unsolicited_pitch")
-
-                        st.success(f"🎉 Proposal Successfully Submitted! **Tracking Pass: {qr_ref_id}**")
-                        st.info(f"⛓️ **SHA-256 Document Hash:** {block_proof['document_sha256']} (Merkle Ledger Block #{block_proof['block_index']})")
-                        st.image(qr_img, width=160, caption=f"Printable Pass Badge ({qr_ref_id})")
-                        st.download_button("💾 Download Official QR Receipt Badge PNG", data=qr_img, file_name=f"{qr_ref_id}_badge.png", mime="image/png")
-
-    with tab_solicited:
-        st.markdown("<h3 style='color: #38bdf8; font-size: 18px;'>🏛️ Statutory Solicited Tender / RFP Submission Gate (PPA 2007 & BPP Compliance)</h3>", unsafe_allow_html=True)
-        st.markdown("<p style='color: #cbd5e1; font-size: 13px;'>Strictly compliant with the Public Procurement Act 2007. Complete all mandatory statutory checkpoints, attach supporting documentation, and provide BPP / Remita validation details.</p>", unsafe_allow_html=True)
-        
-        with st.form("vendor_solicited_form"):
-            st.markdown("##### 🏢 1. Tender Reference & Contractor Identification")
-            col_s1, col_s2 = st.columns(2)
-            with col_s1:
-                rfp_ref_raw = st.text_input("RFP / Tender Call Reference Number*", placeholder="RFP-2026-NASS-INFRA-01")
-                bidder_name_raw = st.text_input("Invited Contractor Name*", placeholder="PrimeBuilder Ltd")
-                bidder_cac_raw = st.text_input("CAC Registration Number (RC / BN)*", placeholder="RC-998877")
-                bidder_email_raw = st.text_input("Official Dispatch Email*", placeholder="tender@primebuilder.com")
-            with col_s2:
-                tender_title_raw = st.text_input("Contract / Tender Title*", placeholder="High-Performance Computing Vault & Infrastructure")
-                target_comm_email_raw = st.text_input("Target Evaluation Committee Email*", placeholder="tender.board@entity.org")
-                payment_ref_input_raw = st.text_input("Bidding Fee Payment Transaction Ref (Remita RRR)*", placeholder="RRR-1029-4482-PAY")
-                bpp_irr_num = st.text_input("BPP IRR Database Registration Number*", placeholder="BPP-IRR-2026-99482")
-
-            st.markdown("##### 📁 2. Mandatory Statutory & Corporate Registration Checklists (PPA 2007)")
-            col_sc1, col_sc2 = st.columns(2)
-            with col_sc1:
-                s_cac_cert = st.checkbox("Certificate of Incorporation / Business Name Registration (CAC)", value=True)
-                s_cac_status = st.checkbox("CAC Status Report / Forms CAC 1.1 / CO2 & CO7 (Directors & Shareholding)", value=True)
-                s_memart = st.checkbox("Memorandum and Articles of Association (MEMART aligned with tender scope)", value=True)
-            with col_sc2:
-                s_bpp_irr = st.checkbox("BPP Federal Contractors Database Registration (IRR Certificate)", value=True)
-                s_sector_license = st.checkbox("Sector-Specific Regulatory Licenses (COREN, NCC, NUPRC, etc. if applicable)", value=True)
-
-            st.markdown("##### 📑 3. Tax & Regulatory Compliance Certificates (3-Year Fiscal Validity)")
-            col_tc1, col_tc2 = st.columns(2)
-            with col_tc1:
-                s_tcc = st.checkbox("FIRS Tax Clearance Certificate (TCC) - Immediate Past 3 Consecutive Years", value=True)
-                s_pencom = st.checkbox("PENCOM Compliance Certificate (National Pension Commission)", value=True)
-            with col_tc2:
-                s_itf = st.checkbox("ITF Compliance Certificate (Industrial Training Fund)", value=True)
-                s_nsitf = st.checkbox("NSITF Compliance Certificate (Employee Compensation Scheme)", value=True)
-
-            st.markdown("##### ⚖️ 4. Legal Declarations & Due Diligence Authorizations")
-            col_ld1, col_ld2 = st.columns(2)
-            with col_ld1:
-                s_affidavit = st.checkbox("Notarized Sworn Affidavit (Non-bankruptcy, no financial fraud convictions, no conflict of interest)", value=True)
-            with col_ld2:
-                s_due_dil = st.checkbox("Signed Authority to Verify / Due Diligence Letter (Allowing MDA to verify with FIRS/CAC/Banks)", value=True)
-
-            st.markdown("##### 💰 5. Financial Capability & Banking Credentials")
-            col_fn1, col_fn2 = st.columns(2)
-            with col_fn1:
-                s_audited = st.checkbox("Audited Accounts for Past 3 Years (Stamped by Certified Accounting Firm matching TCC)", value=True)
-            with col_fn2:
-                s_bank_ref = st.checkbox("Commercial Bank Reference Letter & Creditworthiness Confirmation", value=True)
-
-            st.markdown("##### 🛠️ 6. Technical Capability, Personnel & Experience")
-            col_tp1, col_tp2 = st.columns(2)
-            with col_tp1:
-                s_similar_exp = st.checkbox("Evidence of Similar Projects (3-4 Completion Certificates / Award Letters in last 3-5 years)", value=True)
-                s_personnel = st.checkbox("Key Professional Personnel CVs & Certifications (COREN, ICAN, NSE, etc.)", value=True)
-            with col_tp2:
-                s_equip = st.checkbox("Equipment & Technology Ownership / Lease Proof (Machinery, ICT, Infrastructure)", value=True)
-                s_methodology = st.checkbox("Technical Methodology, Work Plan & Implementation Schedule", value=True)
-
-            st.markdown("##### 📄 7. Physical Tender Document Upload & Security Verification")
-            solicited_pdf = st.file_uploader("Upload Complete Bound Statutory Tender Package (PDF)", type=["pdf"])
-            
-            btn_sub_sol = st.form_submit_button("Audit PPA Compliance, Run Cybersecurity Check & Submit Tender", use_container_width=True)
-
-            if btn_sub_sol:
-                rfp_ref = sec.sanitize_text_input(rfp_ref_raw)
-                bidder_name = sec.sanitize_text_input(bidder_name_raw)
-                bidder_cac = sec.sanitize_text_input(bidder_cac_raw)
-                bidder_email = sec.sanitize_text_input(bidder_email_raw)
-                tender_title = sec.sanitize_text_input(tender_title_raw)
-                target_comm = sec.sanitize_text_input(target_comm_email_raw)
-                payment_ref = sec.sanitize_text_input(payment_ref_input_raw)
-                bpp_irr = sec.sanitize_text_input(bpp_irr_num)
-
-                if not rfp_ref or not bidder_name or not payment_ref or not bpp_irr or not solicited_pdf:
-                    st.error("⚠️ Please fill in all required tender reference fields, BPP IRR number, Remita payment reference, and upload your tender PDF package.")
-                else:
-                    pdf_sol_bytes = solicited_pdf.getvalue()
-                    safe_sol_filename = sec.sanitize_filename(solicited_pdf.name)
-                    is_safe, sec_msg = sec.inspect_pdf_payload(pdf_sol_bytes, safe_sol_filename)
-
-                    if not is_safe:
-                        st.error(f"❌ {sec_msg}")
-                    else:
-                        st.success(f"🛡️ NITDA Cybersecurity & BPP Statutory Inspection: {sec_msg}")
-                        ocr_sol_res = ocr.extract_pdf_content(pdf_sol_bytes)
-                        unique_hash_sol = random.randint(1000, 9999)
-                        solicited_qr = f"NV-SOLICIT-{datetime.now().strftime('%Y%m%d%H%M%S')}-{unique_hash_sol}"
-                        
-                        block_proof = chain.record_cryptographic_proof(solicited_qr, bidder_name, tender_title, pdf_sol_bytes)
-
-                        sol_record = {
-                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "type": "Solicited Tender Response (PPA 2007)", "vendor": bidder_name, "cac": bidder_cac,
-                            "email": bidder_email, "phone": "In RFP Filing", "address": "In RFP Filing",
-                            "title": f"[{rfp_ref}] {tender_title}", "target_officer": target_comm,
-                            "priority": "High Priority (Statutory Tender)", "qr_ref": solicited_qr,
-                            "status": "Solicited Tender Registered (PPA Compliance Verified)",
-                            "kyb_status": f"Verified White-list (BPP IRR: {bpp_irr}, CAC, FIRS TCC, PENCOM, ITF, NSITF)", "score": 99.8,
-                            "estimated_cost": ocr_sol_res["detected_cost"],
-                            "ai_summary": f"PPA 2007 Statutory Audit PASSED. OCR Analysis ({ocr_sol_res['page_count']} Pages): {ocr_sol_res['summary']}",
-                            "payment_ref": payment_ref
-                        }
-                        db.save_proposal(sol_record)
-                        qr_img_sol = qrg.generate_qr_badge(solicited_qr, bidder_name, tender_title)
-
-                        st.success(f"🎉 PPA Tender Submitted Successfully! **Tracking Pass: {solicited_qr}**")
-                        st.info(f"⛓️ **SHA-256 Tender Document Hash:** {block_proof['document_sha256']} (Merkle Block #{block_proof['block_index']})")
-                        st.image(qr_img_sol, width=150, caption=f"Tender Badge: {solicited_qr}")
-                        st.download_button("💾 Download Tender Receipt Badge PNG", data=qr_img_sol, file_name=f"{solicited_qr}_badge.png", mime="image/png")
-
-    st.stop()
+    complaint_desk = ComplaintDesk(st.session_state.db)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔄 Self-Service Re-Query Payment"):
+            res = complaint_desk.re_query_payment_gateway(client_config, c_ref, c_email)
+            if res["success"]:
+                st.success(res["message"])
+            else:
+                st.error(res["message"])
+    with col2:
+        if st.button("📨 Submit Formal Complaint Ticket"):
+            if not c_email or not c_ref:
+                st.warning("Please fill in your email and transaction reference.")
+            else:
+                ticket_res = complaint_desk.log_complaint_ticket(
+                    client_slug=client_config["slug"],
+                    vendor_email=c_email,
+                    phone_number=c_phone,
+                    bank_ref=c_ref,
+                    issue_category=c_issue,
+                    narrative=c_narrative
+                )
+                st.success(ticket_res["message"])
