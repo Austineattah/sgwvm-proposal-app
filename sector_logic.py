@@ -17,6 +17,27 @@ def render_sector_onboarding_wizard():
                 font-family: 'Plus Jakarta Sans', sans-serif !important;
             }
 
+            .onboarding-title-banner {
+                text-align: center;
+                margin-top: 35px;
+                margin-bottom: 35px;
+                padding: 16px;
+                background: rgba(15, 23, 42, 0.6);
+                border: 1px solid rgba(56, 189, 248, 0.3);
+                border-radius: 12px;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+            }
+
+            .onboarding-title-banner h2 {
+                color: #38bdf8 !important;
+                font-size: 28px !important;
+                font-weight: 900 !important;
+                letter-spacing: 2px !important;
+                text-transform: uppercase !important;
+                margin: 0 !important;
+                text-shadow: 0 0 15px rgba(56, 189, 248, 0.4);
+            }
+
             .section-hdr {
                 color: #38bdf8 !important;
                 font-size: 20px !important;
@@ -42,11 +63,38 @@ def render_sector_onboarding_wizard():
                 border-radius: 10px !important;
                 backdrop-filter: blur(10px) !important;
             }
+
+            .marquee-container {
+                margin-top: 20px;
+                margin-bottom: 15px;
+                overflow: hidden;
+                white-space: nowrap;
+                background: rgba(15, 23, 42, 0.85);
+                border: 1px solid rgba(56, 189, 248, 0.3);
+                border-radius: 8px;
+                padding: 10px 0;
+            }
+
+            .marquee-text {
+                display: inline-block;
+                padding-left: 100%;
+                animation: marquee 18s linear infinite;
+                color: #38bdf8;
+                font-weight: 800;
+                font-size: 15px;
+                letter-spacing: 1px;
+            }
+
+            @keyframes marquee {
+                0% { transform: translate(0, 0); }
+                100% { transform: translate(-100%, 0); }
+            }
         </style>
     """, unsafe_allow_html=True)
 
+    # 1. LANDING WELCOME BANNER CARD
     st.markdown(f"""
-        <div style="background: linear-gradient(135deg, rgba(10, 25, 47, 0.85) 0%, rgba(13, 33, 55, 0.85) 100%); backdrop-filter: blur(16px); padding: 32px 36px; border-radius: 16px; border: 1px solid rgba(56, 189, 248, 0.25); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(56, 189, 248, 0.1); margin-bottom: 28px;">
+        <div style="background: linear-gradient(135deg, rgba(10, 25, 47, 0.85) 0%, rgba(13, 33, 55, 0.85) 100%); backdrop-filter: blur(16px); padding: 32px 36px; border-radius: 16px; border: 1px solid rgba(56, 189, 248, 0.25); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(56, 189, 248, 0.1); margin-bottom: 20px;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px;">
                 <div style="flex: 1; min-width: 320px;">
                     <h1 style="color: #ffffff !important; margin: 0 0 10px 0; font-size: 25px; font-weight: 900; letter-spacing: 0.4px; line-height: 1.3; font-family: 'Plus Jakarta Sans', sans-serif;">
@@ -68,6 +116,13 @@ def render_sector_onboarding_wizard():
                     </div>
                 </div>
             </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # 2. ONBOARDING MODULE HEADER WITH SPACED MARGIN
+    st.markdown("""
+        <div class="onboarding-title-banner">
+            <h2>✨ ONBOARDING MODULE ✨</h2>
         </div>
     """, unsafe_allow_html=True)
 
@@ -108,7 +163,7 @@ def render_sector_onboarding_wizard():
         with col_d:
             uploaded_logo = st.file_uploader("Upload Official Institutional Branding Logo (PNG/JPG)", type=["png", "jpg", "jpeg"])
 
-        submitted = st.form_submit_button("Submit Organizational Node for Approval", use_container_width=True)
+        submitted = st.form_submit_button("Submit Organizational Node for Approval and Activation", use_container_width=True)
 
         if submitted:
             if not corp_name or not corp_email or not corp_phone or not corp_address:
@@ -145,6 +200,15 @@ def render_sector_onboarding_wizard():
 
                 st.success("🎉 Organizational node registered successfully! Awaiting payment / developer approval.")
                 st.rerun()
+
+    # 3. SCROLLING MARQUEE DIRECTLY BELOW THE SUBMISSION FORM
+    st.markdown("""
+        <div class="marquee-container">
+            <div class="marquee-text">
+                🌟 YOUR TIME IS INVALUABLE TO US THANKS FOR PARTICIPATING. 🌟
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown("<p style='color: #64748b; font-size: 12px;'>NEXUSVAULT_TECH Sovereign Enterprise Engine • NITDA / NDPA Compliant</p>", unsafe_allow_html=True)
