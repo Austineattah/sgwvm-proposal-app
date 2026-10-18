@@ -1,7 +1,2 @@
-﻿streamlit>=1.30.0
-qrcode>=8.0
-pillow>=10.0.0
-pandas>=2.0.0
-pypdf>=3.17.0
-opencv-python-headless>=4.8.0
-pyzbar>=0.1.9
+﻿streamlit
+psycopg2-binary
