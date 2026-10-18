@@ -45,11 +45,41 @@ def render_developer_master_console():
     st.markdown("---")
     st.markdown("### 🏢 Multi-Tenant Subscribed Client Directory & Security Lockout Monitor")
 
+    # ================================================================
+    # QUICK REFERENCE PERMANENT DELETE SEARCH BOX
+    # ================================================================
+    with st.form("quick_ref_delete_form"):
+        st.markdown("##### ⚡ Quick Reference Permanent Deletion Gate")
+        st.caption("Type a client slug or corporate name keyword (e.g. 'sgwvm') to instantly purge or wipe them.")
+        col_q1, col_q2 = st.columns([3, 1])
+        with col_q1:
+            target_slug_input = st.text_input("Client Slug / Keyword Reference*", placeholder="e.g. sgwvm or sgwvm_837261")
+        with col_q2:
+            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+            btn_quick_del = st.form_submit_button("💥 Wipe Permanently", use_container_width=True)
+
+        if btn_quick_del:
+            clean_keyword = target_slug_input.strip().lower()
+            if not clean_keyword:
+                st.error("⚠️ Please enter a valid client slug or keyword.")
+            else:
+                all_db_clients = db.get_all_clients()
+                matched = [c for c in all_db_clients if clean_keyword in c['client_slug'].lower() or clean_keyword in c['corp_name'].lower()]
+                if matched:
+                    for mc in matched:
+                        db.delete_client_permanently(mc['client_id'])
+                    st.success(f"💥 Successfully purged {len(matched)} matching client record(s) based on reference '{target_slug_input}'!")
+                    st.rerun()
+                else:
+                    st.error(f"❌ No matching client found for reference '{target_slug_input}'. Check slug spelling.")
+
+    st.markdown("---")
+
     clients = db.get_all_clients()
     if len(clients) == 0:
         st.info("ℹ️ No active tenant clients registered in database.")
     else:
-        for client in clients:
+        for idx, client in enumerate(clients, start=1):
             is_active = client["is_approved"] == "True"
             is_locked_out = client.get("lockout_status", "False") == "True"
             client_url = f"https://nexusvault.gov.ng/?client={client['client_slug']}"
@@ -64,18 +94,18 @@ def render_developer_master_console():
             st.markdown(f"""
                 <div style="background: rgba(15, 23, 42, 0.85); border: 2px solid {badge_color}; border-radius: 12px; padding: 20px; margin-bottom: 16px;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <h3 style="color: #ffffff; margin: 0; font-size: 18px;">🏢 {client['corp_name']}</h3>
+                        <h3 style="color: #ffffff; margin: 0; font-size: 18px;">{idx}. 🏢 {client['corp_name']}</h3>
                         <span style="background-color: {badge_color}; color: #ffffff; padding: 4px 12px; border-radius: 6px; font-weight: 800; font-size: 11px;">
                             {status_badge}
                         </span>
                     </div>
-                    <p style="color: #94a3b8; font-size: 13px; margin: 6px 0;"><b>Scope:</b> {client['entity_type']} | <b>Tier:</b> {client['sub_package']} | <b>Registered:</b> {created_date}</p>
+                    <p style="color: #94a3b8; font-size: 13px; margin: 6px 0;"><b>Slug Reference:</b> <code>{client['client_slug']}</code> | <b>Scope:</b> {client['entity_type']} | <b>Tier:</b> {client['sub_package']} | <b>Registered:</b> {created_date}</p>
                     <p style="color: #cbd5e1; font-size: 13px; margin: 2px 0;"><b>Admin Email:</b> {client['admin_email']} | <b>Current Admin Pass:</b> <code>{client.get('client_admin_pass', 'NexusExec2026!')}</code></p>
                     <p style="color: #38bdf8; font-size: 13px; margin: 6px 0;"><b>Unique Public Tender Link:</b> <code>{client_url}</code></p>
                 </div>
             """, unsafe_allow_html=True)
 
-            with st.expander(f"⚙️ Manage Security & Password Reassignment: {client['corp_name']}"):
+            with st.expander(f"⚙️ [{idx}] Manage Security & Password Reassignment: {client['corp_name']}"):
                 with st.form(f"reset_client_form_{client['client_id']}"):
                     new_c_pass = st.text_input("Assign New Password / Executive Key", value="NexusExec2026!", type="password")
                     btn_reset = st.form_submit_button("🔄 Reassign Password & Unlock Node", use_container_width=True)
@@ -88,23 +118,23 @@ def render_developer_master_console():
             col_c1, col_c2, col_c3 = st.columns(3)
             with col_c1:
                 if not is_active:
-                    if st.button(f"🟢 Activate", key=f"act_{client['client_id']}"):
+                    if st.button(f"🟢 Activate [{idx}]", key=f"act_{client['client_id']}"):
                         db.update_client_approval(client['client_id'], "True")
                         st.success(f"✅ Client activated!")
                         st.rerun()
                 else:
-                    if st.button(f"🔴 Suspend", key=f"susp_{client['client_id']}"):
+                    if st.button(f"🔴 Suspend [{idx}]", key=f"susp_{client['client_id']}"):
                         db.update_client_approval(client['client_id'], "False")
                         st.warning(f"⚠️ Client suspended.")
                         st.rerun()
             with col_c2:
                 if is_locked_out:
-                    if st.button(f"🔓 Clear Lockout", key=f"unlock_{client['client_id']}"):
+                    if st.button(f"🔓 Clear Lockout [{idx}]", key=f"unlock_{client['client_id']}"):
                         db.update_client_lockout(client['client_id'], "False")
                         st.success(f"✅ Lockout cleared.")
                         st.rerun()
             with col_c3:
-                if st.button(f"🗑️ Purge Record", key=f"del_client_{client['client_id']}"):
+                if st.button(f"🗑️ Archive / Soft-Purge [{idx}]", key=f"del_client_{client['client_id']}"):
                     db.purge_client(client['client_id'])
                     st.toast(f"🗑️ Moved '{client['corp_name']}' to Purge Archive.", icon="🧹")
                     st.rerun()
@@ -120,22 +150,22 @@ def render_developer_master_console():
         st.info("ℹ️ Purge Archive is empty. No purged records found.")
     else:
         st.warning(f"⚠️ Found {len(purged_clients)} client record(s) in the archive. You can restore them at any time.")
-        for p_client in purged_clients:
+        for p_idx, p_client in enumerate(purged_clients, start=1):
             st.markdown(f"""
                 <div style="background: rgba(127, 29, 29, 0.3); border: 2px dashed #ef4444; border-radius: 12px; padding: 18px; margin-bottom: 14px;">
-                    <h4 style="color: #fca5a5; margin: 0 0 6px 0;">🗑️ [Archived] {p_client['corp_name']}</h4>
+                    <h4 style="color: #fca5a5; margin: 0 0 6px 0;">🗑️ [{p_idx}] [Archived Slug: {p_client['client_slug']}] {p_client['corp_name']}</h4>
                     <p style="color: #94a3b8; font-size: 13px; margin: 2px 0;"><b>Scope:</b> {p_client['entity_type']} | <b>Admin Email:</b> {p_client['admin_email']}</p>
                 </div>
             """, unsafe_allow_html=True)
             
             col_r1, col_r2 = st.columns(2)
             with col_r1:
-                if st.button(f"🔄 Restore Client Node", key=f"restore_{p_client['client_id']}"):
+                if st.button(f"🔄 Restore Client Node [{p_idx}]", key=f"restore_{p_client['client_id']}"):
                     db.restore_client(p_client['client_id'])
                     st.success(f"✅ Successfully restored '{p_client['corp_name']}' back to active directory!")
                     st.rerun()
             with col_r2:
-                if st.button(f"❌ Delete Permanently", key=f"perm_del_{p_client['client_id']}"):
+                if st.button(f"❌ Delete Permanently [{p_idx}]", key=f"perm_del_{p_client['client_id']}"):
                     db.delete_client_permanently(p_client['client_id'])
                     st.error(f"💥 Permanently deleted '{p_client['corp_name']}' from database.")
                     st.rerun()
