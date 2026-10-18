@@ -1,8 +1,5 @@
 ﻿import streamlit as st
 import database as db
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 
 def render_developer_master_console():
     st.markdown("<div class='section-hdr'>🔑 Master Developer & SaaS Platform Administrator Console</div>", unsafe_allow_html=True)
@@ -83,7 +80,6 @@ def render_developer_master_console():
                 if not bulletin_subject or not bulletin_body:
                     st.error("⚠️ Please fill in both the Subject Line and Bulletin Body Content.")
                 else:
-                    # Filter recipients
                     if target_audience == "Active Clients Only":
                         recipients = [c for c in all_clients_for_broadcast if c.get("is_approved") == "True"]
                     elif target_audience == "Pending Activation Only":
@@ -139,17 +135,17 @@ def render_developer_master_console():
         for idx, client in enumerate(clients, start=1):
             is_active = client["is_approved"] == "True"
             is_locked_out = client.get("lockout_status", "False") == "True"
-            client_url = f"https://nexusvault.gov.ng/?client={client['client_slug']}"
+            client_url = f"?client={client['client_slug']}"
             created_date = client.get("created_at", "N/A")
 
             status_badge = "CLIENT ACTIVE" if is_active else "PENDING ACTIVATION"
-            badge_color = "#059669"
+            badge_color = "#059669" if is_active else "#f59e0b"
             if is_locked_out:
                 status_badge = "🚨 LOCKED OUT (3/3 ATTEMPTS)"
                 badge_color = "#dc2626"
 
             st.markdown(f"""
-                <div style="background: rgba(15, 23, 42, 0.85); border: 2px solid {badge_color}; border-radius: 12px; padding: 20px; margin-bottom: 16px;">
+                <div style="background: rgba(15, 23, 42, 0.85); border: 2px solid {badge_color}; border-radius: 12px; padding: 20px; margin-bottom: 12px;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <h3 style="color: #ffffff; margin: 0; font-size: 18px;">{idx}. 🏢 {client['corp_name']}</h3>
                         <span style="background-color: {badge_color}; color: #ffffff; padding: 4px 12px; border-radius: 6px; font-weight: 800; font-size: 11px;">
@@ -162,15 +158,28 @@ def render_developer_master_console():
                 </div>
             """, unsafe_allow_html=True)
 
-            with st.expander(f"⚙️ [{idx}] Manage Security & Password Reassignment: {client['corp_name']}"):
+            # PROMINENT MANAGEMENT EXPANDER FOR EACH CLIENT NODE
+            with st.expander(f"⚙️ [{idx}] Manage Portal, Security & Credentials: {client['corp_name']}", expanded=False):
+                st.markdown("##### 🔐 Password Reassignment & Lockout Controls")
                 with st.form(f"reset_client_form_{client['client_id']}"):
-                    new_c_pass = st.text_input("Assign New Password / Executive Key", value="NexusExec2026!", type="password")
-                    btn_reset = st.form_submit_button("🔄 Reassign Password & Unlock Node", use_container_width=True)
+                    col_m1, col_m2 = st.columns(2)
+                    with col_m1:
+                        new_c_pass = st.text_input("Reassign Executive Admin Password", value=client.get('client_admin_pass', 'NexusExec2026!'), type="password", key=f"pass_in_{client['client_id']}")
+                    with col_m2:
+                        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                        btn_reset = st.form_submit_button("🔄 Save New Password & Lift Lockout", use_container_width=True)
 
                     if btn_reset:
                         db.reset_client_password(client['client_id'], new_c_pass)
-                        st.success(f"✅ Password reassigned and lockout lifted for '{client['corp_name']}'!")
+                        db.update_client_lockout(client['client_id'], "False")
+                        st.success(f"✅ Credentials updated and lockout lifted for '{client['corp_name']}'!")
                         st.rerun()
+
+                st.markdown("##### 🚀 Direct Portal Navigation")
+                if st.button(f"🔗 Launch Portal for [{client['client_slug']}]", key=f"launch_{client['client_id']}", use_container_width=True):
+                    st.query_params["client"] = client['client_slug']
+                    st.session_state["portal_mode"] = "vendor_portal"
+                    st.rerun()
 
             col_c1, col_c2, col_c3 = st.columns(3)
             with col_c1:
