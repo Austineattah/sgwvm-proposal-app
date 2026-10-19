@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 
 sector_code = """import streamlit as st
 
@@ -122,20 +123,20 @@ else:
         col_up1, col_up2 = st.columns(2)
         with col_up1:
             tech_proposal = st.file_uploader("Technical Proposal* (PDF)", type=["pdf"])
-            st.caption("Limit 200MB per file • PDF")
+            st.caption("Limit 200MB per file  PDF")
 
             cac_cert = st.file_uploader("CAC Certificate / Enacting Act Document*", type=["pdf", "png", "jpg", "jpeg"])
-            st.caption("Limit 200MB per file • PDF, PNG, JPG, JPEG")
+            st.caption("Limit 200MB per file  PDF, PNG, JPG, JPEG")
 
             extra_certs = st.file_uploader("Extra Certifications (optional)", type=["pdf", "png", "jpg", "jpeg"])
-            st.caption("Limit 200MB per file • PDF, PNG, JPG, JPEG")
+            st.caption("Limit 200MB per file  PDF, PNG, JPG, JPEG")
 
         with col_up2:
             fin_proposal = st.file_uploader("Financial Proposal* (PDF, DOCX, XLSX, XLS)", type=["pdf", "docx", "xlsx", "xls"])
-            st.caption("Limit 200MB per file • PDF, DOCX, XLSX, XLS")
+            st.caption("Limit 200MB per file  PDF, DOCX, XLSX, XLS")
 
             tin_cert = st.file_uploader("TIN Certificate*", type=["pdf", "png", "jpg", "jpeg"])
-            st.caption("Limit 200MB per file • PDF, PNG, JPG, JPEG")
+            st.caption("Limit 200MB per file  PDF, PNG, JPG, JPEG")
 
     with tab_statutory:
         st.subheader("Sector-Specific Statutory & Compliance Checklist")
