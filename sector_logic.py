@@ -5,7 +5,7 @@ import re
 
 def render_sector_onboarding_wizard():
     if "custom_portal_heading" not in st.session_state:
-        st.session_state["custom_portal_heading"] = 'NEXUSVAULT TECHNOLOGIES "SUPER INTELLIGENCE - AGENTIC AI PROPOSAL INTAKE PORTAL"'
+        # Isolated to client record dict -> st.session_state["custom_portal_heading"] = 'NEXUSVAULT TECHNOLOGIES "SUPER INTELLIGENCE - AGENTIC AI PROPOSAL INTAKE PORTAL"'
 
     st.markdown("""
         <style>
@@ -198,7 +198,7 @@ def render_sector_onboarding_wizard():
                 st.session_state["corp_address"] = corp_address
                 st.session_state["sub_package"] = sub_package
                 st.session_state["admin_email"] = admin_email
-                st.session_state["custom_portal_heading"] = custom_title_input
+                # Isolated to client record dict -> st.session_state["custom_portal_heading"] = custom_title_input
                 st.session_state["onboarding_submitted"] = True
 
                 st.success("🎉 Organizational node registered successfully! Awaiting payment / developer approval.")
