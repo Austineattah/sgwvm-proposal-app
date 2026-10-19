@@ -1,6 +1,5 @@
-﻿[theme]
-base="dark"
-primaryColor="#0d6efd"
-backgroundColor="#0e1117"
-secondaryBackgroundColor="#161b22"
-textColor="#ffffff"
+[server]
+maxUploadSize = 200
+enableCORS = false
+enableXsrfProtection = true
+headless = true
