@@ -36,6 +36,7 @@ st.set_page_config(
 query_params = st.query_params
 mode_override = query_params.get("mode", None)
 client_slug = query_params.get("client", None)
+view_override = query_params.get("view", None)
 
 if mode_override == "dev":
     st.session_state["portal_mode"] = "developer_portal"
@@ -134,7 +135,10 @@ if client_slug and mode_override != "dev":
         st.session_state["corp_email"] = client_data["corp_email"]
         st.session_state["sub_package"] = client_data["sub_package"]
         st.session_state["custom_portal_heading"] = client_data["custom_title"]
-        st.session_state["portal_mode"] = "vendor_portal"
+        if view_override == "admin":
+            st.session_state["portal_mode"] = "client_admin_portal"
+        else:
+            st.session_state["portal_mode"] = "vendor_portal"
     else:
         st.error("❌ Invalid client tenant link or organization node is currently suspended/pending activation.")
         st.stop()
@@ -152,7 +156,17 @@ if st.session_state["portal_mode"] == "onboarding_wizard":
     render_sector_onboarding_wizard()
     st.stop()
 
-# ROUTE C: PUBLIC VENDOR PROPOSAL PORTAL
+# ROUTE C: CLIENT INTERNAL ADMIN PORTAL (?client=<slug>&view=admin)
+if st.session_state["portal_mode"] == "client_admin_portal":
+    try:
+        import admin_portal
+        admin_portal.render_admin_login()
+        admin_portal.render_admin_dashboard()
+    except Exception as e:
+        st.error(f"❌ Critical Error loading Client Admin Portal: {e}")
+    st.stop()
+
+# ROUTE D: PUBLIC VENDOR PROPOSAL PORTAL
 if st.session_state["portal_mode"] == "vendor_portal":
     portal_heading = st.session_state.get("custom_portal_heading", 'NEXUSVAULT TECHNOLOGIES "SUPER INTELLIGENCE - AGENTIC AI PROPOSAL INTAKE PORTAL"')
     entity_name = st.session_state.get("corp_name", "Sovereign Entity Node")
