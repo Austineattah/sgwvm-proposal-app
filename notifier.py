@@ -19,14 +19,35 @@ except ImportError:
 
 
 def get_secret(key, default=None):
-    """Retrieve a setting from the environment or Streamlit secrets."""
+    """Retrieve a setting from environment, root Streamlit secrets, or [smtp] section."""
     value = os.getenv(key)
     if value:
         return value
     if st:
+        # 1. Check direct root secret
         try:
             return st.secrets[key]
         except (KeyError, StreamlitSecretNotFoundError):
+            pass
+        # 2. Check uppercase/lowercase variants at root
+        try:
+            return st.secrets[key.upper()]
+        except (KeyError, StreamlitSecretNotFoundError):
+            pass
+        try:
+            return st.secrets[key.lower()]
+        except (KeyError, StreamlitSecretNotFoundError):
+            pass
+        # 3. Check inside [smtp] table section
+        try:
+            smtp_table = st.secrets.get("smtp", {})
+            if key in smtp_table:
+                return smtp_table[key]
+            if key.lower() in smtp_table:
+                return smtp_table[key.lower()]
+            if key.upper() in smtp_table:
+                return smtp_table[key.upper()]
+        except Exception:
             pass
     return default
 
