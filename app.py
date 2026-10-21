@@ -1,5 +1,4 @@
 ﻿import streamlit as st
-import os
 import sqlite3
 
 # Page Configuration
@@ -19,14 +18,14 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Initialize Database
+# Initialize Database safely
 try:
     import database as db
     db.init_db()
 except Exception as e:
-    pass
+    st.error(f"Database initialization error: {e}")
 
-# Read Query Parameters safely
+# Read Query Parameters
 query_params = st.query_params
 mode = query_params.get("mode", "")
 client_slug = query_params.get("client", "")
@@ -34,58 +33,39 @@ view_mode = query_params.get("view", "")
 
 # --- ROUTING DISPATCHER ---
 
-if mode == "dev" or st.session_state.get("is_admin_authenticated", False):
-    # Developer Console Route
+if mode == "dev":
     try:
         import developer_console
-        developer_console.render_developer_console()
-    except Exception as e:
-        st.error(f"Error rendering Developer Console: {e}")
-        password = st.text_input("Enter Developer Access Key:", type="password")
-        if password == "NexusDevGrant2026!":
-            st.session_state.is_admin_authenticated = True
-            st.rerun()
+        if hasattr(developer_console, "render_developer_master_console"):
+            developer_console.render_developer_master_console()
+        elif hasattr(developer_console, "render_developer_console"):
+            developer_console.render_developer_console()
+        elif hasattr(developer_console, "main"):
+            developer_console.main()
         else:
-            st.warning("Please enter Developer Access Key: NexusDevGrant2026!")
+            st.error("Developer console master entry function not found.")
+    except Exception as e:
+        st.error("Error executing developer console module:")
+        st.exception(e)
 
 elif client_slug and view_mode == "admin":
-    # Tenant Admin Portal Route
     try:
         import admin_portal
-        admin_portal.render_admin_dashboard()
+        if hasattr(admin_portal, "render_admin_dashboard"):
+            admin_portal.render_admin_dashboard()
+        elif hasattr(admin_portal, "main"):
+            admin_portal.main()
+        else:
+            st.success(f"Tenant Admin Portal active for: {client_slug}")
     except Exception as e:
-        st.error(f"Error rendering Tenant Admin Portal: {e}")
-        st.info(f"Loading fallback view for tenant node: {client_slug}")
-
-elif client_slug:
-    # Public Tenant Portal Route (Vendor / Visitor Access Gate)
-    st.markdown(f"""
-        <div style="background: rgba(15, 23, 42, 0.9); padding: 30px; border-radius: 12px; border: 1px solid #38bdf8;">
-            <h2 style="color: #38bdf8;">🏢 Sovereign Tenant Node: {client_slug}</h2>
-            <p style="color: #94a3b8;">Welcome to the authorized vendor and visitor gateway for this institution.</p>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("---")
-    st.subheader("📋 Credential Verification & QR Pass Submission")
-    with st.form("visitor_pass_request"):
-        visitor_name = st.text_input("Visitor / Vendor Full Name")
-        visitor_org = st.text_input("Representing Organization / Company")
-        purpose = st.selectbox("Access Purpose", ["Official Inspection", "Delivery & Logistics", "Scheduled Maintenance", "Executive Consultation"])
-        submitted = st.form_submit_button("Submit Access Verification Request")
-        if submitted and visitor_name:
-            st.success(f"Access request successfully transmitted for **{visitor_name}** ({visitor_org}). QR Token generated.")
+        st.error(f"Error loading tenant admin portal for {client_slug}:")
+        st.exception(e)
 
 else:
-    # Default Root Route: Onboarding Wizard
+    # --- ROOT DEFAULT: FULL SECTOR ONBOARDING WIZARD ---
     try:
-        import onboarding_wizard
-        onboarding_wizard.render_onboarding_wizard()
+        from sector_logic import render_sector_onboarding_wizard
+        render_sector_onboarding_wizard()
     except Exception as e:
-        st.markdown("""
-            <div style="text-align: center; padding: 40px;">
-                <h1 style="color: #38bdf8;">🛡️ NEXUSVAULT Sovereign Enterprise Portal</h1>
-                <p style="color: #94a3b8;">PPA 2007 & NDPA Compliant Multi-Tenant Gateway</p>
-            </div>
-        """, unsafe_allow_html=True)
-        st.info("Please access the Developer Console via ?mode=dev or use your assigned tenant link ?client=<slug>&view=admin.")
+        st.error("Error loading Sovereign Onboarding Gateway from sector_logic:")
+        st.exception(e)

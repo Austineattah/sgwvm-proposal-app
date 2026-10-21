@@ -423,3 +423,65 @@ def send_auto_sms(recipient_phone: str, vendor_name: str, tracking_code: str):
     except Exception as e:
         print(f"[Notifier] Failed to send SMS: {e}")
         return False
+def send_credentials_email(
+    recipient_email: str, recipient_name: str, username: str, plaintext_password: str, client_slug: str = ""
+):
+    """Sends account login credentials to a newly provisioned tenant via SMTP, with executive management CC copies."""
+    smtp_settings = get_smtp_settings()
+    if smtp_settings is None:
+        return False
+    sender_email = smtp_settings["SENDER_EMAIL"]
+    sender_password = smtp_settings["SENDER_PASSWORD"]
+
+    org_name, logo_data = get_org_branding()
+    msg = MIMEMultipart("related")
+    alternative = MIMEMultipart("alternative")
+    msg.attach(alternative)
+    
+    msg["Subject"] = f"Your {org_name} Sovereign Tenant Portal Access Credentials"
+    msg["From"] = f"{org_name} Master Portal <{sender_email}>"
+    msg["To"] = recipient_email
+
+    # Fetch hierarchical management executive emails for oversight CC
+    exec_emails = get_executive_emails()
+    recipients = [recipient_email]
+    if exec_emails:
+        msg["Cc"] = ", ".join(exec_emails)
+        recipients.extend(exec_emails)
+
+    tenant_url = f"https://sgwvm-proposal-app.streamlit.app/?client={client_slug}&view=admin" if client_slug else "https://sgwvm-proposal-app.streamlit.app"
+
+    html_content = f"""
+    <html>
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        {org_logo_html(logo_data)}
+        <h2>Welcome to the {escape(org_name)} Sovereign Portal</h2>
+        <p>Dear <b>{recipient_name}</b>,</p>
+        <p>Your client tenant workspace has been successfully provisioned and activated. Below are your secure login credentials and dedicated portal access link:</p>
+        <table style="background-color: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px solid #e9ecef; width: 100%;">
+          <tr><td style="padding: 6px;"><b>Dedicated Tenant URL:</b></td><td><a href="{tenant_url}" target="_blank">{tenant_url}</a></td></tr>
+          <tr><td style="padding: 6px;"><b>Username / Client ID:</b></td><td><code>{username}</code></td></tr>
+          <tr><td style="padding: 6px;"><b>Temporary Password:</b></td><td><code>{plaintext_password}</code></td></tr>
+        </table>
+        <p style="margin-top: 15px; color: #0284c7; font-size: 0.9em;">
+          <b>Audit Notice:</b> This automated dispatch has been securely mirrored to the executive management oversight registry.
+        </p>
+        <p style="margin-top: 5px; color: #d9534f; font-size: 0.9em;">
+          <b>Security Note:</b> Please log in and update your administrative password upon your initial session.
+        </p>
+      </body>
+    </html>
+    """
+
+    alternative.attach(MIMEText(html_content, "html"))
+
+    try:
+        with smtplib.SMTP(smtp_settings["SMTP_SERVER"], int(smtp_settings["SMTP_PORT"])) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, recipients, msg.as_string())
+        logging.info(f"Credential email successfully dispatched to {recipient_email} (CC: {exec_emails})")
+        return True
+    except Exception as e:
+        logging.exception("Failed to dispatch credential email via SMTP.")
+        return False
