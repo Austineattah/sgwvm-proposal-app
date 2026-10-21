@@ -172,3 +172,12 @@ def render_developer_master_console():
     if st.button("🔒 Logout Developer Admin Session"):
         st.session_state["dev_master_logged_in"] = False
         st.rerun()
+
+def render_developer_console():
+    if 'main' in globals() and callable(main):
+        main()
+    elif 'run' in globals() and callable(run):
+        run()
+    else:
+        # Execute module body directly if standalone
+        pass
