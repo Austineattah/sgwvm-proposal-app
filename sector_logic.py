@@ -255,11 +255,11 @@ PRODUCTION_BASE_URL = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.
                 }
                 try:
     import tenant_manager
-    tenant_manager.save_tenant(client_slug, client_record)
-except Exception as e:
-    print(f'Warning: Failed to save to tenant registry: {e}')
+                    tenant_manager.save_tenant(client_slug, client_record)
+                except Exception as e:
+                    print(f'Warning: Failed to save to tenant registry: {e}')
 
-db.register_client(client_record)
+                db.register_client(client_record)
 
                 st.session_state["current_client_id"] = client_id
                 st.session_state["entity_type"] = entity_type
