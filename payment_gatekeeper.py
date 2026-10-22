@@ -2,7 +2,7 @@
 import hashlib
 from typing import Dict, Any
 
-PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+PRODUCTION_BASE_URL = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
 
 class PaymentGatekeeper:
     """

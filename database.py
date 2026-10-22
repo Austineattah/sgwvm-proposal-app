@@ -3,7 +3,7 @@ import json
 import os
 from datetime import datetime, timedelta
 
-PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+PRODUCTION_BASE_URL = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
 
 DB_FILE = "nexusvault_sovereign.db"
 

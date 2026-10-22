@@ -19,7 +19,7 @@ class ComplaintDesk:
     ) -> Dict[str, Any]:
         from payment_gatekeeper import PaymentGatekeeper
 
-PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+PRODUCTION_BASE_URL = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
         
         result = PaymentGatekeeper.verify_payment_and_unlock(
             client_config=client_config,

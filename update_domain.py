@@ -2,12 +2,12 @@
 import re
 
 files = glob.glob('*.py')
-new_domain = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+new_domain = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
 old_domains = [
-    "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app",
-    "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app",
-    "NexuusVault-Proposal-Enterprise-Connect.streamlit.app",
-    "NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+    "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app",
+    "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app",
+    "NexusVault-Proposal-Enterprise-Connect.streamlit.app",
+    "NexusVault-Proposal-Enterprise-Connect.streamlit.app"
 ]
 
 updated_count = 0
@@ -24,7 +24,7 @@ for f in files:
     
     # Update PRODUCTION_BASE_URL constant if present
     if "PRODUCTION_BASE_URL" in content:
-        content = re.sub(r'PRODUCTION_BASE_URL\s*=\s*["\'][^"\']+["\']', f'PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"', content)
+        content = re.sub(r'PRODUCTION_BASE_URL\s*=\s*["\'][^"\']+["\']', f'PRODUCTION_BASE_URL = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"', content)
         changed = True
 
     if changed:

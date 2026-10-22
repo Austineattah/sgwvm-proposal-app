@@ -29,7 +29,7 @@ if st.session_state["portal_mode"] == "client_admin_portal":
     try:
         import admin_portal
 
-PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+PRODUCTION_BASE_URL = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
         admin_portal.render_admin_portal()
     except Exception as e:
         st.error(f"❌ Critical Error loading Client Admin Portal: {e}")

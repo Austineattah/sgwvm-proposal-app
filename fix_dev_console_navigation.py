@@ -1,7 +1,7 @@
 ﻿import sqlite3
 import os
 
-PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+PRODUCTION_BASE_URL = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
 
 db_path = "nexusvault.db"
 if not os.path.exists(db_path):

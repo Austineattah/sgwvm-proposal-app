@@ -1,7 +1,7 @@
 ﻿import sqlite3
 import os
 
-PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+PRODUCTION_BASE_URL = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
 
 db_files = [f for f in os.listdir(".") if f.endswith(".db")]
 print("Detected DB files:", db_files)

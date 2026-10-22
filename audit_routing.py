@@ -2,7 +2,7 @@
 import re
 
 files = glob.glob('*.py')
-target_domain = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+target_domain = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
 
 for f in files:
     with open(f, 'r', encoding='utf-8') as file:

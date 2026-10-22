@@ -1,6 +1,6 @@
 ﻿import os
 
-target_url = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+target_url = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
 
 # 1. Check/Patch developer_console.py for dynamic link generation
 if os.path.exists("developer_console.py"):

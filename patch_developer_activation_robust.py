@@ -13,7 +13,7 @@ for line in lines:
 {indent}        db.update_client_approval(client['client_id'], "True")
 {indent}        import notifier
 
-PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+PRODUCTION_BASE_URL = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
 {indent}        email_sent = notifier.send_credentials_email(
 {indent}            recipient_email=client.get('admin_email', ''),
 {indent}            recipient_name=client.get('corp_name', 'Client Admin'),

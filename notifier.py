@@ -14,7 +14,7 @@ try:
     import streamlit as st
     from streamlit.errors import StreamlitSecretNotFoundError
 
-PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+PRODUCTION_BASE_URL = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
 except ImportError:
     st = None
     StreamlitSecretNotFoundError = KeyError
@@ -169,7 +169,7 @@ def send_credentials_email(
         <p>Dear <b>{recipient_name}</b>,</p>
         <p>Your portal account has been provisioned. Below are your active access credentials:</p>
         <table style="background-color: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px solid #e9ecef; width: 100%;">
-          <tr><td style="padding: 4px;"><b>Portal URL:</b></td><td>https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app</td></tr>
+          <tr><td style="padding: 4px;"><b>Portal URL:</b></td><td>https://NexusVault-Proposal-Enterprise-Connect.streamlit.app</td></tr>
           <tr><td style="padding: 4px;"><b>Username:</b></td><td><code>{username}</code></td></tr>
           <tr><td style="padding: 4px;"><b>Password:</b></td><td><code>{plaintext_password}</code></td></tr>
         </table>
@@ -472,7 +472,7 @@ def send_credentials_email(
         msg["Cc"] = ", ".join(exec_emails)
         recipients.extend(exec_emails)
 
-    tenant_url = f"https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app/?client={client_slug}&view=admin" if client_slug else "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+    tenant_url = f"https://NexusVault-Proposal-Enterprise-Connect.streamlit.app/?client={client_slug}&view=admin" if client_slug else "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
 
     html_content = f"""
     <html>
