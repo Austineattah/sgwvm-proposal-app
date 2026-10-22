@@ -15,7 +15,7 @@ def render_sector_onboarding_wizard():
                         margin: 40px auto;
                         max-width: 800px;
                         box-shadow: 0 20px 25px -5px rgba(56, 189, 248, 0.3);">
-                <h2 style="color: #38bdf8; margin-bottom: 20px; font-family: monospace; font-size: 1.8rem;">??? SGWVM ENTERPRISE PORTAL</h2>
+                <h2 style="color: #38bdf8; margin-bottom: 20px; font-family: monospace; font-size: 1.8rem;">NEXUSVAULT AGENTIC AI ENTERPRISE PORTAL</h2>
                 <div style="background: rgba(56, 189, 248, 0.12); 
                             border: 2px dashed #38bdf8; 
                             padding: 25px; 
@@ -46,7 +46,7 @@ def render_sector_onboarding_wizard():
                         margin: 40px auto;
                         max-width: 800px;
                         box-shadow: 0 20px 25px -5px rgba(56, 189, 248, 0.3);">
-                <h2 style="color: #38bdf8; margin-bottom: 20px; font-family: monospace; font-size: 1.8rem;">??? SGWVM ENTERPRISE PORTAL</h2>
+                <h2 style="color: #38bdf8; margin-bottom: 20px; font-family: monospace; font-size: 1.8rem;">NEXUSVAULT AGENTIC AI ENTERPRISE PORTAL</h2>
                 <div style="background: rgba(56, 189, 248, 0.12); 
                             border: 2px dashed #38bdf8; 
                             padding: 25px; 
