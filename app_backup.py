@@ -53,6 +53,8 @@ st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
+PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+
         .stApp {
             background: radial-gradient(circle at 50% -20%, #0f2744 0%, #070d19 65%) !important;
             color: #f8fafc !important;

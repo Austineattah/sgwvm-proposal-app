@@ -13,6 +13,8 @@ from twilio.rest import Client
 try:
     import streamlit as st
     from streamlit.errors import StreamlitSecretNotFoundError
+
+PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
 except ImportError:
     st = None
     StreamlitSecretNotFoundError = KeyError

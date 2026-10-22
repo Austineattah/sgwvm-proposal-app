@@ -1,6 +1,8 @@
 ﻿import sqlite3
 import database as db
 
+PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+
 db.init_db()
 conn = db.get_connection()
 cursor = conn.cursor()

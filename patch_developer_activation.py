@@ -11,6 +11,8 @@ replacement_block = """                if st.button(f"?? Activate [{idx}]", key=
                         
                         # Trigger automated credential & tenant URL email dispatch with executive CC
                         import notifier
+
+PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
                         email_sent = notifier.send_credentials_email(
                             recipient_email=client.get('admin_email', ''),
                             recipient_name=client.get('corp_name', 'Client Admin'),

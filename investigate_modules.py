@@ -1,6 +1,8 @@
 ﻿import glob
 import re
 
+PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+
 print("="*70)
 print("🔍 INVESTIGATING TENANT ACTIVATION, URLS, AND VENDOR MODULES")
 print("="*70)

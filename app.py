@@ -65,6 +65,8 @@ else:
     # --- ROOT DEFAULT: FULL SECTOR ONBOARDING WIZARD ---
     try:
         from sector_logic import render_sector_onboarding_wizard
+
+PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
         render_sector_onboarding_wizard()
     except Exception as e:
         st.error("Error loading Sovereign Onboarding Gateway from sector_logic:")

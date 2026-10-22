@@ -9,6 +9,8 @@ import sqlite3
 import uuid
 import datetime
 
+PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+
 
 def render_solicited_phase1(client_slug, db_connection_path="database.db"):
     st.markdown(

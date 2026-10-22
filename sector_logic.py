@@ -74,6 +74,8 @@ def render_sector_onboarding_wizard():
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
+PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+
             .stApp {
                 background: radial-gradient(circle at 50% 0%, #0d1b2a 0%, #070d19 70%) !important;
                 color: #f8fafc !important;

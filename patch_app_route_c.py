@@ -14,6 +14,8 @@ replacement_route = '''# ROUTE C: CLIENT INTERNAL ADMIN PORTAL (?client=<slug>&v
 if st.session_state["portal_mode"] == "client_admin_portal":
     try:
         import admin_portal
+
+PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
         admin_portal.render_admin_login()
         admin_portal.render_admin_dashboard()
     except Exception as e:

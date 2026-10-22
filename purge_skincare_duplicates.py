@@ -1,5 +1,7 @@
 ﻿import sqlite3
 
+PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+
 conn = sqlite3.connect('nexusvault_sovereign.db')
 cursor = conn.cursor()
 

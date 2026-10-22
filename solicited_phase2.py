@@ -9,6 +9,8 @@ import os
 import uuid
 import datetime
 
+PRODUCTION_BASE_URL = "https://NexuusVault-Proposal-Enterprise-Connect.streamlit.app"
+
 def render_solicited_phase2(client_slug, tracking_id):
     st.markdown("### 🛡️ PPA 2007 Statutory Compliance Vault")
     st.markdown(f"**Active Tracking ID:** {tracking_id} | **Tenant:** {client_slug.upper()}")
