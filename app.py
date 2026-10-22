@@ -74,3 +74,26 @@ else:
     except Exception as e:
         st.error("Error loading Sovereign Onboarding Gateway from sector_logic:")
         st.exception(e)
+
+
+# ==============================================================================
+# NEXUSVAULT ENTERPRISE MULTI-TENANT ROUTER (3-TIER ARCHITECTURE)
+# ==============================================================================
+client_slug = st.query_params.get("client")
+view_type = st.query_params.get("view")
+
+if client_slug:
+    if view_type == "admin":
+        # TIER 2: CLIENT TENANT INTERNAL ADMIN CONSOLE (Password & RBAC Protected)
+        render_tenant_admin_console(client_slug)
+    else:
+        # TIER 3: EXPLICIT VENDOR PROPOSAL SUBMISSION PORTAL (Public Facing)
+        render_vendor_proposal_submission_portal(client_slug)
+
+elif view_type in ["onboarding", "developer", "master_admin"]:
+    # TIER 1: NEXUSVAULT MASTER DEVELOPER CONSOLE & ONBOARDING WIZARD
+    render_master_developer_console()
+
+else:
+    # GLOBAL FALLBACK GATEWAY
+    render_global_landing_gateway()
