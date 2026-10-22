@@ -76,6 +76,21 @@ else:
         st.exception(e)
 
 
+
+def render_global_landing_gateway():
+    st.markdown("## 🏛️ NexusVault Enterprise Proposal & Tenant Gateway")
+    st.info("You have reached the secure enterprise gateway. Please use your authorized Client Tenant URL or log in via the Developer Console.")
+    
+    with st.expander("🔑 Platform Developer Access"):
+        dev_pass = st.text_input("Enter Developer Passkey", type="password")
+        if st.button("Access Developer Console"):
+            if dev_pass == "NexusExec2026!":
+                st.query_params["view"] = "developer"
+                st.rerun()
+            else:
+                st.error("Invalid Developer Credentials.")
+
+
 # ==============================================================================
 # NEXUSVAULT ENTERPRISE MULTI-TENANT ROUTER (3-TIER ARCHITECTURE)
 # ==============================================================================
