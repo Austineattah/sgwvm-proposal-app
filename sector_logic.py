@@ -254,7 +254,7 @@ PRODUCTION_BASE_URL = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.
                     "is_approved": "False"
                 }
                 try:
-    import tenant_manager
+                    import tenant_manager
                     tenant_manager.save_tenant(client_slug, client_record)
                 except Exception as e:
                     print(f'Warning: Failed to save to tenant registry: {e}')
