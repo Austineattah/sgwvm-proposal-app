@@ -1,4 +1,6 @@
 ﻿import streamlit as st
+
+PRODUCTION_BASE_URL = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
 import sqlite3
 
 # Page Configuration
@@ -66,7 +68,6 @@ else:
     try:
         from sector_logic import render_sector_onboarding_wizard
 
-PRODUCTION_BASE_URL = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
 
         render_sector_onboarding_wizard()
     except Exception as e:
