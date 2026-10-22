@@ -78,8 +78,7 @@ else:
 
 
 def render_global_landing_gateway():
-    st.markdown("## 🏛️ NexusVault Enterprise Portal")
-    st.info("Please use your authorized Client Tenant URL.")
+    pass
 
 # ==============================================================================
 # NEXUSVAULT ENTERPRISE MULTI-TENANT ROUTER (3-TIER ARCHITECTURE)
