@@ -11,6 +11,7 @@ def init_db():
     conn = get_connection()
     cursor = conn.cursor()
     
+    # Create proposals table if not exists
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS proposals (
             client_slug TEXT PRIMARY KEY,
@@ -22,7 +23,7 @@ def init_db():
         )
     """)
     
-    # Ensure all required columns exist (auto-migration / self-healing schema)
+    # Self-healing schema check
     cursor.execute("PRAGMA table_info(proposals)")
     columns = [row[1] for row in cursor.fetchall()]
     if 'client_slug' not in columns:
@@ -38,6 +39,7 @@ def init_db():
             )
         """)
 
+    # Create audit logs and system settings tables
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,6 +55,15 @@ def init_db():
             value TEXT
         )
     """)
+    
+    # Auto-seed default active tenant if missing
+    cursor.execute("SELECT client_slug FROM proposals WHERE client_slug = ?", ('skincarenigltd_ad1aab57',))
+    if not cursor.fetchone():
+        cursor.execute("""
+            INSERT INTO proposals (client_slug, client_name, sector, status, proposal_data)
+            VALUES (?, ?, ?, ?, ?)
+        """, ('skincarenigltd_ad1aab57', 'SKINCARENIG LTD', 'Enterprise Commercial Node', 'Active', json.dumps({'email': 'austattah@gmail.com'})))
+
     conn.commit()
     conn.close()
 
