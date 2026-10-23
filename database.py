@@ -1,4 +1,4 @@
-﻿import sqlite3
+import sqlite3
 import json
 import os
 from datetime import datetime, timedelta
@@ -240,3 +240,8 @@ def purge_expired_pending_clients():
     return len(expired_clients)
 
 init_db()
+
+def get_connection():
+    """Fallback SQLite connection helper."""
+    import sqlite3
+    return sqlite3.connect("nexusvault.db", check_same_thread=False)
