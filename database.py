@@ -11,7 +11,7 @@ def init_db():
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Create proposals table if not exists
+    # 1. Primary Tenant Table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS proposals (
             client_slug TEXT PRIMARY KEY,
@@ -23,7 +23,7 @@ def init_db():
         )
     """)
     
-    # Self-healing schema check
+    # Self-healing check for proposals table
     cursor.execute("PRAGMA table_info(proposals)")
     columns = [row[1] for row in cursor.fetchall()]
     if 'client_slug' not in columns:
@@ -39,7 +39,7 @@ def init_db():
             )
         """)
 
-    # Create audit logs and system settings tables
+    # 2. Audit Logs Table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,10 +49,31 @@ def init_db():
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # 3. System Settings Table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS system_settings (
             key TEXT PRIMARY KEY,
             value TEXT
+        )
+    """)
+
+    # 4. Unsolicited Vendor Submissions Table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS vendor_submissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_slug TEXT,
+            org_name TEXT,
+            vendor_rep_name TEXT,
+            email TEXT,
+            phone TEXT,
+            cac_number TEXT,
+            tin_number TEXT,
+            document_ref TEXT,
+            assigned_directorate TEXT,
+            status TEXT DEFAULT 'PENDING_REVIEW',
+            acknowledgment_sent INTEGER DEFAULT 1,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     
@@ -82,6 +103,35 @@ def get_tenant_by_slug(slug):
             "proposal_data": json.loads(row[4]) if row[4] else {}
         }
     return None
+
+def save_vendor_submission(slug, org_name, rep_name, email, phone, cac, tin, doc_ref, directorate="UNASSIGNED"):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO vendor_submissions 
+        (client_slug, org_name, vendor_rep_name, email, phone, cac_number, tin_number, document_ref, assigned_directorate)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (slug, org_name, rep_name, email, phone, cac, tin, doc_ref, directorate))
+    submission_id = cursor.lastrowid
+    
+    # Log event into audit ledger
+    audit_data = json.dumps({"submission_id": submission_id, "org_name": org_name, "cac": cac, "tin": tin})
+    cursor.execute("INSERT INTO audit_logs (client_slug, action, details) VALUES (?, ?, ?)", (slug, "VENDOR_SUBMISSION_INTAKE", audit_data))
+    
+    conn.commit()
+    conn.close()
+    return submission_id
+
+def get_vendor_submissions(slug, directorate=None):
+    conn = get_connection()
+    cursor = conn.cursor()
+    if directorate:
+        cursor.execute("SELECT id, org_name, vendor_rep_name, email, phone, cac_number, tin_number, document_ref, assigned_directorate, status, timestamp FROM vendor_submissions WHERE client_slug = ? AND assigned_directorate = ? ORDER BY id DESC", (slug, directorate))
+    else:
+        cursor.execute("SELECT id, org_name, vendor_rep_name, email, phone, cac_number, tin_number, document_ref, assigned_directorate, status, timestamp FROM vendor_submissions WHERE client_slug = ? ORDER BY id DESC", (slug,))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
 
 def register_client(slug, name, sector, status, data):
     conn = get_connection()
@@ -120,3 +170,45 @@ def save_clearance_pass(slug, pass_info):
     cursor.execute("INSERT INTO audit_logs (client_slug, action, details) VALUES (?, ?, ?)", (slug, "CLEARANCE_PASS", json.dumps(pass_info)))
     conn.commit()
     conn.close()
+
+
+def get_audit_logs(slug=""):
+    """Retrieves audit logs for a given tenant slug."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id, tenant_slug, action, details, timestamp FROM audit_logs WHERE tenant_slug = ? ORDER BY id DESC", (slug,))
+        rows = cursor.fetchall()
+        return rows
+    except Exception as e:
+        # Fallback if table schema varies
+        try:
+            cursor.execute("SELECT id, tenant_slug, action, details, timestamp FROM audit_logs ORDER BY id DESC")
+            return cursor.fetchall()
+        except:
+            return []
+    finally:
+        conn.close()
+
+
+def log_audit_event(slug, action, details):
+    """Records an audit event for a given tenant slug."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        # Check table columns for audit_logs
+        cursor.execute("PRAGMA table_info(audit_logs);")
+        cols = [c[1] for c in cursor.fetchall()]
+        
+        if 'client_slug' in cols:
+            cursor.execute("INSERT INTO audit_logs (client_slug, action, details) VALUES (?, ?, ?)", (slug, action, details))
+        elif 'tenant_slug' in cols:
+            cursor.execute("INSERT INTO audit_logs (tenant_slug, action, details) VALUES (?, ?, ?)", (slug, action, details))
+        else:
+            cursor.execute("INSERT INTO audit_logs (action, details) VALUES (?, ?)", (action, details))
+            
+        conn.commit()
+    except Exception as e:
+        print(f"[ERROR] Failed to log audit event: {e}")
+    finally:
+        conn.close()

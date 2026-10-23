@@ -4,5 +4,18 @@
         "tier": "Enterprise Sovereign",
         "admin_email": "austattah@gmail.com",
         "status": "Active"
+    },
+    "goldenspiceltd_8fe5f007": {
+        "client_id": "8fe5f007",
+        "client_slug": "goldenspiceltd_8fe5f007",
+        "corp_name": "GOLDEN SPICE LTD",
+        "entity_type": "Private Limited Company / Enterprise (Commercial Sector)",
+        "corp_email": "austattah@gmail.com",
+        "corp_phone": "2347038163731",
+        "corp_address": "I Ibrahim Tabir street mabushi Fct Abuja",
+        "admin_email": "austattah@gmail.com",
+        "sub_package": "Enterprise Commercial Node",
+        "custom_title": "NEXUSVAULT TECHNOLOGIES \"SUPER INTELLIGENCE - AGENTIC AI PROPOSAL INTAKE PORTAL\"",
+        "is_approved": "False"
     }
 }
