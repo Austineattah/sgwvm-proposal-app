@@ -1,10 +1,9 @@
 import streamlit as st
+import sqlite3
+import os
 
 PRODUCTION_BASE_URL = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
 
-import sqlite3
-
-# Page Configuration
 st.set_page_config(
     page_title="NEXUSVAULT Sovereign Enterprise Portal",
     page_icon="🛡️",
@@ -12,7 +11,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom Styling
 st.markdown("""
     <style>
     .main { background-color: #070f1a; color: #f8fafc; }
@@ -21,28 +19,60 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Initialize Database safely
 try:
     import database as db
     db.init_db()
 except Exception as e:
     st.error(f"Database initialization error: {e}")
 
-# Read Query Parameters
-query_params = st.query_params
-mode = query_params.get("mode", "")
-client_slug = query_params.get("client", "")
-view_mode = query_params.get("view", "")
+from sector_logic import (
+    render_tenant_admin_console,
+    render_vendor_proposal_submission_portal,
+    render_master_developer_console,
+    render_sector_onboarding_wizard
+)
 
-# --- ROUTING DISPATCHER ---
+query_params = st.query_params
+client_slug = query_params.get("client", "")
+view_type = query_params.get("view", "")
+mode = query_params.get("mode", "")
+
+def diagnose_and_render_tenant(slug, is_admin=False):
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='proposals';")
+        if not cursor.fetchone():
+            st.error("🚨 **Diagnostic Alert:** The 'proposals' database table does not exist. Please run database migration.")
+            conn.close()
+            return
+            
+        cursor.execute("SELECT client_slug, client_name FROM proposals WHERE client_slug = ?", (slug,))
+        tenant = cursor.fetchone()
+        conn.close()
+        
+        if not tenant:
+            st.warning(f"⚠️ **Diagnostic Notice:** Tenant slug **'{slug}'** was not found in the active database directory.")
+            st.info("💡 **How to resolve:** Use the Master Developer Console or Onboarding Wizard to register this tenant slug before accessing its portal.")
+            if st.button("🚀 Launch Onboarding Wizard to Register Tenant"):
+                st.query_params.clear()
+                st.rerun()
+            return
+
+        if is_admin:
+            render_tenant_admin_console(slug)
+        else:
+            render_vendor_proposal_submission_portal(slug)
+            
+    except Exception as e:
+        st.error(f"🚨 **Diagnostic Runtime Error:** {e}")
+        st.exception(e)
 
 if mode == "dev":
     try:
         import developer_console
         if hasattr(developer_console, "render_developer_master_console"):
             developer_console.render_developer_master_console()
-        elif hasattr(developer_console, "render_developer_console"):
-            developer_console.render_developer_console()
         elif hasattr(developer_console, "main"):
             developer_console.main()
         else:
@@ -51,53 +81,22 @@ if mode == "dev":
         st.error("Error executing developer console module:")
         st.exception(e)
 
-elif client_slug and view_mode == "admin":
-    try:
-        import admin_portal
-        if hasattr(admin_portal, "render_admin_dashboard"):
-            admin_portal.render_admin_dashboard()
-        elif hasattr(admin_portal, "main"):
-            admin_portal.main()
-        else:
-            st.success(f"Tenant Admin Portal active for: {client_slug}")
-    except Exception as e:
-        st.error(f"Error loading tenant admin portal for {client_slug}:")
-        st.exception(e)
-
-else:
-    # --- ROOT DEFAULT: FULL SECTOR ONBOARDING WIZARD ---
-    try:
-        from sector_logic import render_sector_onboarding_wizard
-
-
-        render_sector_onboarding_wizard()
-    except Exception as e:
-        st.error("Error loading Sovereign Onboarding Gateway from sector_logic:")
-        st.exception(e)
-
-
-
-def render_global_landing_gateway():
-    pass
-
-# ==============================================================================
-# NEXUSVAULT ENTERPRISE MULTI-TENANT ROUTER (3-TIER ARCHITECTURE)
-# ==============================================================================
-client_slug = st.query_params.get("client")
-view_type = st.query_params.get("view")
-
-if client_slug:
+elif client_slug:
     if view_type == "admin":
-        # TIER 2: CLIENT TENANT INTERNAL ADMIN CONSOLE (Password & RBAC Protected)
-        render_tenant_admin_console(client_slug)
+        diagnose_and_render_tenant(client_slug, is_admin=True)
     else:
-        # TIER 3: EXPLICIT VENDOR PROPOSAL SUBMISSION PORTAL (Public Facing)
-        render_vendor_proposal_submission_portal(client_slug)
+        diagnose_and_render_tenant(client_slug, is_admin=False)
 
 elif view_type in ["onboarding", "developer", "master_admin"]:
-    # TIER 1: NEXUSVAULT MASTER DEVELOPER CONSOLE & ONBOARDING WIZARD
-    render_master_developer_console()
+    try:
+        render_master_developer_console()
+    except Exception as e:
+        st.error("Error loading master developer console:")
+        st.exception(e)
 
 else:
-    # GLOBAL FALLBACK GATEWAY
-    render_global_landing_gateway()
+    try:
+        render_sector_onboarding_wizard()
+    except Exception as e:
+        st.error("Error loading Sovereign Onboarding Gateway:")
+        st.exception(e)
