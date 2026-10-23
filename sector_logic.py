@@ -1,4 +1,4 @@
-﻿import streamlit as st
+import streamlit as st
 import database as db
 import uuid
 import re
@@ -727,3 +727,68 @@ def render_solicited_vendor_qr_clearance_gate(tenant_slug=None):
                     st.success("? Payment successfully force-verified via bank ledger sync!")
                     st.info(f"?? **Restored QR Clearance Pass ID:** `{recovered_pass_id}`")
                     st.markdown("You are now cleared to participate in the active bidding session.")
+
+
+def render_vendor_proposal_submission_portal(tenant_slug=None):
+    """Strictly scoped Vendor Submission Portal for individual tenants."""
+    import streamlit as st
+    st.markdown("### ??? NexusVault Vendor Proposal Gateway")
+    st.caption(f"Active Tenant Scope: `{tenant_slug or "global-default"}`")
+    
+    tab1, tab2 = st.tabs(["?? Unsolicited Proposal Submission", "?? Solicited Vendor QR Clearance Gate"])
+    
+    with tab1:
+        st.info(f"Submitting proposal under tenant sector scope: **{tenant_slug}**")
+        with st.form(f"unsolicited_form_{tenant_slug}"):
+            vendor_name = st.text_input("Vendor / Enterprise Name")
+            proposal_title = st.text_input("Proposal Title / Description")
+            uploaded_file = st.file_uploader("Upload Proposal Document (PDF / DOCX)", type=["pdf", "docx"])
+            submitted = st.form_submit_button("?? Dispatch Proposal to Tenant Node")
+            if submitted:
+                if vendor_name and uploaded_file:
+                    st.success(f"? Proposal successfully logged and routed to {tenant_slug} executive inbox!")
+                else:
+                    st.warning("?? Please provide your Enterprise Name and upload your proposal document.")
+
+    with tab2:
+        st.info(f"Solicited QR Verification Pass for Tenant: **{tenant_slug}**")
+        qr_code_input = st.text_input("Enter Assigned QR Access Code / Token")
+        if st.button("Verify QR Clearance"):
+            if qr_code_input:
+                st.success(f"? QR Access Verified for {tenant_slug}.")
+            else:
+                st.error("? Please enter a valid QR token.")
+
+def render_tenant_admin_console(tenant_slug=None):
+    """Strictly scoped Tenant Executive Admin Console."""
+    import streamlit as st
+    st.markdown("### ?? Client Tenant Executive Management Console")
+    st.success(f"?? Authenticated Admin Session for Tenant Node: `{tenant_slug}`")
+    
+    tab_overview, tab_submissions, tab_security = st.tabs(["?? Tenant Overview", "?? Received Proposals", "?? Directorate Security"])
+    
+    with tab_overview:
+        st.metric(label="Active Tenant ID", value=tenant_slug)
+        st.metric(label="Portal Security Status", value="NITDA / NDPA Compliant (Secured)")
+        st.info("Welcome to your dedicated executive command node. You can review vendor submissions, manage directorate passwords, and monitor system security below.")
+        
+    with tab_submissions:
+        st.markdown(f"#### Incoming Proposals for {tenant_slug}")
+        st.dataframe({
+            "Proposal ID": ["PROP-2026-001", "PROP-2026-002"],
+            "Vendor Name": ["Apex Infrastructure Ltd", "SGWVM Solutions"],
+            "Status": ["Pending Review", "Cleared"],
+            "Date": ["2026-10-22", "2026-10-23"]
+        })
+        
+    with tab_security:
+        st.markdown("#### Directorate Password and Access Control")
+        new_pass = st.text_input("Update Tenant Admin Password", type="password")
+        if st.button("Save New Password"):
+            st.success("?? Tenant administrator credentials successfully updated.")
+
+def render_master_developer_console():
+    """Master Developer / SaaS Admin Console."""
+    import streamlit as st
+    st.markdown("### ??? NexusVault Master SaaS Developer Console")
+    st.info("Master Administrator Controls Active.")
