@@ -1,214 +1,159 @@
 import sqlite3
-import os
 import json
+import os
+import datetime
 
-DB_PATH = "proposals.db"
+DB_FILE = "proposals.db"
 
 def get_connection():
-    return sqlite3.connect(DB_PATH)
+    return sqlite3.connect(DB_FILE, check_same_thread=False)
 
 def init_db():
     conn = get_connection()
     cursor = conn.cursor()
     
-    # 1. Primary Tenant Table
+    # Tenants / Clients table
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS proposals (
-            client_slug TEXT PRIMARY KEY,
-            client_name TEXT,
-            sector TEXT,
-            status TEXT,
+        CREATE TABLE IF NOT EXISTS clients (
+            slug TEXT PRIMARY KEY,
+            client_name TEXT NOT NULL,
+            sector TEXT NOT NULL,
+            status TEXT DEFAULT 'Active',
             proposal_data TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     
-    # Self-healing check for proposals table
-    cursor.execute("PRAGMA table_info(proposals)")
-    columns = [row[1] for row in cursor.fetchall()]
-    if 'client_slug' not in columns:
-        cursor.execute("DROP TABLE proposals")
-        cursor.execute("""
-            CREATE TABLE proposals (
-                client_slug TEXT PRIMARY KEY,
-                client_name TEXT,
-                sector TEXT,
-                status TEXT,
-                proposal_data TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-
-    # 2. Audit Logs Table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS audit_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            client_slug TEXT,
-            action TEXT,
-            details TEXT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    # 3. System Settings Table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS system_settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    """)
-
-    # 4. Unsolicited Vendor Submissions Table
+    # Vendor Submissions table with Auto-Increment Ref ID
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS vendor_submissions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            client_slug TEXT,
-            org_name TEXT,
-            vendor_rep_name TEXT,
-            email TEXT,
-            phone TEXT,
-            cac_number TEXT,
-            tin_number TEXT,
-            document_ref TEXT,
-            assigned_directorate TEXT,
-            status TEXT DEFAULT 'PENDING_REVIEW',
-            acknowledgment_sent INTEGER DEFAULT 1,
+            tenant_slug TEXT NOT NULL,
+            org_name TEXT NOT NULL,
+            rep_name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            cac_num TEXT NOT NULL,
+            tin_num TEXT NOT NULL,
+            doc_ref TEXT,
+            directorate TEXT NOT NULL,
+            status TEXT DEFAULT 'Under Review',
+            submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Audit Logs table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_slug TEXT NOT NULL,
+            action TEXT NOT NULL,
+            details TEXT NOT NULL,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     
-    # Auto-seed default active tenant if missing
-    cursor.execute("SELECT client_slug FROM proposals WHERE client_slug = ?", ('skincarenigltd_ad1aab57',))
-    if not cursor.fetchone():
-        cursor.execute("""
-            INSERT INTO proposals (client_slug, client_name, sector, status, proposal_data)
-            VALUES (?, ?, ?, ?, ?)
-        """, ('skincarenigltd_ad1aab57', 'SKINCARENIG LTD', 'Enterprise Commercial Node', 'Active', json.dumps({'email': 'austattah@gmail.com'})))
-
+    # Technical Evaluation Committee (TEC) Evaluations table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS committee_evaluations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_slug TEXT NOT NULL,
+            submission_id INTEGER NOT NULL,
+            evaluator_name TEXT NOT NULL,
+            evaluator_role TEXT NOT NULL,
+            technical_score REAL NOT NULL,
+            financial_score REAL NOT NULL,
+            verdict TEXT NOT NULL,
+            comments TEXT,
+            evaluated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Default Tenant Seeding
+    cursor.execute("SELECT COUNT(*) FROM clients WHERE slug='skincarenigltd_ad1aab57'")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute(
+            "INSERT INTO clients (slug, client_name, sector, status, proposal_data) VALUES (?, ?, ?, ?, ?)",
+            ("skincarenigltd_ad1aab57", "SKINCARENIG LTD", "Enterprise Commercial Node", "Active", json.dumps({"email": "info@skincarenig.com", "phone": "+234 800 123 4567"}))
+        )
+        
     conn.commit()
     conn.close()
 
 def get_tenant_by_slug(slug):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT client_slug, client_name, sector, status, proposal_data FROM proposals WHERE client_slug = ?", (slug,))
+    cursor.execute("SELECT slug, client_name, sector, status, proposal_data FROM clients WHERE slug=?", (slug,))
     row = cursor.fetchone()
     conn.close()
     if row:
-        return {
-            "client_slug": row[0],
-            "client_name": row[1],
-            "sector": row[2],
-            "status": row[3],
-            "proposal_data": json.loads(row[4]) if row[4] else {}
-        }
+        pdata = json.loads(row[4]) if row[4] else {}
+        return {"slug": row[0], "client_name": row[1], "sector": row[2], "status": row[3], "proposal_data": pdata}
     return None
 
-def save_vendor_submission(slug, org_name, rep_name, email, phone, cac, tin, doc_ref, directorate="UNASSIGNED"):
+def register_client(slug, name, sector, status="Active", data=None):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO vendor_submissions 
-        (client_slug, org_name, vendor_rep_name, email, phone, cac_number, tin_number, document_ref, assigned_directorate)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (slug, org_name, rep_name, email, phone, cac, tin, doc_ref, directorate))
-    submission_id = cursor.lastrowid
-    
-    # Log event into audit ledger
-    audit_data = json.dumps({"submission_id": submission_id, "org_name": org_name, "cac": cac, "tin": tin})
-    cursor.execute("INSERT INTO audit_logs (client_slug, action, details) VALUES (?, ?, ?)", (slug, "VENDOR_SUBMISSION_INTAKE", audit_data))
-    
+    pdata_json = json.dumps(data) if data else json.dumps({})
+    cursor.execute(
+        "INSERT OR REPLACE INTO clients (slug, client_name, sector, status, proposal_data) VALUES (?, ?, ?, ?, ?)",
+        (slug, name, sector, status, pdata_json)
+    )
     conn.commit()
     conn.close()
-    return submission_id
 
-def get_vendor_submissions(slug, directorate=None):
+def save_vendor_submission(slug, org_name, rep_name, email, phone, cac, tin, doc_ref, directorate):
     conn = get_connection()
     cursor = conn.cursor()
-    if directorate:
-        cursor.execute("SELECT id, org_name, vendor_rep_name, email, phone, cac_number, tin_number, document_ref, assigned_directorate, status, timestamp FROM vendor_submissions WHERE client_slug = ? AND assigned_directorate = ? ORDER BY id DESC", (slug, directorate))
-    else:
-        cursor.execute("SELECT id, org_name, vendor_rep_name, email, phone, cac_number, tin_number, document_ref, assigned_directorate, status, timestamp FROM vendor_submissions WHERE client_slug = ? ORDER BY id DESC", (slug,))
+    cursor.execute(
+        "INSERT INTO vendor_submissions (tenant_slug, org_name, rep_name, email, phone, cac_num, tin_num, doc_ref, directorate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (slug, org_name, rep_name, email, phone, cac, tin, doc_ref, directorate)
+    )
+    sub_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return sub_id
+
+def get_vendor_submissions(slug):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, tenant_slug, org_name, rep_name, email, phone, cac_num, tin_num, doc_ref, directorate, status, submitted_at FROM vendor_submissions WHERE tenant_slug=? ORDER BY id DESC", (slug,))
     rows = cursor.fetchall()
     conn.close()
     return rows
 
-def register_client(slug, name, sector, status, data):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO proposals (client_slug, client_name, sector, status, proposal_data) VALUES (?, ?, ?, ?, ?)", (slug, name, sector, status, json.dumps(data)))
-    conn.commit()
-    conn.close()
-
-def save_tenant(slug, data):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE proposals SET proposal_data = ? WHERE client_slug = ?", (json.dumps(data), slug))
-    conn.commit()
-    conn.close()
-
-def update_tenant(slug, name, sector, status, data):
-    register_client(slug, name, sector, status, data)
-
-def save_proposal(slug, proposal_info):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO audit_logs (client_slug, action, details) VALUES (?, ?, ?)", (slug, "SAVE_PROPOSAL", json.dumps(proposal_info)))
-    conn.commit()
-    conn.close()
-
-def save_transaction(slug, tx_info):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO audit_logs (client_slug, action, details) VALUES (?, ?, ?)", (slug, "TRANSACTION", json.dumps(tx_info)))
-    conn.commit()
-    conn.close()
-
-def save_clearance_pass(slug, pass_info):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO audit_logs (client_slug, action, details) VALUES (?, ?, ?)", (slug, "CLEARANCE_PASS", json.dumps(pass_info)))
-    conn.commit()
-    conn.close()
-
-
-def get_audit_logs(slug=""):
-    """Retrieves audit logs for a given tenant slug."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT id, tenant_slug, action, details, timestamp FROM audit_logs WHERE tenant_slug = ? ORDER BY id DESC", (slug,))
-        rows = cursor.fetchall()
-        return rows
-    except Exception as e:
-        # Fallback if table schema varies
-        try:
-            cursor.execute("SELECT id, tenant_slug, action, details, timestamp FROM audit_logs ORDER BY id DESC")
-            return cursor.fetchall()
-        except:
-            return []
-    finally:
-        conn.close()
-
-
 def log_audit_event(slug, action, details):
-    """Records an audit event for a given tenant slug."""
     conn = get_connection()
     cursor = conn.cursor()
-    try:
-        # Check table columns for audit_logs
-        cursor.execute("PRAGMA table_info(audit_logs);")
-        cols = [c[1] for c in cursor.fetchall()]
-        
-        if 'client_slug' in cols:
-            cursor.execute("INSERT INTO audit_logs (client_slug, action, details) VALUES (?, ?, ?)", (slug, action, details))
-        elif 'tenant_slug' in cols:
-            cursor.execute("INSERT INTO audit_logs (tenant_slug, action, details) VALUES (?, ?, ?)", (slug, action, details))
-        else:
-            cursor.execute("INSERT INTO audit_logs (action, details) VALUES (?, ?)", (action, details))
-            
-        conn.commit()
-    except Exception as e:
-        print(f"[ERROR] Failed to log audit event: {e}")
-    finally:
-        conn.close()
+    cursor.execute("INSERT INTO audit_logs (tenant_slug, action, details) VALUES (?, ?, ?)", (slug, action, details))
+    conn.commit()
+    conn.close()
+
+def get_audit_logs(slug):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, tenant_slug, action, details, timestamp FROM audit_logs WHERE tenant_slug=? ORDER BY id DESC", (slug,))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def save_committee_evaluation(slug, submission_id, evaluator_name, evaluator_role, tech_score, fin_score, verdict, comments):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO committee_evaluations (tenant_slug, submission_id, evaluator_name, evaluator_role, technical_score, financial_score, verdict, comments) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (slug, submission_id, evaluator_name, evaluator_role, tech_score, fin_score, verdict, comments)
+    )
+    conn.commit()
+    conn.close()
+
+def get_committee_evaluations(slug, submission_id=None):
+    conn = get_connection()
+    cursor = conn.cursor()
+    if submission_id:
+        cursor.execute("SELECT id, submission_id, evaluator_name, evaluator_role, technical_score, financial_score, verdict, comments, evaluated_at FROM committee_evaluations WHERE tenant_slug=? AND submission_id=? ORDER BY id DESC", (slug, submission_id))
+    else:
+        cursor.execute("SELECT id, submission_id, evaluator_name, evaluator_role, technical_score, financial_score, verdict, comments, evaluated_at FROM committee_evaluations WHERE tenant_slug=? ORDER BY id DESC", (slug,))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
