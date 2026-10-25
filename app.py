@@ -85,15 +85,12 @@ elif _slug and (_portal in ["tenant", "client"] or _vtype == "admin"):
             st.error(f"Error loading tenant admin portal for {_slug}:")
             st.exception(inner_e)
 
-elif _slug and (_portal in ["vendor", "vendor_portal"] or _vtype in ["unsolicited", "solicited"]):
+elif _slug and (_portal in ["vendor", "vendor_portal"] or _vtype in ["unsolicited", "solicited", "vendor"]):
     try:
-        from sector_logic import render_unsolicited_vendor_portal, render_solicited_vendor_qr_clearance_gate
-        if _vtype == "solicited":
-            render_solicited_vendor_qr_clearance_gate(tenant_slug=_slug)
-        else:
-            render_unsolicited_vendor_portal(tenant_slug=_slug)
+        from sector_logic import render_unified_vendor_portal
+        render_unified_vendor_portal(tenant_slug=_slug, default_tab=_vtype)
     except Exception as e:
-        st.error(f"Error loading vendor portal for {_slug}:")
+        st.error(f"Error loading unified vendor portal for {_slug}:")
         st.exception(e)
 
 else:

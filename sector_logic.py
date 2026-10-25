@@ -727,3 +727,34 @@ def render_solicited_vendor_qr_clearance_gate(tenant_slug=None):
                     st.success("? Payment successfully force-verified via bank ledger sync!")
                     st.info(f"?? **Restored QR Clearance Pass ID:** `{recovered_pass_id}`")
                     st.markdown("You are now cleared to participate in the active bidding session.")
+
+
+def render_unified_vendor_portal(tenant_slug=None, default_tab="solicited"):
+    """
+    Unified Vendor Gateway: Displays both Solicited RFP Track (Phased Roadmap)
+    and Unsolicited Innovation Pitch Track under a single client tenant slug.
+    """
+    import streamlit as st
+    
+    st.markdown("## 🏛️ Vendor Submission & Procurement Gateway")
+    
+    tab_solicited, tab_unsolicited = st.tabs([
+        "📜 Solicited RFP Submission (Phased Roadmap)",
+        "💡 Unsolicited Proposal Submission"
+    ])
+    
+    with tab_solicited:
+        st.info("### Solicited RFP Pathway: Phased Verification & Milestone Submission")
+        try:
+            render_solicited_vendor_qr_clearance_gate(tenant_slug=tenant_slug)
+        except Exception as e:
+            st.warning("Solicited pathway rendering fallback active.")
+            st.exception(e)
+            
+    with tab_unsolicited:
+        st.info("### Unsolicited Pathway: Direct Innovation Pitch Portal")
+        try:
+            render_unsolicited_vendor_portal(tenant_slug=tenant_slug)
+        except Exception as e:
+            st.warning("Unsolicited pathway rendering fallback active.")
+            st.exception(e)
