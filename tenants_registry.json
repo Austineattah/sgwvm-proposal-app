@@ -4,5 +4,18 @@
         "tier": "Enterprise Sovereign",
         "admin_email": "austattah@gmail.com",
         "status": "Active"
+    },
+    "sgwvm_fce1b18e": {
+        "client_id": "fce1b18e",
+        "client_slug": "sgwvm_fce1b18e",
+        "corp_name": "sgwvm",
+        "entity_type": "Private Limited Company / Enterprise (Commercial Sector)",
+        "corp_email": "austattah@gmail.com, hewasonly4elvisattah@gmail.com",
+        "corp_phone": "+2348144189987",
+        "corp_address": "GBAGALAPHE, NYANYA Abuja",
+        "admin_email": "austattah@gmail.com",
+        "sub_package": "Enterprise Commercial Node",
+        "custom_title": "NEXUSVAULT TECHNOLOGIES \"SUPER INTELLIGENCE - AGENTIC AI PROPOSAL INTAKE PORTAL\"",
+        "is_approved": "False"
     }
 }

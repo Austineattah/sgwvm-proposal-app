@@ -28,15 +28,32 @@ try:
 except Exception as e:
     st.error(f"Database initialization error: {e}")
 
-# Read Query Parameters
+# Read Query Parameters (Supports unified & legacy parameters)
 query_params = st.query_params
-mode = query_params.get("mode", "")
-client_slug = query_params.get("client", "")
-view_mode = query_params.get("view", "")
+_portal = query_params.get("portal") or query_params.get("mode", "")
+_slug = query_params.get("slug") or query_params.get("client", "")
+_vtype = query_params.get("type") or query_params.get("view", "unsolicited")
 
-# --- ROUTING DISPATCHER ---
+# Set session state defaults from URL parameters if present
+if _portal and _slug:
+    st.session_state["active_tenant_slug"] = _slug
+    if _portal in ["tenant", "client"]:
+        st.session_state["portal_mode"] = "tenant_login"
+    elif _portal in ["vendor", "vendor_portal"]:
+        st.session_state["portal_mode"] = "vendor_portal"
+        st.session_state["vendor_intake_type"] = _vtype
 
-if mode == "dev":
+mode = _portal
+client_slug = _slug
+view_mode = _vtype
+
+# --- ROUTING DISPATCHER (UNIFIED ENTERPRISE ROUTER) ---
+query_params = st.query_params
+_portal = query_params.get("portal") or query_params.get("mode", "")
+_slug = query_params.get("slug") or query_params.get("client", "")
+_vtype = query_params.get("type") or query_params.get("view", "unsolicited")
+
+if _portal == "dev" or _vtype in ["developer", "master_admin"]:
     try:
         import developer_console
         if hasattr(developer_console, "render_developer_master_console"):
@@ -51,7 +68,7 @@ if mode == "dev":
         st.error("Error executing developer console module:")
         st.exception(e)
 
-elif client_slug and view_mode == "admin":
+elif _slug and (_portal in ["tenant", "client"] or _vtype == "admin"):
     try:
         import admin_portal
         if hasattr(admin_portal, "render_admin_dashboard"):
@@ -59,45 +76,31 @@ elif client_slug and view_mode == "admin":
         elif hasattr(admin_portal, "main"):
             admin_portal.main()
         else:
-            st.success(f"Tenant Admin Portal active for: {client_slug}")
+            render_tenant_admin_console(_slug)
     except Exception as e:
-        st.error(f"Error loading tenant admin portal for {client_slug}:")
+        # Fallback render if module not standalone
+        try:
+            render_tenant_admin_console(_slug)
+        except Exception as inner_e:
+            st.error(f"Error loading tenant admin portal for {_slug}:")
+            st.exception(inner_e)
+
+elif _slug and (_portal in ["vendor", "vendor_portal"] or _vtype in ["unsolicited", "solicited"]):
+    try:
+        from sector_logic import render_unsolicited_vendor_portal, render_solicited_vendor_qr_clearance_gate
+        if _vtype == "solicited":
+            render_solicited_vendor_qr_clearance_gate(tenant_slug=_slug)
+        else:
+            render_unsolicited_vendor_portal(tenant_slug=_slug)
+    except Exception as e:
+        st.error(f"Error loading vendor portal for {_slug}:")
         st.exception(e)
 
 else:
     # --- ROOT DEFAULT: FULL SECTOR ONBOARDING WIZARD ---
     try:
         from sector_logic import render_sector_onboarding_wizard
-
-
         render_sector_onboarding_wizard()
     except Exception as e:
         st.error("Error loading Sovereign Onboarding Gateway from sector_logic:")
         st.exception(e)
-
-
-
-def render_global_landing_gateway():
-    pass
-
-# ==============================================================================
-# NEXUSVAULT ENTERPRISE MULTI-TENANT ROUTER (3-TIER ARCHITECTURE)
-# ==============================================================================
-client_slug = st.query_params.get("client")
-view_type = st.query_params.get("view")
-
-if client_slug:
-    if view_type == "admin":
-        # TIER 2: CLIENT TENANT INTERNAL ADMIN CONSOLE (Password & RBAC Protected)
-        render_tenant_admin_console(client_slug)
-    else:
-        # TIER 3: EXPLICIT VENDOR PROPOSAL SUBMISSION PORTAL (Public Facing)
-        render_vendor_proposal_submission_portal(client_slug)
-
-elif view_type in ["onboarding", "developer", "master_admin"]:
-    # TIER 1: NEXUSVAULT MASTER DEVELOPER CONSOLE & ONBOARDING WIZARD
-    render_master_developer_console()
-
-else:
-    # GLOBAL FALLBACK GATEWAY
-    render_global_landing_gateway()
