@@ -240,3 +240,9 @@ def purge_expired_pending_clients():
     return len(expired_clients)
 
 init_db()
+
+def get_connection():
+    import sqlite3
+    import os
+    db_path = "nexus_database.db"
+    return sqlite3.connect(db_path)
