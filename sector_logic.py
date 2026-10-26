@@ -736,7 +736,15 @@ def render_unified_vendor_portal(tenant_slug=None, default_tab="solicited"):
     """
     import streamlit as st
     
-    st.markdown("## 🏛️ Vendor Submission & Procurement Gateway")
+    
+    import database as db
+    client_data = db.get_client(tenant_slug) if tenant_slug else None
+    client_display_name = client_data.get("company_name") or client_data.get("client_name") or "Enterprise Sovereign Portal" if client_data else "NexusVault Sovereign Portal"
+    
+    st.markdown(f"## 🏛️ Vendor Portal — **{client_display_name.upper()}**")
+    if tenant_slug:
+        st.caption(f"Active Secured Tenant Namespace: `{tenant_slug}`")
+
     
     tab_solicited, tab_unsolicited = st.tabs([
         "📜 Solicited RFP Submission (Phased Roadmap)",
