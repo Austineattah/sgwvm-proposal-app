@@ -686,11 +686,11 @@ def render_solicited_vendor_qr_clearance_gate(tenant_slug=None):
             
             if submit_bid:
                 if not (rfq_code and vendor_name and contact_email and payment_ref and proposal_title):
-                    st.error("?? All required fields marked with * must be completed.")
-                      elif len(payment_ref.strip()) < 6:
-                          st.error("⛔ Invalid Payment Reference: Minimum 6-character bank transaction/teller ID required.")
-                      elif not bid_dossier:
-                          st.error("⛔ Payment-First Gate Locked: You must attach the Sealed Bid Dossier (Encrypted PDF) upon payment verification.")
+                    st.error("⚠️ All required fields marked with * must be completed.")
+                elif len(payment_ref.strip()) < 6:
+                    st.error("⛔ Invalid Payment Reference: Minimum 6-character bank transaction/teller ID required.")
+                elif not bid_dossier:
+                    st.error("⛔ Payment-First Gate Locked: You must attach the Sealed Bid Dossier (Encrypted PDF) upon payment verification.")
                 else:
                     # Generate cryptographic QR / Access Clearance Token
                     qr_pass_id = f"SGWVM-QRPASS-{uuid.uuid4().hex[:8].upper()}"
