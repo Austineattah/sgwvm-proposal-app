@@ -37,7 +37,7 @@ _vtype = query_params.get("type") or query_params.get("view", "unsolicited")
 # Set session state defaults from URL parameters if present
 if _portal and _slug:
     st.session_state["active_tenant_slug"] = _slug
-    if _portal in ["tenant", "client"]:
+    if _portal in ["tenant", "client", "admin"]:
         st.session_state["portal_mode"] = "tenant_login"
     elif _portal in ["vendor", "vendor_portal"]:
         st.session_state["portal_mode"] = "vendor_portal"
@@ -68,7 +68,7 @@ if _portal == "dev" or _vtype in ["developer", "master_admin"]:
         st.error("Error executing developer console module:")
         st.exception(e)
 
-elif _slug and (_portal in ["tenant", "client"] or _vtype == "admin"):
+elif _slug and (_portal in ["tenant", "client", "admin"] or _vtype == "admin"):
     try:
         import admin_portal
         if hasattr(admin_portal, "render_admin_dashboard"):
