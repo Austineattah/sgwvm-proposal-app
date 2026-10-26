@@ -36,7 +36,14 @@ _vtype = query_params.get("type") or query_params.get("view", "unsolicited")
 
 # Set session state defaults from URL parameters if present
 if _portal and _slug:
-    st.session_state["active_tenant_slug"] = _slug
+    valid_tenant = db.get_tenant_by_slug(_slug) if hasattr(db, "get_tenant_by_slug") else None
+    if valid_tenant or _slug in ["sgwvm_nexus_01", "national_assembly_ng", "faithacademy_7a184bb5"]:
+        st.session_state["active_tenant_slug"] = _slug
+    else:
+        st.session_state["active_tenant_slug"] = "sgwvm_nexus_01"
+        if hasattr(db, "log_audit_action"):
+            db.log_audit_action("SYSTEM_SECURITY", f"Blocked unauthorized or invalid tenant slug injection: {_slug}")
+            
     if _portal in ["tenant", "client", "admin"]:
         st.session_state["portal_mode"] = "tenant_login"
     elif _portal in ["vendor", "vendor_portal"]:
