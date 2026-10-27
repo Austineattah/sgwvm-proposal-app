@@ -123,6 +123,8 @@ def render_developer_master_console():
                         </span>
                     </div>
                     <p style="color: #94a3b8; font-size: 13px; margin: 6px 0;"><b>Slug Reference:</b> <code>{client['client_slug']}</code> | <b>Tier:</b> {client['sub_package']}</p>
+                    <p style="color: #38bdf8; font-size: 12px; margin: 4px 0;">🌐 <b>Client Tenant Link:</b> <a href="https://nexusvault-proposal-enterprise-connect.streamlit.app/?tenant={client['client_slug']}" target="_blank">https://nexusvault-proposal-enterprise-connect.streamlit.app/?tenant={client['client_slug']}</a></p>
+                    <p style="color: #38bdf8; font-size: 12px; margin: 4px 0;">📄 <b>Vendor Portal Link:</b> <a href="https://nexusvault-proposal-enterprise-connect.streamlit.app/?portal=vendor&tenant={client['client_slug']}" target="_blank">https://nexusvault-proposal-enterprise-connect.streamlit.app/?portal=vendor&tenant={client['client_slug']}</a></p>
                     <p style="color: #cbd5e1; font-size: 13px; margin: 2px 0;"><b>Admin Email:</b> {client['admin_email']} | <b>Pass:</b> <code>{client.get('client_admin_pass', 'NexusExec2026!')}</code></p>
                 </div>
             """, unsafe_allow_html=True)
