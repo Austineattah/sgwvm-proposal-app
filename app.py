@@ -5,86 +5,45 @@ import proposal_evaluation
 import admin_portal
 import document_processing
 import security_guard
+import database as db
 
-# --- NEXUSVAULT SOVEREIGN SESSION & TENANT & PORTAL SCOPE ---
-if "active_tenant_slug" not in st.session_state:
+# --- SINGLE SOURCE OF TRUTH: STICKY ROUTING & TENANT RESOLVER ---
+db.init_db()
+
+qp = st.query_params
+url_slug = qp.get("tenant") or qp.get("slug") or qp.get("client") or qp.get("t")
+url_portal = qp.get("portal") or qp.get("mode")
+url_vtype = qp.get("type") or qp.get("view", "unsolicited")
+
+# 1. Resolve & lock Tenant Slug into session state (sticky)
+if url_slug:
+    clean_slug = str(url_slug).strip().lower()
+    valid_tenant = db.get_tenant_by_slug(clean_slug) if hasattr(db, "get_tenant_by_slug") else None
+    if valid_tenant or clean_slug in ["nexusvault_hq", "sgwvm_nexus_01", "national_assembly_ng", "faithacademy_7a184bb5"]:
+        st.session_state["active_tenant_slug"] = clean_slug
+    else:
+        if "active_tenant_slug" not in st.session_state:
+            st.session_state["active_tenant_slug"] = "nexusvault_hq"
+elif "active_tenant_slug" not in st.session_state:
     st.session_state["active_tenant_slug"] = "nexusvault_hq"
 
-if "active_portal" not in st.session_state:
-    st.session_state["active_portal"] = "client"
+# 2. Resolve & lock Portal Mode into session state (sticky)
+if url_portal:
+    clean_portal = str(url_portal).strip().lower()
+    if clean_portal in ["vendor", "vendor_portal"]:
+        st.session_state["portal_mode"] = "vendor_portal"
+        st.session_state["vendor_intake_type"] = url_vtype
+    elif clean_portal in ["tenant", "client", "admin"]:
+        st.session_state["portal_mode"] = "tenant_login"
+elif "portal_mode" not in st.session_state:
+    st.session_state["portal_mode"] = "tenant_login"
 
-_query_slug = (
-    st.query_params.get("tenant") or 
-    st.query_params.get("slug") or 
-    st.query_params.get("client") or 
-    st.query_params.get("t", "")
-)
+# Expose clean variables for the rest of the app
+client_slug = st.session_state["active_tenant_slug"]
+mode = st.session_state["portal_mode"]
+view_mode = st.session_state.get("vendor_intake_type", "unsolicited")
+# -----------------------------------------------------------------
 
-_query_portal = st.query_params.get("portal", "").lower()
-if _query_portal:
-    st.session_state["active_portal"] = _query_portal
-
-if _query_slug:
-    try:
-        import database as db
-        is_valid = (_query_slug == "nexusvault_hq") or (hasattr(db, "get_tenant_by_slug") and db.get_tenant_by_slug(_query_slug))
-    except Exception:
-        is_valid = (_query_slug == "nexusvault_hq")
-
-    if is_valid:
-        st.session_state["active_tenant_slug"] = _query_slug
-    else:
-        st.session_state["active_tenant_slug"] = "nexusvault_hq"
-        st.query_params.pop("tenant", None)
-        st.query_params.pop("slug", None)
-        st.query_params.pop("client", None)
-        st.query_params.pop("t", None)
-        st.query_params.pop("portal", None)
-        try:
-            import database as db
-            if hasattr(db, "log_audit_action"):
-                db.log_audit_action("SYSTEM_SECURITY", f"Neutralized unauthorized tenant injection attempt: {_query_slug}")
-        except Exception:
-            pass
-# -------------------------------------------------------------------------
-try:
-    import kyb_verifier
-    import ai_extractor
-    import proposal_evaluation
-    import admin_portal
-    import document_processing
-    import security_guard
-    MODULES_LOADED = True
-except ImportError as e:
-    MODULES_LOADED = False
-    print(f"[WARNING] Micro-engine import variance: {e}")
-    MODULES_LOADED = False
-    print(f"[WARNING] Micro-engine import variance: {e}")
-# ---------------------
-
-# --- NEXUSVAULT SOVEREIGN SESSION & TENANT SCOPE ---
-if "active_tenant_slug" not in st.session_state:
-    st.session_state["active_tenant_slug"] = "nexusvault_hq"
-
-# Query parameter slug interception with strict database fallback
-_query_slug = st.query_params.get("slug") or st.query_params.get("client", "")
-if _query_slug:
-    if _query_slug == "nexusvault_hq" or (hasattr(db, "get_tenant_by_slug") and db.get_tenant_by_slug(_query_slug)):
-        st.session_state["active_tenant_slug"] = _query_slug
-    else:
-        st.session_state["active_tenant_slug"] = "nexusvault_hq"
-        st.query_params.pop("slug", None)
-        st.query_params.pop("client", None)
-        if hasattr(db, "log_audit_action"):
-            db.log_audit_action("SYSTEM_SECURITY", f"Neutralized unauthorized tenant injection attempt: {_query_slug}")
-# --------------------------------------------------
-
-
-PRODUCTION_BASE_URL = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
-
-import sqlite3
-
-# Page Configuration
 st.set_page_config(
     page_title="NEXUSVAULT Sovereign Enterprise Portal",
     page_icon="🛡️",
