@@ -27,7 +27,10 @@ if url_slug:
 elif "active_tenant_slug" not in st.session_state:
     st.session_state["active_tenant_slug"] = "nexusvault_hq"
 
-# 2. Resolve & lock Portal Mode into session state (sticky)
+# 2. Resolve & lock Portal Mode into session state (sticky with safe default)
+if "portal_mode" not in st.session_state:
+    st.session_state["portal_mode"] = "tenant_login"
+
 if url_portal:
     clean_portal = str(url_portal).strip().lower()
     if clean_portal in ["vendor", "vendor_portal"]:
@@ -35,12 +38,10 @@ if url_portal:
         st.session_state["vendor_intake_type"] = url_vtype
     elif clean_portal in ["tenant", "client", "admin"]:
         st.session_state["portal_mode"] = "tenant_login"
-elif "portal_mode" not in st.session_state:
-    st.session_state["portal_mode"] = "tenant_login"
 
-# Expose clean variables for the rest of the app
-client_slug = st.session_state["active_tenant_slug"]
-mode = st.session_state["portal_mode"]
+# Expose clean variables safely using .get()
+client_slug = st.session_state.get("active_tenant_slug", "nexusvault_hq")
+mode = st.session_state.get("portal_mode", "tenant_login")
 view_mode = st.session_state.get("vendor_intake_type", "unsolicited")
 # -----------------------------------------------------------------
 
