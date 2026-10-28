@@ -6,32 +6,49 @@ import admin_portal
 import document_processing
 import security_guard
 
-# --- NEXUSVAULT SOVEREIGN SESSION & TENANT SCOPE ---
+# --- NEXUSVAULT SOVEREIGN SESSION & TENANT & PORTAL SCOPE ---
 if "active_tenant_slug" not in st.session_state:
     st.session_state["active_tenant_slug"] = "nexusvault_hq"
 
-_query_slug = st.query_params.get("slug") or st.query_params.get("client", "")
+if "active_portal" not in st.session_state:
+    st.session_state["active_portal"] = "client"
+
+_query_slug = (
+    st.query_params.get("tenant") or 
+    st.query_params.get("slug") or 
+    st.query_params.get("client") or 
+    st.query_params.get("t", "")
+)
+
+_query_portal = st.query_params.get("portal", "").lower()
+if _query_portal:
+    st.session_state["active_portal"] = _query_portal
+
 if _query_slug:
-    if _query_slug == "nexusvault_hq" or (hasattr(db, "get_tenant_by_slug") and db.get_tenant_by_slug(_query_slug)):
+    try:
+        import database as db
+        is_valid = (_query_slug == "nexusvault_hq") or (hasattr(db, "get_tenant_by_slug") and db.get_tenant_by_slug(_query_slug))
+    except Exception:
+        is_valid = (_query_slug == "nexusvault_hq")
+
+    if is_valid:
         st.session_state["active_tenant_slug"] = _query_slug
     else:
         st.session_state["active_tenant_slug"] = "nexusvault_hq"
+        st.query_params.pop("tenant", None)
         st.query_params.pop("slug", None)
         st.query_params.pop("client", None)
-        if hasattr(db, "log_audit_action"):
-            db.log_audit_action("SYSTEM_SECURITY", f"Neutralized unauthorized tenant injection attempt: {_query_slug}")
-# --------------------------------------------------
+        st.query_params.pop("t", None)
+        st.query_params.pop("portal", None)
+        try:
+            import database as db
+            if hasattr(db, "log_audit_action"):
+                db.log_audit_action("SYSTEM_SECURITY", f"Neutralized unauthorized tenant injection attempt: {_query_slug}")
+        except Exception:
+            pass
+# -------------------------------------------------------------------------
+import security_guard
 
-import streamlit as st
-
-# --- NEXUSVAULT CORE MICRO-ENGINE IMPORTS ---
-try:
-    import kyb_verifier
-    import ai_extractor
-    import proposal_evaluation
-    import admin_portal
-    import document_processing
-    import security_guard
     MODULES_LOADED = True
 except ImportError as e:
     MODULES_LOADED = False
