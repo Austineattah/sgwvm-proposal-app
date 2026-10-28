@@ -96,9 +96,10 @@ view_mode = _vtype
 
 # --- ROUTING DISPATCHER (UNIFIED ENTERPRISE ROUTER) ---
 query_params = st.query_params
-_portal = query_params.get("portal") or query_params.get("mode", "")
-_slug = query_params.get("slug") or query_params.get("client", "")
-_vtype = query_params.get("type") or query_params.get("view", "unsolicited")
+_portal = str(query_params.get("portal") or query_params.get("mode", "")).strip().lower()
+# FIX: Capture 'tenant' parameter correctly from URLs
+_slug = str(query_params.get("tenant") or query_params.get("slug") or query_params.get("client") or query_params.get("t", "nexusvault_hq")).strip().lower()
+_vtype = str(query_params.get("type") or query_params.get("view", "unsolicited")).strip().lower()
 
 if _portal == "dev" or _vtype in ["developer", "master_admin"]:
     try:
