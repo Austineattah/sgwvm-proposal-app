@@ -116,7 +116,17 @@ if _portal == "dev" or _vtype in ["developer", "master_admin"]:
         st.error("Error executing developer console module:")
         st.exception(e)
 
-elif _slug and (_portal in ["tenant", "client", "admin"] or _vtype == "admin"):
+# FIX: Vendor portal ONLY triggers if explicitly requested via portal=vendor
+elif _slug and _portal in ["vendor", "vendor_portal"]:
+    try:
+        from sector_logic import render_unified_vendor_portal
+        render_unified_vendor_portal(tenant_slug=_slug, default_tab=_vtype if _vtype in ["unsolicited", "solicited"] else "unsolicited")
+    except Exception as e:
+        st.error(f"Error loading unified vendor portal for {_slug}:")
+        st.exception(e)
+
+elif _slug:
+    # Default tenant route for ?tenant=slug or explicit tenant admin portal
     try:
         import admin_portal
         if hasattr(admin_portal, "render_admin_dashboard"):
@@ -126,20 +136,11 @@ elif _slug and (_portal in ["tenant", "client", "admin"] or _vtype == "admin"):
         else:
             render_tenant_admin_console(_slug)
     except Exception as e:
-        # Fallback render if module not standalone
         try:
             render_tenant_admin_console(_slug)
         except Exception as inner_e:
             st.error(f"Error loading tenant admin portal for {_slug}:")
             st.exception(inner_e)
-
-elif _slug and (_portal in ["vendor", "vendor_portal"] or _vtype in ["unsolicited", "solicited", "vendor"]):
-    try:
-        from sector_logic import render_unified_vendor_portal
-        render_unified_vendor_portal(tenant_slug=_slug, default_tab=_vtype)
-    except Exception as e:
-        st.error(f"Error loading unified vendor portal for {_slug}:")
-        st.exception(e)
 
 else:
     # --- ROOT DEFAULT: FULL SECTOR ONBOARDING WIZARD ---
