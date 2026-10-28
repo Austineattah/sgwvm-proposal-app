@@ -383,3 +383,26 @@ def purge_recycle_bin_item(bin_id):
         return True
     except Exception:
         return False
+
+
+def init_admin_access_logs():
+    try:
+        import sqlite3
+        conn = sqlite3.connect("nexusvault_sovereign.db")
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS admin_access_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT,
+                details TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print("Admin access logs init error:", e)
+
+# Auto-initialize on import
+init_admin_access_logs()
