@@ -357,7 +357,7 @@ def render_directorate_admin_settings(tenant_slug=None):
     auth_key = f"tenant_admin_auth_{tenant_slug or 'default'}"
     if not st.session_state.get(auth_key, False):
         st.markdown("### 🔐 Tenant Administrator Authorization Required")
-        st.caption(f\"Secure Tenant Workspace: {tenant_slug or 'Default Sovereign Node'}\")
+        st.caption(f"Secure Tenant Workspace: {tenant_slug or 'Default Sovereign Node'}")
         
         with st.form(f"tenant_admin_login_{tenant_slug or 'default'}"):
             pass_input = st.text_input("Enter Executive Password (NexusExec2026!):", type="password", placeholder="Enter password...")
