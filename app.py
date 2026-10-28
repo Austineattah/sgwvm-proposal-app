@@ -49,7 +49,7 @@ if _query_slug:
 # -------------------------------------------------------------------------
 import security_guard
 
-    MODULES_LOADED = True
+MODULES_LOADED = True
 except ImportError as e:
     MODULES_LOADED = False
     print(f"[WARNING] Micro-engine import variance: {e}")
