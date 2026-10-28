@@ -189,3 +189,45 @@ def render_admin_dashboard():
 
 if __name__ == "__main__":
     render_admin_dashboard()
+
+
+def render_recycle_bin_admin_section():
+    st.markdown("---")
+    st.markdown("### 🗑️ Enterprise Recycle Bin & Reference Deletion")
+    st.caption("Safely archive or delete proposals and tenant slugs by reference number. Prevent permanent data loss.")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("#### 🔍 Reference Number / Slug Deletion")
+        target_ref = st.text_input("Enter Proposal Reference No. or Tenant Slug to Delete:", placeholder="e.g. PROP-2026-001 or skincare_c34d5aea")
+        target_type = st.selectbox("Select Item Type:", ["proposal", "tenant"])
+        if st.button("Move to Recycle Bin", type="primary"):
+            if target_ref:
+                if hasattr(db, "soft_delete_by_reference"):
+                    success = db.soft_delete_by_reference(target_ref.strip(), target_type)
+                    if success:
+                        st.success(f"Item '{target_ref}' successfully moved to the Enterprise Recycle Bin!")
+                        st.rerun()
+                    else:
+                        st.error(f"Could not find or delete item '{target_ref}'. Check reference number.")
+                else:
+                    st.error("Database recycle bin method not linked.")
+            else:
+                st.warning("Please enter a valid reference number or slug.")
+
+    with col2:
+        st.markdown("#### 📦 Archived Recycle Bin Items")
+        if hasattr(db, "get_recycle_bin_items"):
+            bin_items = db.get_recycle_bin_items()
+            if bin_items:
+                for b_id, item_type, identifier, deleted_at in bin_items:
+                    with st.expander(f"[{item_type.upper()}] {identifier} (Deleted: {deleted_at})"):
+                        if st.button(f"Purge Permanently #{b_id}", key=f"purge_{b_id}"):
+                            if hasattr(db, "purge_recycle_bin_item"):
+                                db.purge_recycle_bin_item(b_id)
+                                st.success(f"Item {identifier} purged permanently.")
+                                st.rerun()
+            else:
+                st.info("Recycle bin is currently empty.")
+        else:
+            st.info("Recycle bin storage not initialized.")

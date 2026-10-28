@@ -1000,3 +1000,44 @@ def log_audit_action(action_type, proposal_id, user_role, details):
     with open(log_file, "w", encoding="utf-8") as lf:
         json.dump(logs, lf, indent=4)
     return audit_entry
+
+
+def render_tenant_recycle_bin_section(tenant_slug=None):
+    st.markdown("---")
+    st.markdown("### 🗑️ Tenant Enterprise Recycle Bin & Reference Deletion")
+    st.caption("Safely archive proposal references within this tenant workspace.")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("#### 🔍 Quick Reference Deletion")
+        tenant_target_ref = st.text_input("Enter Proposal Reference No. to Archive:", placeholder="e.g. PROP-2026-001", key=f"tenant_del_ref_{tenant_slug}")
+        if st.button("Move to Tenant Recycle Bin", key=f"tenant_btn_del_{tenant_slug}", type="primary"):
+            if tenant_target_ref:
+                if hasattr(db, "soft_delete_by_reference"):
+                    success = db.soft_delete_by_reference(tenant_target_ref.strip(), "proposal")
+                    if success:
+                        st.success(f"Proposal '{tenant_target_ref}' moved to recycle bin!")
+                        st.rerun()
+                    else:
+                        st.error(f"Could not find proposal reference '{tenant_target_ref}'.")
+                else:
+                    st.error("Database recycle bin method not linked.")
+            else:
+                st.warning("Please enter a valid reference number.")
+
+    with col2:
+        st.markdown("#### 📦 Archived Records")
+        if hasattr(db, "get_recycle_bin_items"):
+            bin_items = db.get_recycle_bin_items()
+            if bin_items:
+                for b_id, item_type, identifier, deleted_at in bin_items:
+                    with st.expander(f"[{item_type.upper()}] {identifier} ({deleted_at})"):
+                        if st.button(f"Purge Record #{b_id}", key=f"tenant_purge_{tenant_slug}_{b_id}"):
+                            if hasattr(db, "purge_recycle_bin_item"):
+                                db.purge_recycle_bin_item(b_id)
+                                st.success("Record purged permanently.")
+                                st.rerun()
+            else:
+                st.info("Recycle bin is clean.")
+        else:
+            st.info("Recycle bin unavailable.")

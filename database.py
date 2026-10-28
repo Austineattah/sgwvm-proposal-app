@@ -307,3 +307,79 @@ if 'insert_proposal' not in globals():
         if 'save_proposal' in globals():
             return save_proposal(*args, **kwargs)
         return True
+
+
+# --- ENTERPRISE RECYCLE BIN & REFERENCE DELETION MODULE ---
+import sqlite3
+import json
+
+def init_recycle_bin():
+    try:
+        conn = sqlite3.connect("nexusvault_sovereign.db")
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS recycle_bin (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_type TEXT,
+                identifier TEXT,
+                payload TEXT,
+                deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print("Recycle bin init error:", e)
+
+def soft_delete_by_reference(identifier, item_type="proposal"):
+    init_recycle_bin()
+    try:
+        conn = sqlite3.connect("nexusvault_sovereign.db")
+        cursor = conn.cursor()
+        payload = {}
+        if item_type == "proposal":
+            cursor.execute("SELECT * FROM proposals WHERE reference_no = ? OR id = ?", (identifier, identifier))
+            row = cursor.fetchone()
+            if row:
+                payload = {"data": row}
+                cursor.execute("DELETE FROM proposals WHERE reference_no = ? OR id = ?", (identifier, identifier))
+        elif item_type == "tenant":
+            cursor.execute("SELECT * FROM tenants WHERE slug = ?", (identifier,))
+            row = cursor.fetchone()
+            if row:
+                payload = {"data": row}
+                cursor.execute("DELETE FROM tenants WHERE slug = ?", (identifier,))
+        
+        cursor.execute("INSERT INTO recycle_bin (item_type, identifier, payload) VALUES (?, ?, ?)", 
+                       (item_type, identifier, json.dumps(payload)))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print("Soft delete error:", e)
+        return False
+
+def get_recycle_bin_items():
+    init_recycle_bin()
+    try:
+        conn = sqlite3.connect("nexusvault_sovereign.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, item_type, identifier, deleted_at FROM recycle_bin ORDER BY deleted_at DESC")
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+def purge_recycle_bin_item(bin_id):
+    init_recycle_bin()
+    try:
+        conn = sqlite3.connect("nexusvault_sovereign.db")
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM recycle_bin WHERE id = ?", (bin_id,))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
