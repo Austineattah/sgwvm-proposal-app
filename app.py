@@ -47,10 +47,17 @@ if _query_slug:
         except Exception:
             pass
 # -------------------------------------------------------------------------
-import security_guard
-
-MODULES_LOADED = True
+try:
+    import kyb_verifier
+    import ai_extractor
+    import proposal_evaluation
+    import admin_portal
+    import document_processing
+    import security_guard
+    MODULES_LOADED = True
 except ImportError as e:
+    MODULES_LOADED = False
+    print(f"[WARNING] Micro-engine import variance: {e}")
     MODULES_LOADED = False
     print(f"[WARNING] Micro-engine import variance: {e}")
 # ---------------------
