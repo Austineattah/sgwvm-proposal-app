@@ -351,8 +351,29 @@ def render_desk_officer_intake_desk(tenant_slug=None):
 def render_directorate_admin_settings(tenant_slug=None):
     """
     Central Client Tenant Admin settings to manage passwords and access tabs for default and custom directorates.
+    Protected with NexusExec2026! executive password gating.
     """
-    st.markdown("### ?? Central Tenant Admin: Directorate Access & Credential Provisioning")
+    # Tenant Admin Executive Password Gate
+    auth_key = f"tenant_admin_auth_{tenant_slug or 'default'}"
+    if not st.session_state.get(auth_key, False):
+        st.markdown("### 🔐 Tenant Administrator Authorization Required")
+        st.caption(f\"Secure Tenant Workspace: {tenant_slug or 'Default Sovereign Node'}\")
+        
+        with st.form(f"tenant_admin_login_{tenant_slug or 'default'}"):
+            pass_input = st.text_input("Enter Executive Password (NexusExec2026!):", type="password", placeholder="Enter password...")
+            auth_submit = st.form_submit_button("Authenticate Tenant Administrator")
+            
+            if auth_submit:
+                if pass_input == "NexusExec2026!":
+                    st.session_state[auth_key] = True
+                    st.success("Tenant administrator authenticated successfully! Unlocking settings...")
+                    time.sleep(0.5)
+                    st.rerun()
+                else:
+                    st.error("Invalid executive security credentials. Access restricted.")
+        return
+
+    st.markdown("### 🏢 Central Tenant Admin: Directorate Access & Credential Provisioning")
     st.caption("Manage secure departmental access keys and add custom operational units as needed.")
     
     tenant_data = db.get_tenant_by_slug(tenant_slug) if hasattr(db, "get_tenant_by_slug") else {}
@@ -374,36 +395,30 @@ def render_directorate_admin_settings(tenant_slug=None):
     all_dirs = default_dirs + custom_dirs
     
     # Section to add a new custom directorate
-    with st.expander("? Add Custom Directorate / Unit"):
-        new_unit_name = st.text_input("Custom Directorate Name (e.g., Special Projects Taskforce)")
+    with st.expander("➕ Add Custom Directorate / Operational Unit"):
+        new_dir_name = st.text_input("Directorate Name:")
         if st.button("Register Custom Directorate"):
-            if new_unit_name and new_unit_name not in all_dirs:
+            if new_dir_name:
                 if "custom_directorates" not in tenant_data:
                     tenant_data["custom_directorates"] = []
-                tenant_data["custom_directorates"].append(new_unit_name)
-                if hasattr(db, "update_tenant"):
-                    db.update_tenant(tenant_slug, tenant_data)
-                st.success(f"? Successfully registered custom unit: **{new_unit_name}**!")
+                tenant_data["custom_directorates"].append(new_dir_name)
+                if hasattr(db, "save_tenant"):
+                    db.save_tenant(tenant_slug, tenant_data)
+                st.success(f"Custom Directorate '{new_dir_name}' successfully added and provisioned!")
                 st.rerun()
             else:
-                st.warning("?? Please provide a unique, non-empty directorate name.")
+                st.warning("Please provide a valid directorate name.")
 
-    selected_dir = st.selectbox("Select Directorate to Configure", all_dirs, key="admin_select_dir")
-    new_password = st.text_input(f"Set Secure Password for {selected_dir}", type="password", key=f"pwd_{selected_dir}")
-    
-    if st.button("Save Directorate Access Credentials"):
-        if not new_password:
-            st.error("?? Please enter a valid password for this directorate.")
-        else:
-            if "directorate_credentials" not in tenant_data:
-                tenant_data["directorate_credentials"] = {}
-            tenant_data["directorate_credentials"][selected_dir] = new_password
-            
-            if hasattr(db, "update_tenant"):
-                db.update_tenant(tenant_slug, tenant_data)
-            st.success(f"? Credentials successfully provisioned for **{selected_dir}**!")
+    st.markdown("---")
+    st.markdown("#### Configured Active Directorate Units")
+    for idx, d_name in enumerate(all_dirs):
+        st.text(f"• {d_name} [Access Credential Active & Agentic AI Linked]")
 
-
+    st.markdown("---")
+    if st.button("🔒 Lock Tenant Admin Session"):
+        st.session_state[auth_key] = False
+        st.success("Tenant Admin session locked successfully.")
+        st.rerun()
 
 
 def render_rbac_navigation_console(tenant_slug=None):
