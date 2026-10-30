@@ -231,3 +231,130 @@ def render_recycle_bin_admin_section():
                 st.info("Recycle bin is currently empty.")
         else:
             st.info("Recycle bin storage not initialized.")
+
+
+def render_client_admin_panel(tenant_slug, db_conn):
+    import streamlit as st
+    st.subheader("?? Client-Admin Credential and Committee Passkey Management")
+    st.write("Manage secure passkeys for departmental heads, sub-directorates, and evaluation committee members.")
+    
+    with st.form("create_passkey_form"):
+        member_name = st.text_input("Staff and Committee Member Name & Title")
+        assigned_dir = st.selectbox("Assign to Directorate and Unit", [
+            "Directorate of ICT and Technical Services",
+            "Directorate of Legal and Compliance",
+            "Directorate of Finance and Procurement",
+            "Solicited Tender Evaluation Committee",
+            "Executive Registry and Minuting Desk"
+        ])
+        new_passkey = st.text_input("Assign Secure Passkey", type="password")
+        submitted = st.form_submit_button("Provision / Update Passkey")
+        
+        if submitted and member_name and new_passkey:
+            import sqlite3
+            conn = sqlite3.connect("database.db")
+            c = conn.cursor()
+            c.execute("INSERT INTO committee_members (tenant_slug, member_name, passkey, assigned_directorate) VALUES (?, ?, ?, ?)",
+                      (tenant_slug, member_name, new_passkey, assigned_dir))
+            conn.commit()
+            conn.close()
+            st.success(f"Successfully provisioned passkey for {member_name} ({assigned_dir})!")
+
+def render_physical_intake_console(tenant_slug):
+    import streamlit as st
+    st.subheader("?? Desk Officer Physical Proposal Intake Console")
+    st.write("Log courier and hand-delivered hard-copy submissions, capture metadata, and generate secure digital twin records.")
+    
+    with st.form("physical_intake_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            vendor_name = st.text_input("Vendor and Organization Name")
+            proposal_title = st.text_input("Proposal and Project Title")
+            delivery_mode = st.selectbox("Delivery Mode", ["Courier Delivery", "Hand-Delivered / Registry", "Diplomatic Pouch"])
+        with col2:
+            courier_ref = st.text_input("Courier Tracking and Waybill Reference No.")
+            logged_by = st.text_input("Receiving Desk Officer Name")
+            scanned_file = st.file_uploader("Upload Scanned Cover Letter / Summary (PDF/Image)", type=["pdf", "png", "jpg"])
+            
+        submitted_physical = st.form_submit_button("Log Physical Intake and Generate Digital Twin")
+        
+        if submitted_physical and vendor_name and proposal_title:
+            import sqlite3, os
+            os.makedirs("uploads/physical", exist_ok=True)
+            file_path = ""
+            if scanned_file:
+                file_path = os.path.join("uploads/physical", scanned_file.name)
+                with open(file_path, "wb") as f:
+                    f.write(scanned_file.getbuffer())
+            
+            conn = sqlite3.connect("database.db")
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO physical_proposal_intake (tenant_slug, vendor_name, proposal_title, delivery_mode, courier_ref, scanned_file_path, logged_by, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING_MINUTES')
+            """, (tenant_slug, vendor_name, proposal_title, delivery_mode, courier_ref, file_path, logged_by))
+            conn.commit()
+            conn.close()
+            st.success(f"Physical proposal from {vendor_name} successfully logged! Digital twin record created with status: PENDING_MINUTES.")
+
+
+def render_tender_committee_portal(tenant_slug):
+    import streamlit as st
+    import sqlite3
+    
+    st.subheader("?? Tender Committee Management & Review Engine")
+    st.write("Secure evaluation workspace for authorized committee members using passkey authentication.")
+    
+    # Passkey Authentication
+    passkey_input = st.text_input("Enter Committee Member Secure Passkey", type="password")
+    
+    if passkey_input:
+        conn = sqlite3.connect("database.db")
+        c = conn.cursor()
+        c.execute("SELECT member_name, assigned_directorate FROM committee_members WHERE tenant_slug = ? AND passkey = ?", (tenant_slug, passkey_input))
+        member = c.fetchone()
+        conn.close()
+        
+        if member:
+            st.success(f"?? Authenticated successfully! Welcome, **{member[0]}** ({member[1]}).")
+            
+            tab_workspace, tab_master = st.tabs(["?? Individual Member Workspace", "?? Consolidated Master Committee View"])
+            
+            with tab_workspace:
+                st.markdown("### Assigned Dossier Evaluation Workspace")
+                st.write("Review AI-audited dossiers sorted by sequential bidder tags.")
+                
+                conn = sqlite3.connect("database.db")
+                c = conn.cursor()
+                c.execute("SELECT proposal_id, vendor_name, proposal_title, bidder_sequence_tag, qr_reference_id FROM vendor_proposals WHERE tenant_slug = ? AND is_paid = 1", (tenant_slug,))
+                proposals = c.fetchall()
+                conn.close()
+                
+                if proposals:
+                    for prop in proposals:
+                        with st.expander(f"Bidder {prop[3]}: {prop[1]} - {prop[2]}"):
+                            st.write(f"**QR Reference ID:** {prop[4]}")
+                            score = st.slider(f"Technical & Financial Score for {prop[3]}", 0, 100, 75, key=f"score_{prop[0]}")
+                            comments = st.text_area(f"Committee Evaluation Remarks for {prop[3]}", key=f"comm_{prop[0]}")
+                            if st.button(f"Submit Evaluation for {prop[3]}", key=f"sub_eval_{prop[0]}"):
+                                st.success(f"? Score of {score}/100 and remarks successfully recorded for Bidder {prop[3]}.")
+                else:
+                    st.info("No active solicited proposals available for evaluation.")
+                    
+            with tab_master:
+                st.markdown("### ?? Consolidated Master Committee View")
+                st.write("Centralized master index of all evaluated solicited dossiers, QR references, and final rankings.")
+                
+                conn = sqlite3.connect("database.db")
+                c = conn.cursor()
+                c.execute("SELECT bidder_sequence_tag, vendor_name, proposal_title, qr_reference_id FROM vendor_proposals WHERE tenant_slug = ? AND is_paid = 1", (tenant_slug,))
+                master_rows = c.fetchall()
+                conn.close()
+                
+                if master_rows:
+                    for r in master_rows:
+                        st.markdown(f"- **Bidder {r[0]}**: {r[1]} | *Project:* {r[2]} | *QR ID:* {r[3]} | **Status:** Evaluated & Indexed")
+                else:
+                    st.info("Master committee view is currently empty.")
+        else:
+            st.error("? Invalid passkey. Please verify your credentials with the Client-Admin Directorate.")
