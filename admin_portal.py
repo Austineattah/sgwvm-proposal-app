@@ -29,7 +29,7 @@ def render_admin_login():
         submit_btn = st.form_submit_button("Authenticate Session")
 
         if submit_btn:
-            if pwd_input == "NexusDevGrant2026!":
+            if pwd_input in ["NexusStaff2026!", "NexusExec2026!"]:
                 st.session_state.is_admin_authenticated = True
                 st.success("Authentication successful! Unlocking portal...")
                 time.sleep(0.5)
