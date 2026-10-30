@@ -19,13 +19,13 @@ url_vtype = qp.get("type") or qp.get("view", "unsolicited")
 if url_slug:
     clean_slug = str(url_slug).strip().lower()
     valid_tenant = db.get_tenant_by_slug(clean_slug) if hasattr(db, "get_tenant_by_slug") else None
-    if valid_tenant or clean_slug in ["nexusvault_hq", "sgwvm_nexus_01", "national_assembly_ng", "faithacademy_7a184bb5"]:
+    if valid_tenant or clean_slug in ["", "sgwvm_nexus_01", "national_assembly_ng", "faithacademy_7a184bb5"]:
         st.session_state["active_tenant_slug"] = clean_slug
     else:
         if "active_tenant_slug" not in st.session_state:
-            st.session_state["active_tenant_slug"] = "nexusvault_hq"
+            st.session_state["active_tenant_slug"] = ""
 elif "active_tenant_slug" not in st.session_state:
-    st.session_state["active_tenant_slug"] = "nexusvault_hq"
+    st.session_state["active_tenant_slug"] = ""
 
 # 2. Resolve & lock Portal Mode into session state (sticky with safe default)
 if "portal_mode" not in st.session_state:
@@ -40,7 +40,7 @@ if url_portal:
         st.session_state["portal_mode"] = "tenant_login"
 
 # Expose clean variables safely using .get()
-client_slug = st.session_state.get("active_tenant_slug", "nexusvault_hq")
+client_slug = st.session_state.get("active_tenant_slug", "")
 mode = st.session_state.get("portal_mode", "tenant_login")
 view_mode = st.session_state.get("vendor_intake_type", "unsolicited")
 # -----------------------------------------------------------------
@@ -98,7 +98,7 @@ view_mode = _vtype
 query_params = st.query_params
 _portal = str(query_params.get("portal") or query_params.get("mode", "")).strip().lower()
 # FIX: Capture 'tenant' parameter correctly from URLs
-_slug = str(query_params.get("tenant") or query_params.get("slug") or query_params.get("client") or query_params.get("t", "nexusvault_hq")).strip().lower()
+_slug = str(query_params.get("tenant") or query_params.get("slug") or query_params.get("client") or query_params.get("t", "")).strip().lower()
 _vtype = str(query_params.get("type") or query_params.get("view", "unsolicited")).strip().lower()
 
 if _portal == "dev" or _vtype in ["developer", "master_admin"]:
@@ -278,7 +278,7 @@ def render_tenant_activation_console():
     
     if "tenant_registry" not in st.session_state:
         st.session_state["tenant_registry"] = {
-            "nexusvault_hq": {
+            "": {
                 "name": "NexusVault Headquarters",
                 "email": "hq@nexusvault.gov.ng",
                 "status": "ACTIVE",
