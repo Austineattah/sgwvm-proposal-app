@@ -107,3 +107,55 @@ def inspect_pdf_payload(file_bytes, filename="document.pdf"):
         return False, f"SECURITY REJECTION: Failed deep structural validation. PDF payload may be malformed or corrupted ({str(e)})."
 
     return True, "PASSED: Document cleared NITDA & NDPA multi-tier cybersecurity screening."
+
+def check_login_rate_limit(username="default_user"):
+    import streamlit as st
+    import time
+    
+    # Initialize lockout tracking in session state
+    if "login_attempts" not in st.session_state:
+        st.session_state.login_attempts = {}
+    if "lockout_until" not in st.session_state:
+        st.session_state.lockout_until = {}
+        
+    current_time = time.time()
+    
+    # Check if currently locked out
+    if username in st.session_state.lockout_until:
+        if current_time < st.session_state.lockout_until[username]:
+            remaining = int(st.session_state.lockout_until[username] - current_time)
+            st.error(f"?? Security Lockout Active: Too many failed login attempts. Please wait {remaining} seconds before trying again.")
+            return False
+        else:
+            # Lockout expired, reset attempts
+            st.session_state.lockout_until.pop(username, None)
+            st.session_state.login_attempts[username] = 0
+            
+    return True
+
+def record_failed_login(username="default_user"):
+    import streamlit as st
+    import time
+    
+    if "login_attempts" not in st.session_state:
+        st.session_state.login_attempts = {}
+    if "lockout_until" not in st.session_state:
+        st.session_state.lockout_until = {}
+        
+    current_attempts = st.session_state.login_attempts.get(username, 0) + 1
+    st.session_state.login_attempts[username] = current_attempts
+    
+    remaining_tries = 3 - current_attempts
+    if current_attempts >= 3:
+        # Lock out for 300 seconds (5 minutes)
+        st.session_state.lockout_until[username] = time.time() + 300
+        st.error("?? Maximum 3 failed login attempts reached! Account temporarily locked for 5 minutes.")
+    else:
+        st.warning(f"?? Invalid credentials. Warning: {remaining_tries} attempt(s) remaining before security lockout.")
+
+def reset_login_attempts(username="default_user"):
+    import streamlit as st
+    if "login_attempts" in st.session_state:
+        st.session_state.login_attempts.pop(username, None)
+    if "lockout_until" in st.session_state:
+        st.session_state.lockout_until.pop(username, None)
