@@ -1,5 +1,8 @@
+import base64
 import hashlib
+import html
 import io
+import json
 import logging
 import os
 import re
@@ -487,6 +490,7 @@ def _render_solicited_vendor_portal(
                         "Sealed bid dossier (PDF or DOCX)*",
                         type=["pdf", "docx"],
                         key=_widget_key(key_prefix, "sealed_dossier"),
+                        max_upload_size=25,
                         disabled=encryption_key is None,
                     )
                     submitted_dossier = st.form_submit_button(
@@ -576,7 +580,10 @@ def render_unsolicited_vendor_portal(
     key_prefix: str | None = None,
 ) -> None:
     st.markdown("### Unsolicited Proposal Submission")
-    st.caption("Submit an independent proposal for preliminary review.")
+    st.caption(
+        "Submit organization details and an encrypted PDF or DOCX proposal "
+        "for preliminary review."
+    )
 
     try:
         tenant_is_active = bool(tenant_slug and _tenant_is_active(tenant_slug))
@@ -587,6 +594,13 @@ def render_unsolicited_vendor_portal(
     if not tenant_is_active:
         st.error("Unsolicited submissions are unavailable for this tenant.")
         return
+
+    encryption_key = _get_encryption_key()
+    if encryption_key is None:
+        st.warning(
+            "Encrypted proposal storage is unavailable. Configure a valid Fernet "
+            "NEXUSVAULT_DOSSIER_ENCRYPTION_KEY before accepting submissions."
+        )
 
     with st.form(
         key=_widget_key(
@@ -619,34 +633,204 @@ def render_unsolicited_vendor_portal(
             max_chars=10_000,
             key=_widget_key(key_prefix, "unsolicited_abstract"),
         )
+        dossier = st.file_uploader(
+            "Proposal document (PDF or DOCX, up to 25 MB)*",
+            type=["pdf", "docx"],
+            key=_widget_key(key_prefix, "unsolicited_dossier"),
+            max_upload_size=25,
+            disabled=encryption_key is None,
+        )
         submitted = st.form_submit_button(
-            "Submit proposal",
+            "Encrypt and submit proposal",
             key=_widget_key(key_prefix, "unsolicited_submit"),
+            type="primary",
+            disabled=encryption_key is None,
         )
 
     if submitted:
-        st.error(
-            "Unsolicited submission storage is not configured. No proposal was recorded."
-        )
+        organization = str(
+            st.session_state.get(
+                _widget_key(key_prefix, "unsolicited_organization"), ""
+            )
+        ).strip()
+        cac_number = str(
+            st.session_state.get(_widget_key(key_prefix, "unsolicited_cac"), "")
+        ).strip()
+        tax_id = str(
+            st.session_state.get(_widget_key(key_prefix, "unsolicited_tin"), "")
+        ).strip()
+        proposal_title = str(
+            st.session_state.get(_widget_key(key_prefix, "unsolicited_title"), "")
+        ).strip()
+        executive_summary = str(
+            st.session_state.get(_widget_key(key_prefix, "unsolicited_abstract"), "")
+        ).strip()
+
+        if not all((organization, cac_number, proposal_title, executive_summary)):
+            st.error("Complete all required organization and proposal fields.")
+        elif dossier is None:
+            st.error("Select a PDF or DOCX proposal document before submitting.")
+        elif encryption_key is None:
+            st.error("Encrypted proposal storage is not configured.")
+        else:
+            try:
+                if not _tenant_is_active(tenant_slug):
+                    raise ValueError(
+                        "This tenant is no longer active. The proposal was not accepted."
+                    )
+
+                dossier_bytes = dossier.getvalue()
+                _validate_dossier(dossier.name, dossier_bytes)
+                submission_id = f"NV-UNSOL-{secrets.token_urlsafe(24)}"
+                encrypted_payload = json.dumps(
+                    {
+                        "submission_id": submission_id,
+                        "tenant_slug": tenant_slug,
+                        "organization": organization,
+                        "cac_number": cac_number,
+                        "tax_id": tax_id,
+                        "proposal_title": proposal_title,
+                        "executive_summary": executive_summary,
+                        "filename": Path(dossier.name).name,
+                        "file_base64": base64.b64encode(dossier_bytes).decode("ascii"),
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+                _write_encrypted_dossier(
+                    tenant_slug,
+                    submission_id,
+                    encrypted_payload,
+                    encryption_key,
+                )
+            except ValueError as exc:
+                st.error(str(exc))
+            except (OSError, sqlite3.Error):
+                logging.exception("Unsolicited proposal encryption or storage failed.")
+                st.error(
+                    "The proposal could not be stored securely. Please retry or "
+                    "contact support."
+                )
+            else:
+                st.success(
+                    "The organization details and proposal document were encrypted "
+                    "and stored securely."
+                )
+                st.code(submission_id, language="text")
 
 
 def render_unified_vendor_portal(
     tenant_slug: str | None = None,
-    default_tab: str = "solicited",
+    key_prefix: str | None = None,
 ) -> None:
-    st.markdown("## NEXUSVAULT Vendor Portal")
-    if not tenant_slug or not _tenant_is_active(tenant_slug):
+    try:
+        tenant = db.get_tenant_by_slug(tenant_slug) if tenant_slug else None
+    except (sqlite3.Error, RuntimeError):
+        logging.exception("Could not load tenant metadata for vendor portal.")
+        st.error("Vendor access is temporarily unavailable.")
+        return
+
+    if (
+        not tenant_slug
+        or tenant is None
+        or str(tenant.get("status", "")).strip().upper() != "ACTIVE"
+    ):
         st.error("Vendor access is unavailable for this tenant.")
         return
 
-    st.caption(f"Tenant: {tenant_slug}")
-    if default_tab == "unsolicited":
+    official_name = str(
+        tenant.get("full_corporation_name") or tenant_slug
+    ).strip()
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background:
+                radial-gradient(ellipse at 12% 0%, rgba(15, 118, 110, 0.08), transparent 38%),
+                linear-gradient(180deg, #f8fafc 0%, #eef3f8 100%);
+        }
+        .block-container {
+            max-width: 1180px;
+            padding-top: 2.4rem;
+            padding-bottom: 4rem;
+        }
+        .nv-tenant-heading {
+            color: #102a43;
+            font-size: clamp(2rem, 4vw, 3.2rem);
+            font-weight: 800;
+            letter-spacing: -0.035em;
+            line-height: 1.12;
+            margin: 0.15rem 0 0.25rem;
+        }
+        .nv-platform-caption {
+            color: #718096;
+            font-size: 0.85rem;
+            letter-spacing: 0.025em;
+            margin: 0 0 1.8rem;
+        }
+        div[data-testid="stForm"] {
+            background: rgba(255, 255, 255, 0.94);
+            border: 1px solid #d9e2ec;
+            border-radius: 14px;
+            padding: 1.35rem 1.5rem;
+            box-shadow: 0 10px 28px rgba(16, 42, 67, 0.06);
+        }
+        div[data-testid="stTabs"] button[role="tab"] {
+            color: #526579;
+            font-weight: 650;
+            padding: 0.85rem 1.1rem;
+        }
+        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+            color: #087f70;
+            border-bottom-color: #087f70;
+        }
+        div.stButton > button[kind="primary"],
+        div[data-testid="stFormSubmitButton"] button[kind="primary"] {
+            background: linear-gradient(120deg, #087f70, #075e54);
+            border: 0;
+            border-radius: 9px;
+            color: white;
+            font-weight: 700;
+            min-height: 2.7rem;
+        }
+        div.stButton > button[kind="primary"]:hover,
+        div[data-testid="stFormSubmitButton"] button[kind="primary"]:hover {
+            background: #064e3b;
+            border-color: #064e3b;
+            color: white;
+        }
+        div[data-testid="stFileUploader"] section {
+            background: #f8fafc;
+            border: 1px dashed #9fb3c8;
+            border-radius: 10px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<h1 class="nv-tenant-heading">{html.escape(official_name)}</h1>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<p class="nv-platform-caption">Powered by NEXUSVAULT Agentic AI Enterprise</p>',
+        unsafe_allow_html=True,
+    )
+
+    prefix = key_prefix or f"tenant:{tenant_slug}:vendor"
+    solicited_tab, unsolicited_tab = st.tabs(
+        [
+            "Solicited Proposal & Clearance",
+            "Unsolicited Proposal Submission",
+        ]
+    )
+    with solicited_tab:
+        _render_solicited_vendor_portal(
+            tenant_slug=tenant_slug,
+            key_prefix=f"{prefix}:solicited",
+        )
+    with unsolicited_tab:
         render_unsolicited_vendor_portal(
             tenant_slug=tenant_slug,
-            key_prefix=f"tenant:{tenant_slug}:vendor:unsolicited",
-        )
-    else:
-        render_solicited_vendor_qr_clearance_gate(
-            tenant_slug=tenant_slug,
-            key_prefix=f"tenant:{tenant_slug}:vendor:solicited",
+            key_prefix=f"{prefix}:unsolicited",
         )
