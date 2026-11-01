@@ -77,13 +77,12 @@ def _parse_route() -> tuple[str, str | None, str | None]:
 
     portal = portal.lower()
     if portal == "vendor":
-        if tenant_slug is None or intake_type is None:
-            raise ValueError(
-                "Vendor links must include portal=vendor, tenant, and type."
-            )
-        intake_type = intake_type.lower()
-        if intake_type not in {"solicited", "unsolicited"}:
-            raise ValueError("Vendor type must be solicited or unsolicited.")
+        if tenant_slug is None:
+            raise ValueError("Vendor links must include portal=vendor and tenant.")
+        if intake_type is not None:
+            intake_type = intake_type.lower()
+            if intake_type not in {"solicited", "unsolicited"}:
+                raise ValueError("Vendor type must be solicited or unsolicited.")
     elif portal == "internal":
         if tenant_slug is None:
             raise ValueError("Internal staff links must include a tenant.")
@@ -277,32 +276,14 @@ def _render_internal_portal(tenant: Mapping[str, Any], tenant_slug: str) -> None
 
 
 def _render_vendor_portal(
-    tenant: Mapping[str, Any],
     tenant_slug: str,
-    intake_type: str,
 ) -> None:
-    from sector_logic import (
-        render_solicited_vendor_qr_clearance_gate,
-        render_unsolicited_vendor_portal,
-    )
+    from sector_logic import render_unified_vendor_portal
 
-    st.title("NEXUSVAULT Vendor Portal")
-    st.caption(
-        f"{tenant.get('full_corporation_name') or tenant_slug} "
-        f"({tenant_slug})"
+    render_unified_vendor_portal(
+        tenant_slug=tenant_slug,
+        key_prefix=f"tenant:{tenant_slug}:vendor",
     )
-
-    key_prefix = f"tenant:{tenant_slug}:vendor:{intake_type}"
-    if intake_type == "solicited":
-        render_solicited_vendor_qr_clearance_gate(
-            tenant_slug=tenant_slug,
-            key_prefix=key_prefix,
-        )
-    else:
-        render_unsolicited_vendor_portal(
-            tenant_slug=tenant_slug,
-            key_prefix=key_prefix,
-        )
 
 
 def _render_home() -> None:
@@ -312,8 +293,7 @@ def _render_home() -> None:
         "authorized internal access link."
     )
     st.code(
-        "?portal=vendor&tenant=<slug>&type=solicited\n"
-        "?portal=vendor&tenant=<slug>&type=unsolicited\n"
+        "?portal=vendor&tenant=<slug>\n"
         "?portal=internal&tenant=<slug>",
         language="text",
     )
@@ -348,6 +328,6 @@ else:
             ):
                 _render_route_error("The requested tenant was not found or is inactive.")
             elif _portal == "vendor":
-                _render_vendor_portal(_tenant, _tenant_slug, _intake_type)
+                _render_vendor_portal(_tenant_slug)
             elif _portal == "internal":
                 _render_internal_portal(_tenant, _tenant_slug)
