@@ -180,7 +180,7 @@ def render_admin_dashboard():
 
     with tab3:
         st.markdown("#### Internal System Configuration")
-        st.write("Current Session State:", dict(st.session_state))
+        st.caption("Session state is intentionally not displayed.")
         if st.button("Logout / Lock Session"):
             st.session_state.is_admin_authenticated = False
             st.success("Session locked successfully.")
