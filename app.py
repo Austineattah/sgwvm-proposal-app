@@ -380,7 +380,7 @@ def _render_home() -> None:
             div[data-baseweb="select"] > div {
                 background-color: rgba(15, 23, 42, 0.75) !important;
                 border: 1px solid rgba(255, 255, 255, 0.1) !important;
-                color: #ffffff !important;
+                color: #FF5C8A !important;
                 border-radius: 10px !important;
                 backdrop-filter: blur(10px) !important;
             }
@@ -399,9 +399,9 @@ def _render_home() -> None:
                 display: inline-block;
                 padding-left: 100%;
                 animation: marquee 18s linear infinite;
-                color: #38bdf8;
-                font-weight: 800;
-                font-size: 15px;
+                color: #FF5C8A;
+                font-weight: 900;
+                font-size: 20px;
                 letter-spacing: 1px;
             }
 
@@ -425,7 +425,7 @@ def _render_home() -> None:
             <div style="display: flex; justify-content: space-between; align-items: center;
                         flex-wrap: wrap; gap: 20px;">
                 <div style="flex: 1; min-width: 320px;">
-                    <h1 style="color: #ffffff !important; margin: 0 0 10px 0; font-size: 25px;
+                    <h1 style="color: #FF5C8A !important; color: #FF5C8A; margin: 0 0 10px 0; font-size: 25px;
                                font-weight: 900; letter-spacing: 0.4px; line-height: 1.3;
                                font-family: 'Plus Jakarta Sans', sans-serif;">
                         🛡️ {safe_heading}
@@ -455,7 +455,7 @@ def _render_home() -> None:
                         <rect width="1" height="2" x="2" fill="#008751"/>
                     </svg>
                     <div>
-                        <div style="color: #ffffff; font-size: 12px; font-weight: 800;
+                        <div style="color: #FF5C8A; font-size: 12px; font-weight: 800;
                                     font-family: 'Plus Jakarta Sans', sans-serif;">FEDERAL REPUBLIC</div>
                         <div style="color: #34d399; font-size: 10px; font-weight: 700;
                                     font-family: 'Plus Jakarta Sans', sans-serif;">OF NIGERIA</div>
@@ -650,3 +650,34 @@ else:
                 _render_vendor_portal(_tenant_slug)
             elif _portal == "internal":
                 _render_internal_portal(_tenant, _tenant_slug)
+
+
+def render_developer_console():
+    import database
+    import pandas as pd
+    
+    st.markdown("## ??? Sovereign Developer Console & Tenant Registry")
+    st.markdown("Real-time audit of active client tenants, persistent slugs, and governance payloads stored on disk storage.")
+    
+    if st.button("?? Refresh Tenant Registry"):
+        st.rerun()
+
+    if hasattr(database, "get_all_tenants"):
+        df_tenants = database.get_all_tenants()
+    else:
+        df_tenants = pd.DataFrame()
+
+    if df_tenants is None or df_tenants.empty:
+        st.info("?? No tenant records found in the persistent registry yet. Complete an onboarding submission to populate records.")
+    else:
+        st.success(f"? Active Sovereign Tenants Registered: **{len(df_tenants)}**")
+        st.dataframe(df_tenants, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("### ?? Tenant Slug & URL Routing Inspector")
+        slug_list = df_tenants["slug"].tolist() if "slug" in df_tenants.columns else []
+        selected_tenant = st.selectbox("Select Tenant Slug to Inspect:", slug_list)
+        
+        if selected_tenant:
+            tenant_record = df_tenants[df_tenants["slug"] == selected_tenant].iloc[0]
+            st.json(tenant_record.to_dict())
