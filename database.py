@@ -374,3 +374,16 @@ def update_clearance_status(
 if __name__ == "__main__":
     init_db()
     print(f"SQLite schema initialized and verified at {DB_FILE}")
+
+
+import pandas as pd
+
+def get_all_tenants():
+    """Retrieve all onboarded tenant records from the persistent database."""
+    try:
+        conn = sqlite3.connect("database.db")
+        df = pd.read_sql("SELECT * FROM tenants", conn)
+        conn.close()
+        return df
+    except Exception:
+        return pd.DataFrame()
