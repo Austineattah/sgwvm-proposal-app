@@ -220,6 +220,28 @@ def save_tenant(tenant_data: dict[str, Any]) -> dict[str, Any]:
     return dict(row)
 
 
+def create_tenant_onboarding(onboarding_data: dict[str, Any]) -> dict[str, Any]:
+    """Create an active tenant from the sovereign onboarding form payload."""
+    if not isinstance(onboarding_data, dict):
+        raise TypeError("onboarding_data must be a dictionary.")
+
+    tenant_slug = _required_text(onboarding_data.get("tenant_slug"), "tenant_slug").lower()
+    organization_name = _required_text(
+        onboarding_data.get("full_corporation_name"),
+        "full_corporation_name",
+    )
+    _required_text(onboarding_data.get("admin_email"), "admin_email")
+    _required_text(onboarding_data.get("admin_phone"), "admin_phone")
+
+    return save_tenant(
+        {
+            "tenant_slug": tenant_slug,
+            "full_corporation_name": organization_name,
+            "status": "Active",
+        }
+    )
+
+
 def delete_tenant(tenant_slug: str) -> bool:
     """Delete a tenant by slug; return whether a record was deleted."""
     normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
