@@ -603,7 +603,7 @@ def _render_home() -> None:
         """
         <div class="marquee-container">
             <div class="marquee-text">
-                🌟 YOUR TIME IS INVALUABLE TO US THANKS FOR PARTICIPATING. 🌟
+                🌟 ADVANCING THE DIGITAL ECONOMIC DRIVE OF THE FEDERAL GOVERNMENT THROUGH TECHNOLOGY. 🌟
             </div>
         </div>
         """,
