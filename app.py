@@ -666,6 +666,7 @@ def render_developer_console() -> None:
         tenants = db.list_tenants()
         archived_tenants = db.list_archived_tenants()
         current_broadcast = db.get_general_broadcast()
+        all_activities = db.get_all_tenant_activities()
     except (sqlite3.Error, RuntimeError, ValueError):
         logging.exception("Developer console data failed to load.")
         st.error("Developer console data is unavailable. Please try again later.")
@@ -676,12 +677,13 @@ def render_developer_console() -> None:
             current_broadcast["message"] if current_broadcast else ""
         )
 
-    registry_tab, copy_tab, recycle_tab, settings_tab = st.tabs(
+    registry_tab, copy_tab, recycle_tab, settings_tab, activity_tab = st.tabs(
         [
             "Tenant Registry & Activation",
             "Slug Copy Registry",
             "Recycle Bin / Archive & Purge",
             "Platform Broadcasts",
+            "📋 Activity Audit Trail",
         ]
     )
 
@@ -841,6 +843,70 @@ def render_developer_console() -> None:
         )
         if current_broadcast is not None:
             st.caption(f"Currently published · Updated {current_broadcast['updated_at']}")
+
+    with activity_tab:
+        st.markdown("### Client Tenant Activity & Audit Trail")
+        tenant_slugs = sorted(
+            {
+                tenant["tenant_slug"]
+                for tenant in tenants
+            }
+            | {
+                activity["tenant_slug"]
+                for activity in all_activities
+            }
+        )
+        selected_tenant = st.selectbox(
+            "Filter by Client Tenant slug",
+            ["All tenants", *tenant_slugs],
+            key="tenant_activity_filter",
+        )
+        activities = (
+            all_activities
+            if selected_tenant == "All tenants"
+            else [
+                activity
+                for activity in all_activities
+                if activity["tenant_slug"] == selected_tenant
+            ]
+        )
+
+        total_col, recent_col = st.columns(2)
+        total_col.metric("Total logged actions", len(activities))
+        latest_timestamp = (
+            f"{activities[0]['date']} {activities[0]['time']}"
+            if activities
+            else "No activity"
+        )
+        recent_col.metric("Most recent activity", latest_timestamp)
+        recent_timestamps = [
+            f"{activity['date']} {activity['time']}"
+            for activity in activities[:3]
+        ]
+        st.caption(
+            "Recent activity timestamps: "
+            + (", ".join(recent_timestamps) if recent_timestamps else "None")
+        )
+
+        if not activities:
+            st.info("No tenant activity has been logged for this selection.")
+        else:
+            st.dataframe(
+                [
+                    {
+                        "Tenant Slug": activity["tenant_slug"],
+                        "Activity Type": activity["activity_type"],
+                        "Description": activity["description"],
+                        "Performed By": activity["performed_by"],
+                        "Date": activity["date"],
+                        "Time": activity["time"],
+                        "Month": activity["month"],
+                        "Year": activity["year"],
+                    }
+                    for activity in activities
+                ],
+                use_container_width=True,
+            )
 
 if st.query_params.get("mode") == "dev":
     configured_password = _configured_developer_password()

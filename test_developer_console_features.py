@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -92,6 +93,15 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
             database.get_clearance_pass("pass-archive", "example_tenant")
         )
         self.assertEqual(database.list_admin_access_logs("example_tenant"), [])
+        self.assertIn(
+            "Tenant permanently purged",
+            [
+                activity["activity_type"]
+                for activity in database.get_all_tenant_activities(
+                    "example_tenant"
+                )
+            ],
+        )
 
     def test_vendor_registration_is_stable_and_type_scoped(self):
         unsolicited_slug = database.register_vendor(
@@ -129,6 +139,52 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
 
         database.set_general_broadcast("")
         self.assertIsNone(database.get_general_broadcast())
+
+    def test_tenant_activity_log_is_formatted_filtered_and_newest_first(self):
+        existing_activities = database.get_all_tenant_activities()
+        first_id = database.log_tenant_activity(
+            "EXAMPLE_TENANT",
+            "Proposal reviewed",
+            "The proposal passed initial review.",
+            "reviewer",
+        )
+        other_id = database.log_tenant_activity(
+            "other_tenant",
+            "Tenant updated",
+            "Tenant details updated.",
+        )
+        latest_id = database.log_tenant_activity(
+            "example_tenant",
+            "Proposal approved",
+            "The proposal was approved.",
+        )
+
+        activities = database.get_all_tenant_activities()
+        self.assertEqual(
+            [activity["id"] for activity in activities[:3]],
+            [latest_id, other_id, first_id],
+        )
+        self.assertEqual(
+            [activity["id"] for activity in activities[3:]],
+            [activity["id"] for activity in existing_activities],
+        )
+        example_activities = database.get_all_tenant_activities("EXAMPLE_TENANT")
+        self.assertEqual(
+            example_activities,
+            [
+                activity
+                for activity in activities
+                if activity["tenant_slug"] == "example_tenant"
+            ],
+        )
+        self.assertEqual(activities[0]["performed_by"], "System/Admin")
+        for activity in activities:
+            timestamp = datetime.strptime(
+                f"{activity['date']} {activity['time']}",
+                "%Y-%m-%d %H:%M:%S",
+            )
+            self.assertEqual(activity["month"], timestamp.strftime("%B %Y"))
+            self.assertEqual(activity["year"], timestamp.strftime("%Y"))
 
     def test_permanent_purge_removes_only_tenant_dossier_files(self):
         import sector_logic

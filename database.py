@@ -5,6 +5,7 @@ import os
 import re
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -32,6 +33,18 @@ _TABLE_COLUMNS = {
         ("action", "TEXT", 0, None),
         ("actor", "TEXT", 0, None),
         ("timestamp", "DATETIME", 0, "CURRENT_TIMESTAMP"),
+    ),
+    "tenant_activity_logs": (
+        ("id", "INTEGER", 1, None),
+        ("tenant_slug", "TEXT", 0, None),
+        ("activity_type", "TEXT", 0, None),
+        ("description", "TEXT", 0, None),
+        ("performed_by", "TEXT", 0, None),
+        ("date", "TEXT", 0, None),
+        ("time", "TEXT", 0, None),
+        ("month", "TEXT", 0, None),
+        ("year", "TEXT", 0, None),
+        ("created_at", "TIMESTAMP", 0, None),
     ),
     "clearance_passes": (
         ("qr_pass_id", "TEXT", 1, None),
@@ -83,6 +96,20 @@ _CREATE_TABLES = (
         action TEXT,
         actor TEXT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS tenant_activity_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_slug TEXT NOT NULL,
+        activity_type TEXT NOT NULL,
+        description TEXT NOT NULL,
+        performed_by TEXT NOT NULL,
+        date TEXT NOT NULL,
+        time TEXT NOT NULL,
+        month TEXT NOT NULL,
+        year TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL
     )
     """,
     """
@@ -197,6 +224,81 @@ def _required_text(value: Any, field_name: str) -> str:
     if not normalized:
         raise ValueError(f"{field_name} is required.")
     return normalized
+
+
+def _insert_tenant_activity(
+    connection: sqlite3.Connection,
+    tenant_slug: str,
+    activity_type: str,
+    description: str,
+    performed_by: str = "System/Admin",
+) -> int:
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    normalized_type = _required_text(activity_type, "activity_type")
+    normalized_description = _required_text(description, "description")
+    normalized_actor = _required_text(performed_by, "performed_by")
+    timestamp = datetime.now().astimezone()
+    cursor = connection.execute(
+        """
+        INSERT INTO tenant_activity_logs (
+            tenant_slug, activity_type, description, performed_by,
+            date, time, month, year, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            normalized_slug,
+            normalized_type,
+            normalized_description,
+            normalized_actor,
+            timestamp.strftime("%Y-%m-%d"),
+            timestamp.strftime("%H:%M:%S"),
+            timestamp.strftime("%B %Y"),
+            timestamp.strftime("%Y"),
+            timestamp.isoformat(sep=" ", timespec="seconds"),
+        ),
+    )
+    return int(cursor.lastrowid)
+
+
+def log_tenant_activity(
+    tenant_slug: str,
+    activity_type: str,
+    description: str,
+    performed_by: str = "System/Admin",
+) -> int:
+    """Record a tenant activity and return its row ID."""
+    init_db()
+    with get_connection() as connection:
+        return _insert_tenant_activity(
+            connection,
+            tenant_slug,
+            activity_type,
+            description,
+            performed_by,
+        )
+
+
+def get_all_tenant_activities(
+    tenant_slug: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return tenant activities newest-first, optionally scoped to one tenant."""
+    init_db()
+    with get_connection() as connection:
+        if tenant_slug is None:
+            rows = connection.execute(
+                "SELECT id, tenant_slug, activity_type, description, performed_by, "
+                "date, time, month, year, created_at FROM tenant_activity_logs "
+                "ORDER BY date DESC, time DESC, id DESC"
+            ).fetchall()
+        else:
+            normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+            rows = connection.execute(
+                "SELECT id, tenant_slug, activity_type, description, performed_by, "
+                "date, time, month, year, created_at FROM tenant_activity_logs "
+                "WHERE tenant_slug = ? ORDER BY date DESC, time DESC, id DESC",
+                (normalized_slug,),
+            ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def _vendor_slug(tenant_slug: str, vendor_name: str, vendor_type: str, email: str | None) -> str:
@@ -344,6 +446,13 @@ def update_tenant_status(tenant_slug: str, status: str) -> bool:
             "UPDATE tenants SET status = ? WHERE tenant_slug = ?",
             (normalized_status, normalized_slug),
         )
+        if cursor.rowcount == 1:
+            _insert_tenant_activity(
+                connection,
+                normalized_slug,
+                "Tenant status updated",
+                f"Tenant status changed to {normalized_status}.",
+            )
     return cursor.rowcount == 1
 
 
@@ -370,6 +479,12 @@ def archive_tenant(tenant_slug: str) -> bool:
                 archived_at = CURRENT_TIMESTAMP
             """,
             (normalized_slug, json.dumps(dict(row), ensure_ascii=False)),
+        )
+        _insert_tenant_activity(
+            connection,
+            normalized_slug,
+            "Tenant archived",
+            "Tenant moved to the recycle bin.",
         )
         connection.execute(
             "DELETE FROM tenants WHERE tenant_slug = ?", (normalized_slug,)
@@ -443,6 +558,12 @@ def restore_archived_tenant(tenant_slug: str) -> bool:
                 tenant_data.get("status"),
             ),
         )
+        _insert_tenant_activity(
+            connection,
+            normalized_slug,
+            "Tenant restored",
+            "Tenant restored from the recycle bin.",
+        )
         connection.execute(
             "DELETE FROM tenant_archive WHERE tenant_slug = ?", (normalized_slug,)
         )
@@ -461,6 +582,12 @@ def purge_archived_tenant(tenant_slug: str) -> bool:
         ).fetchone()
         if archived is None:
             return False
+        _insert_tenant_activity(
+            connection,
+            normalized_slug,
+            "Tenant permanently purged",
+            "Archived tenant permanently purged from the tenant registry.",
+        )
         connection.execute(
             "DELETE FROM clearance_passes WHERE tenant_slug = ?", (normalized_slug,)
         )
@@ -556,6 +683,9 @@ def save_tenant(tenant_data: dict[str, Any]) -> dict[str, Any]:
     )
     init_db()
     with get_connection() as connection:
+        existing = connection.execute(
+            "SELECT 1 FROM tenants WHERE tenant_slug = ?", (tenant_slug,)
+        ).fetchone()
         connection.execute(
             """
             INSERT INTO tenants (
@@ -578,6 +708,16 @@ def save_tenant(tenant_data: dict[str, Any]) -> dict[str, Any]:
             "FROM tenants WHERE tenant_slug = ?",
             (tenant_slug,),
         ).fetchone()
+        _insert_tenant_activity(
+            connection,
+            tenant_slug,
+            "Tenant created" if existing is None else "Tenant details updated",
+            (
+                "Tenant added to the registry."
+                if existing is None
+                else "Tenant registry details updated."
+            ),
+        )
     return dict(row)
 
 
@@ -612,6 +752,13 @@ def delete_tenant(tenant_slug: str) -> bool:
             "DELETE FROM tenants WHERE tenant_slug = ?",
             (normalized_slug,),
         )
+        if cursor.rowcount > 0:
+            _insert_tenant_activity(
+                connection,
+                normalized_slug,
+                "Tenant deleted",
+                "Tenant deleted from the tenant registry.",
+            )
     return cursor.rowcount > 0
 
 
