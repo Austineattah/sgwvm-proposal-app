@@ -1,4 +1,6 @@
+import hashlib
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -41,6 +43,25 @@ _TABLE_COLUMNS = {
         ("proposal_title", "TEXT", 0, None),
         ("clearance_status", "TEXT", 0, None),
     ),
+    "tenant_archive": (
+        ("tenant_slug", "TEXT", 1, None),
+        ("tenant_data_json", "TEXT", 0, None),
+        ("archived_at", "DATETIME", 0, "CURRENT_TIMESTAMP"),
+    ),
+    "vendors": (
+        ("vendor_slug", "TEXT", 1, None),
+        ("tenant_slug", "TEXT", 0, None),
+        ("vendor_name", "TEXT", 0, None),
+        ("vendor_type", "TEXT", 0, None),
+        ("email", "TEXT", 0, None),
+        ("status", "TEXT", 0, "PENDING"),
+        ("created_at", "DATETIME", 0, "CURRENT_TIMESTAMP"),
+    ),
+    "system_broadcast": (
+        ("id", "INTEGER", 1, None),
+        ("message", "TEXT", 0, None),
+        ("updated_at", "DATETIME", 0, "CURRENT_TIMESTAMP"),
+    ),
 }
 
 _CREATE_TABLES = (
@@ -74,6 +95,31 @@ _CREATE_TABLES = (
         payment_reference TEXT,
         proposal_title TEXT,
         clearance_status TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS tenant_archive (
+        tenant_slug TEXT PRIMARY KEY,
+        tenant_data_json TEXT NOT NULL,
+        archived_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS vendors (
+        vendor_slug TEXT PRIMARY KEY,
+        tenant_slug TEXT NOT NULL,
+        vendor_name TEXT NOT NULL,
+        vendor_type TEXT NOT NULL CHECK (vendor_type IN ('solicited', 'unsolicited')),
+        email TEXT,
+        status TEXT NOT NULL DEFAULT 'Pending',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS system_broadcast (
+        id INTEGER PRIMARY KEY,
+        message TEXT NOT NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
     """,
 )
@@ -136,9 +182,14 @@ def _verify_schema(connection: sqlite3.Connection) -> None:
 def init_db() -> None:
     """Create the required tables and fail clearly if an existing schema conflicts."""
     with get_connection() as connection:
+        vendors_table_exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'vendors'"
+        ).fetchone() is not None
         for statement in _CREATE_TABLES:
             connection.execute(statement)
         _verify_schema(connection)
+        if not vendors_table_exists:
+            _backfill_solicited_vendors(connection)
 
 
 def _required_text(value: Any, field_name: str) -> str:
@@ -146,6 +197,316 @@ def _required_text(value: Any, field_name: str) -> str:
     if not normalized:
         raise ValueError(f"{field_name} is required.")
     return normalized
+
+
+def _vendor_slug(tenant_slug: str, vendor_name: str, vendor_type: str, email: str | None) -> str:
+    identity = (email or vendor_name).strip().casefold()
+    digest = hashlib.sha256(
+        f"{tenant_slug}\0{vendor_type}\0{identity}".encode("utf-8")
+    ).hexdigest()[:10]
+    name_part = re.sub(r"[^a-z0-9]+", "-", vendor_name.casefold()).strip("-")
+    name_part = name_part[:32].strip("-") or "vendor"
+    return f"{tenant_slug}-{name_part}-{digest}"
+
+
+def _register_vendor(
+    connection: sqlite3.Connection,
+    tenant_slug: str,
+    vendor_name: str,
+    vendor_type: str,
+    email: str | None = None,
+) -> str:
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    normalized_name = _required_text(vendor_name, "vendor_name")
+    normalized_type = _required_text(vendor_type, "vendor_type").lower()
+    if normalized_type not in {"solicited", "unsolicited"}:
+        raise ValueError("vendor_type must be solicited or unsolicited.")
+    normalized_email = email.strip().lower() if isinstance(email, str) and email.strip() else None
+    slug = _vendor_slug(
+        normalized_slug,
+        normalized_name,
+        normalized_type,
+        normalized_email,
+    )
+    connection.execute(
+        """
+        INSERT INTO vendors (
+            vendor_slug, tenant_slug, vendor_name, vendor_type, email, status
+        ) VALUES (?, ?, ?, ?, ?, 'Pending')
+        ON CONFLICT(vendor_slug) DO NOTHING
+        """,
+        (
+            slug,
+            normalized_slug,
+            normalized_name,
+            normalized_type,
+            normalized_email,
+        ),
+    )
+    return slug
+
+
+def _backfill_solicited_vendors(connection: sqlite3.Connection) -> None:
+    rows = connection.execute(
+        "SELECT tenant_slug, vendor_name, email FROM clearance_passes "
+        "ORDER BY qr_pass_id"
+    ).fetchall()
+    for row in rows:
+        if not row["tenant_slug"] or not row["vendor_name"]:
+            logging.warning(
+                "Skipping incomplete legacy clearance pass %s during vendor "
+                "registry migration.",
+                row["qr_pass_id"],
+            )
+            continue
+        _register_vendor(
+            connection,
+            row["tenant_slug"],
+            row["vendor_name"],
+            "solicited",
+            row["email"],
+        )
+
+
+def register_vendor(
+    tenant_slug: str,
+    vendor_name: str,
+    vendor_type: str,
+    email: str | None = None,
+) -> str:
+    """Create a pending vendor subscription record and return its stable slug."""
+    init_db()
+    with get_connection() as connection:
+        return register_vendor_in_connection(
+            connection, tenant_slug, vendor_name, vendor_type, email
+        )
+
+
+def register_vendor_in_connection(
+    connection: sqlite3.Connection,
+    tenant_slug: str,
+    vendor_name: str,
+    vendor_type: str,
+    email: str | None = None,
+) -> str:
+    """Register a vendor using an existing tenant database transaction."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    tenant = connection.execute(
+        "SELECT 1 FROM tenants WHERE tenant_slug = ?", (normalized_slug,)
+    ).fetchone()
+    if tenant is None:
+        raise ValueError("Cannot register a vendor for an unknown tenant.")
+    return _register_vendor(
+        connection, normalized_slug, vendor_name, vendor_type, email
+    )
+
+
+def list_vendors(tenant_slug: str | None = None) -> list[dict[str, Any]]:
+    """Return registered vendor subscription records, optionally tenant-scoped."""
+    init_db()
+    with get_connection() as connection:
+        if tenant_slug is None:
+            rows = connection.execute(
+                "SELECT vendor_slug, tenant_slug, vendor_name, vendor_type, "
+                "email, status, created_at FROM vendors "
+                "ORDER BY vendor_type, tenant_slug, vendor_name"
+            ).fetchall()
+        else:
+            normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+            rows = connection.execute(
+                "SELECT vendor_slug, tenant_slug, vendor_name, vendor_type, "
+                "email, status, created_at FROM vendors WHERE tenant_slug = ? "
+                "ORDER BY vendor_type, vendor_name",
+                (normalized_slug,),
+            ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def activate_vendor(vendor_slug: str) -> bool:
+    """Activate a vendor subscription without changing payment clearance status."""
+    normalized_slug = _required_text(vendor_slug, "vendor_slug")
+    init_db()
+    with get_connection() as connection:
+        cursor = connection.execute(
+            "UPDATE vendors SET status = 'Active' WHERE vendor_slug = ?",
+            (normalized_slug,),
+        )
+    return cursor.rowcount == 1
+
+
+def update_tenant_status(tenant_slug: str, status: str) -> bool:
+    """Update an existing tenant status without creating a tenant implicitly."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    normalized_status = _required_text(status, "status")
+    init_db()
+    with get_connection() as connection:
+        cursor = connection.execute(
+            "UPDATE tenants SET status = ? WHERE tenant_slug = ?",
+            (normalized_status, normalized_slug),
+        )
+    return cursor.rowcount == 1
+
+
+def archive_tenant(tenant_slug: str) -> bool:
+    """Move a tenant into the recycle bin while retaining associated records."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    init_db()
+    with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            "SELECT tenant_slug, full_corporation_name, institution_category, "
+            "apex_title, sub_directorates_json, logo_path, status "
+            "FROM tenants WHERE tenant_slug = ?",
+            (normalized_slug,),
+        ).fetchone()
+        if row is None:
+            return False
+        connection.execute(
+            """
+            INSERT INTO tenant_archive (tenant_slug, tenant_data_json)
+            VALUES (?, ?)
+            ON CONFLICT(tenant_slug) DO UPDATE SET
+                tenant_data_json = excluded.tenant_data_json,
+                archived_at = CURRENT_TIMESTAMP
+            """,
+            (normalized_slug, json.dumps(dict(row), ensure_ascii=False)),
+        )
+        connection.execute(
+            "DELETE FROM tenants WHERE tenant_slug = ?", (normalized_slug,)
+        )
+    return True
+
+
+def list_archived_tenants() -> list[dict[str, Any]]:
+    """Return archived tenant snapshots ordered by archive time."""
+    init_db()
+    with get_connection() as connection:
+        rows = connection.execute(
+            "SELECT tenant_slug, tenant_data_json, archived_at "
+            "FROM tenant_archive ORDER BY archived_at DESC, tenant_slug"
+        ).fetchall()
+    archived = []
+    for row in rows:
+        tenant_data = json.loads(row["tenant_data_json"])
+        if not isinstance(tenant_data, dict):
+            raise RuntimeError(
+                f"Archived tenant {row['tenant_slug']!r} contains invalid data."
+            )
+        archived.append(
+            {
+                "tenant_slug": row["tenant_slug"],
+                "tenant_data": tenant_data,
+                "archived_at": row["archived_at"],
+            }
+        )
+    return archived
+
+
+def restore_archived_tenant(tenant_slug: str) -> bool:
+    """Restore a tenant snapshot; fail if its slug has since been reused."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    init_db()
+    with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            "SELECT tenant_data_json FROM tenant_archive WHERE tenant_slug = ?",
+            (normalized_slug,),
+        ).fetchone()
+        if row is None:
+            return False
+        tenant_data = json.loads(row["tenant_data_json"])
+        if not isinstance(tenant_data, dict):
+            raise RuntimeError(
+                f"Archived tenant {normalized_slug!r} contains invalid data."
+            )
+        existing = connection.execute(
+            "SELECT 1 FROM tenants WHERE tenant_slug = ?", (normalized_slug,)
+        ).fetchone()
+        if existing is not None:
+            raise ValueError(
+                f"Cannot restore {normalized_slug!r}: that tenant slug is already in use."
+            )
+        connection.execute(
+            """
+            INSERT INTO tenants (
+                tenant_slug, full_corporation_name, institution_category,
+                apex_title, sub_directorates_json, logo_path, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                normalized_slug,
+                tenant_data.get("full_corporation_name"),
+                tenant_data.get("institution_category"),
+                tenant_data.get("apex_title"),
+                tenant_data.get("sub_directorates_json"),
+                tenant_data.get("logo_path"),
+                tenant_data.get("status"),
+            ),
+        )
+        connection.execute(
+            "DELETE FROM tenant_archive WHERE tenant_slug = ?", (normalized_slug,)
+        )
+    return True
+
+
+def purge_archived_tenant(tenant_slug: str) -> bool:
+    """Permanently purge an archived tenant and its associated records."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    init_db()
+    with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        archived = connection.execute(
+            "SELECT 1 FROM tenant_archive WHERE tenant_slug = ?",
+            (normalized_slug,),
+        ).fetchone()
+        if archived is None:
+            return False
+        connection.execute(
+            "DELETE FROM clearance_passes WHERE tenant_slug = ?", (normalized_slug,)
+        )
+        connection.execute(
+            "DELETE FROM admin_access_logs WHERE tenant_slug = ?", (normalized_slug,)
+        )
+        connection.execute(
+            "DELETE FROM vendors WHERE tenant_slug = ?", (normalized_slug,)
+        )
+        connection.execute(
+            "DELETE FROM tenant_archive WHERE tenant_slug = ?", (normalized_slug,)
+        )
+    return True
+
+
+def set_general_broadcast(message: str) -> None:
+    """Persist the current general broadcast shown to all tenant administrators."""
+    if not isinstance(message, str):
+        raise TypeError("message must be text.")
+    if len(message) > 2_000:
+        raise ValueError("Broadcast messages must be 2,000 characters or fewer.")
+    init_db()
+    with get_connection() as connection:
+        if message.strip():
+            connection.execute(
+                """
+                INSERT INTO system_broadcast (id, message)
+                VALUES (1, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    message = excluded.message,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (message.strip(),),
+            )
+        else:
+            connection.execute("DELETE FROM system_broadcast WHERE id = 1")
+
+
+def get_general_broadcast() -> dict[str, str] | None:
+    """Return the current persisted broadcast, if one is published."""
+    init_db()
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT message, updated_at FROM system_broadcast WHERE id = 1"
+        ).fetchone()
+    return dict(row) if row is not None else None
 
 
 def get_tenant_by_slug(tenant_slug: str) -> dict[str, Any] | None:
@@ -322,6 +683,13 @@ def create_clearance_pass(pass_data: dict[str, Any]) -> dict[str, Any]:
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             values,
+        )
+        register_vendor_in_connection(
+            connection,
+            values[1],
+            values[3],
+            "solicited",
+            values[4],
         )
         row = connection.execute(
             "SELECT qr_pass_id, tenant_slug, rfq_code, vendor_name, email, "

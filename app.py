@@ -233,6 +233,15 @@ def _handle_internal_login(tenant_slug: str) -> None:
     st.session_state[identity_key] = identity
 
 
+def _persist_general_broadcast() -> None:
+    message = str(st.session_state.get("developer_broadcast_message", ""))
+    try:
+        db.set_general_broadcast(message)
+    except (sqlite3.Error, RuntimeError, ValueError):
+        logging.exception("Could not save the tenant administrator broadcast.")
+        st.error("The broadcast could not be saved. Please try again.")
+
+
 def _render_internal_portal(tenant: Mapping[str, Any], tenant_slug: str) -> None:
     identity_key = _tenant_key(tenant_slug, "internal", "identity")
     failed_key = _tenant_key(tenant_slug, "internal", "login_failed")
@@ -277,6 +286,20 @@ def _render_internal_portal(tenant: Mapping[str, Any], tenant_slug: str) -> None
     st.success(
         f"Authenticated as {identity['username']} ({identity['role']})."
     )
+    try:
+        broadcast = db.get_general_broadcast()
+    except (sqlite3.Error, RuntimeError):
+        logging.exception(
+            "Could not load tenant administrator broadcast for %s.", tenant_slug
+        )
+        st.warning("The platform broadcast is temporarily unavailable.")
+    else:
+        if broadcast is not None:
+            st.info(
+                f"**Platform broadcast** · Updated {broadcast['updated_at']}\n\n"
+                f"{broadcast['message']}"
+            )
+
     st.subheader("Tenant profile")
     st.write("Institution category:", tenant.get("institution_category") or "Not configured")
     st.write("Executive title:", tenant.get("apex_title") or "Not configured")
@@ -633,24 +656,41 @@ def _render_route_error(message: str) -> None:
 
 
 
-def render_developer_console():
+def render_developer_console() -> None:
     st.markdown("## Sovereign Developer Command Console")
     st.markdown(
-        "Tenant registry and activation controls for the sovereign portal."
+        "Client tenant, archive, and platform broadcast management."
     )
-    st.button("Refresh Tenant Registry")
 
     try:
         tenants = db.list_tenants()
-    except (sqlite3.Error, RuntimeError):
-        logging.exception("Developer tenant registry failed to load.")
-        st.error("Tenant registry is unavailable. Please try again later.")
+        archived_tenants = db.list_archived_tenants()
+        current_broadcast = db.get_general_broadcast()
+    except (sqlite3.Error, RuntimeError, ValueError):
+        logging.exception("Developer console data failed to load.")
+        st.error("Developer console data is unavailable. Please try again later.")
         return
 
-    if not tenants:
-        st.info("No tenant records are available in the registry.")
-    else:
-        st.success(f"Registered tenants: **{len(tenants)}**")
+    if "developer_broadcast_message" not in st.session_state:
+        st.session_state["developer_broadcast_message"] = (
+            current_broadcast["message"] if current_broadcast else ""
+        )
+
+    registry_tab, copy_tab, recycle_tab, settings_tab = st.tabs(
+        [
+            "Tenant Registry & Activation",
+            "Slug Copy Registry",
+            "Recycle Bin / Archive & Purge",
+            "Platform Broadcasts",
+        ]
+    )
+
+    with registry_tab:
+        st.button("Refresh Tenant Registry", key="refresh_tenant_registry")
+        if not tenants:
+            st.info("No tenant records are available in the registry.")
+        else:
+            st.success(f"Registered client tenants: **{len(tenants)}**")
         for tenant in tenants:
             slug = tenant["tenant_slug"]
             name = tenant.get("full_corporation_name") or slug
@@ -658,7 +698,6 @@ def render_developer_console():
             is_active = str(status).strip().upper() == "ACTIVE"
             with st.expander(f"Tenant: {name} ({status})"):
                 st.write(f"**Tenant slug:** `{slug}`")
-                st.write(f"**Vendor portal route:** `?portal=vendor&tenant={slug}`")
                 st.write(
                     "**Institution category:** "
                     f"{tenant.get('institution_category') or 'Not configured'}"
@@ -667,22 +706,141 @@ def render_developer_console():
 
                 if not is_active:
                     if st.button(
-                        f"Activate tenant: {name}",
-                        key=f"activate_{slug}",
+                        f"Activate tenant subscription: {name}",
+                        key=f"activate_tenant_{slug}",
                     ):
                         try:
-                            db.save_tenant({**tenant, "status": "Active"})
+                            updated = db.update_tenant_status(slug, "Active")
                         except (sqlite3.Error, RuntimeError, ValueError):
                             logging.exception(
                                 "Tenant activation failed for slug %s.", slug
                             )
                             st.error(f"Tenant {name} could not be activated.")
                         else:
-                            st.success(f"Tenant {name} activated.")
-                            st.rerun()
+                            if updated:
+                                st.success(f"Tenant {name} activated.")
+                                st.rerun()
+                            else:
+                                st.error(f"Tenant {name} no longer exists.")
                 else:
-                    st.success("Tenant is active.")
+                    st.success("Tenant subscription is active.")
 
+                if st.button(
+                    f"Move {name} to recycle bin",
+                    key=f"archive_tenant_{slug}",
+                ):
+                    try:
+                        archived = db.archive_tenant(slug)
+                    except (sqlite3.Error, RuntimeError, ValueError):
+                        logging.exception(
+                            "Could not archive tenant %s.", slug
+                        )
+                        st.error(f"Tenant {name} could not be archived.")
+                    else:
+                        if archived:
+                            st.success(f"Tenant {name} moved to the recycle bin.")
+                            st.rerun()
+                        else:
+                            st.error(f"Tenant {name} no longer exists.")
+
+    with copy_tab:
+        st.markdown("### Client Tenant Slugs")
+        tenant_slugs = [tenant["tenant_slug"] for tenant in tenants]
+        st.json(tenant_slugs)
+        for tenant_slug in tenant_slugs:
+            st.code(tenant_slug, language="text")
+
+    with recycle_tab:
+        if not archived_tenants:
+            st.info("The recycle bin is empty.")
+        else:
+            st.warning(
+                "Restoring returns a tenant to the active registry. Permanent purge "
+                "deletes its associated clearance records, access logs, and "
+                "encrypted dossiers."
+            )
+            for archived in archived_tenants:
+                tenant_data = archived["tenant_data"]
+                slug = archived["tenant_slug"]
+                name = tenant_data.get("full_corporation_name") or slug
+                with st.expander(f"{name} · {slug} (archived {archived['archived_at']})"):
+                    st.json(tenant_data)
+                    if st.button(
+                        f"Restore {name}",
+                        key=f"restore_tenant_{slug}",
+                    ):
+                        try:
+                            restored = db.restore_archived_tenant(slug)
+                        except (sqlite3.Error, RuntimeError, ValueError) as exc:
+                            logging.exception(
+                                "Could not restore tenant %s.", slug
+                            )
+                            st.error(f"Tenant could not be restored: {exc}")
+                        else:
+                            if restored:
+                                st.success(f"Tenant {name} restored.")
+                                st.rerun()
+                            else:
+                                st.error("Archived tenant no longer exists.")
+
+                    confirm_purge = st.checkbox(
+                        f"I understand this permanently deletes {name} and its "
+                        "associated records.",
+                        key=f"confirm_purge_tenant_{slug}",
+                    )
+                    if st.button(
+                        f"Permanently purge {name}",
+                        key=f"purge_tenant_{slug}",
+                        disabled=not confirm_purge,
+                    ):
+                        try:
+                            purged = db.purge_archived_tenant(slug)
+                        except (sqlite3.Error, RuntimeError, ValueError):
+                            logging.exception(
+                                "Could not permanently purge tenant %s.", slug
+                            )
+                            st.error(f"Tenant {name} could not be purged.")
+                        else:
+                            if purged:
+                                from sector_logic import purge_tenant_dossiers
+
+                                try:
+                                    removed_dossiers = purge_tenant_dossiers(slug)
+                                except (OSError, RuntimeError, ValueError):
+                                    logging.exception(
+                                        "Tenant %s was purged from the registry, "
+                                        "but encrypted dossier cleanup failed.",
+                                        slug,
+                                    )
+                                    st.error(
+                                        f"Tenant {name} was purged from the registry, "
+                                        "but encrypted dossier cleanup failed. "
+                                        "Review the server logs for cleanup details."
+                                    )
+                                else:
+                                    st.success(
+                                        f"Tenant {name} permanently purged, including "
+                                        f"{removed_dossiers} encrypted dossier file(s)."
+                                    )
+                                    st.rerun()
+                            else:
+                                st.error("Archived tenant no longer exists.")
+
+    with settings_tab:
+        st.markdown("### Global Tenant Administrator Broadcast")
+        st.caption(
+            "Changes are saved automatically and appear on authenticated internal "
+            "tenant dashboards. Leave the field blank to clear the broadcast."
+        )
+        st.text_area(
+            "Broadcast message",
+            key="developer_broadcast_message",
+            max_chars=2_000,
+            height=180,
+            on_change=_persist_general_broadcast,
+        )
+        if current_broadcast is not None:
+            st.caption(f"Currently published · Updated {current_broadcast['updated_at']}")
 
 if st.query_params.get("mode") == "dev":
     configured_password = _configured_developer_password()

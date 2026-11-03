@@ -163,6 +163,13 @@ def _create_payment_verified_pass(
                 _CLEARANCE_ACTIVE_STATUS,
             ),
         )
+        db.register_vendor_in_connection(
+            connection,
+            tenant_slug,
+            vendor_name,
+            "solicited",
+            vendor_email,
+        )
     return pass_id
 
 
@@ -236,6 +243,41 @@ def _dossier_path(tenant_slug: str, pass_id: str) -> Path:
     ).expanduser()
     pass_digest = hashlib.sha256(pass_id.encode("utf-8")).hexdigest()
     return storage_root / tenant_slug / f"{pass_digest}.fernet"
+
+
+def purge_tenant_dossiers(tenant_slug: str) -> int:
+    """Remove encrypted dossier files for a purged tenant without following links."""
+    if not isinstance(tenant_slug, str) or not _TENANT_SLUG_PATTERN.fullmatch(
+        tenant_slug
+    ):
+        raise ValueError("The tenant identifier is invalid.")
+
+    storage_root = Path(
+        os.environ.get(
+            "NEXUSVAULT_DOSSIER_DIR",
+            Path(__file__).resolve().parent / "uploads" / "sealed_dossiers",
+        )
+    ).expanduser().resolve()
+    tenant_directory = storage_root / tenant_slug
+    if tenant_directory.is_symlink():
+        raise RuntimeError("Tenant dossier storage cannot be a symbolic link.")
+    if not tenant_directory.exists():
+        return 0
+
+    resolved_directory = tenant_directory.resolve()
+    if resolved_directory.parent != storage_root or not resolved_directory.is_dir():
+        raise RuntimeError("Tenant dossier storage is outside the configured root.")
+
+    files = tuple(resolved_directory.iterdir())
+    if any(path.is_symlink() or not path.is_file() for path in files):
+        raise RuntimeError(
+            "Tenant dossier storage contains unexpected files or directories."
+        )
+
+    for path in files:
+        path.unlink()
+    resolved_directory.rmdir()
+    return len(files)
 
 
 def _write_encrypted_dossier(
@@ -712,11 +754,28 @@ def render_unsolicited_vendor_portal(
                     "contact support."
                 )
             else:
-                st.success(
-                    "The organization details and proposal document were encrypted "
-                    "and stored securely."
-                )
-                st.code(submission_id, language="text")
+                try:
+                    vendor_slug = db.register_vendor(
+                        tenant_slug,
+                        organization,
+                        "unsolicited",
+                    )
+                except (sqlite3.Error, RuntimeError, ValueError):
+                    logging.exception(
+                        "Unsolicited vendor registry update failed for tenant %s.",
+                        tenant_slug,
+                    )
+                    st.error(
+                        "The proposal was stored, but the vendor registry could not "
+                        "be updated. Please contact support."
+                    )
+                else:
+                    st.success(
+                        "The organization details and proposal document were encrypted "
+                        "and stored securely."
+                    )
+                    st.caption(f"Vendor registry slug: {vendor_slug}")
+                    st.code(submission_id, language="text")
 
 
 def render_unified_vendor_portal(
