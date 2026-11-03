@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import streamlit as st
+
 from streamlit.errors import StreamlitSecretNotFoundError
 
 import database as db
@@ -140,6 +141,17 @@ def _configured_staff_users() -> dict[str, Any]:
         logging.error("Configured staff users must be a mapping.")
         return {}
     return dict(users)
+
+
+def _configured_developer_password() -> str | None:
+    password = os.environ.get("NEXUSVAULT_DEVELOPER_GRANT_PASSWORD")
+    if password:
+        return password
+    try:
+        password = st.secrets.get("NEXUSVAULT_DEVELOPER_GRANT_PASSWORD")
+    except (KeyError, StreamlitSecretNotFoundError):
+        return None
+    return password if isinstance(password, str) and password else None
 
 
 def _verify_password(password: str, encoded_hash: Any) -> bool:
@@ -610,12 +622,7 @@ def _render_home() -> None:
         unsafe_allow_html=True,
     )
     st.markdown("---")
-    st.markdown(
-        "<p style='color: #64748b; font-size: 12px;'>"
-        "NEXUSVAULT_TECH Sovereign Enterprise Engine • NITDA / NDPA Compliant"
-        "</p>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div style='color: #00FF66; font-weight: bold; text-align: center;'>NEXUSVAULT_TECH Sovereign Enterprise Engine • NITDA / NDPA Compliant</div>", unsafe_allow_html=True)
 
 
 def _render_route_error(message: str) -> None:
@@ -624,60 +631,119 @@ def _render_route_error(message: str) -> None:
     st.caption("Use a valid tenant-issued link or contact your platform administrator.")
 
 
-try:
-    _portal, _tenant_slug, _intake_type = _parse_route()
-except ValueError as exc:
-    _sync_tenant_session(None)
-    _render_route_error(str(exc))
-else:
-    _sync_tenant_session(_tenant_slug)
-    if _portal == "home":
-        _render_home()
-    else:
-        try:
-            db.init_db()
-            _tenant = db.get_tenant_by_slug(_tenant_slug)
-        except (sqlite3.Error, RuntimeError):
-            logging.exception("Tenant lookup failed.")
-            _render_route_error("Tenant access could not be verified. Please try again later.")
-        else:
-            if (
-                _tenant is None
-                or str(_tenant.get("status", "")).strip().upper() != "ACTIVE"
-            ):
-                _render_route_error("The requested tenant was not found or is inactive.")
-            elif _portal == "vendor":
-                _render_vendor_portal(_tenant_slug)
-            elif _portal == "internal":
-                _render_internal_portal(_tenant, _tenant_slug)
 
 
 def render_developer_console():
-    import database
-    import pandas as pd
-    
-    st.markdown("## ??? Sovereign Developer Console & Tenant Registry")
-    st.markdown("Real-time audit of active client tenants, persistent slugs, and governance payloads stored on disk storage.")
-    
-    if st.button("?? Refresh Tenant Registry"):
-        st.rerun()
+    st.markdown("## Sovereign Developer Command Console")
+    st.markdown(
+        "Tenant registry and activation controls for the sovereign portal."
+    )
+    st.button("Refresh Tenant Registry")
 
-    if hasattr(database, "get_all_tenants"):
-        df_tenants = database.get_all_tenants()
+    try:
+        tenants = db.list_tenants()
+    except (sqlite3.Error, RuntimeError):
+        logging.exception("Developer tenant registry failed to load.")
+        st.error("Tenant registry is unavailable. Please try again later.")
+        return
+
+    if not tenants:
+        st.info("No tenant records are available in the registry.")
     else:
-        df_tenants = pd.DataFrame()
+        st.success(f"Registered tenants: **{len(tenants)}**")
+        for tenant in tenants:
+            slug = tenant["tenant_slug"]
+            name = tenant.get("full_corporation_name") or slug
+            status = tenant.get("status") or "Unknown"
+            is_active = str(status).strip().upper() == "ACTIVE"
+            with st.expander(f"Tenant: {name} ({status})"):
+                st.write(f"**Tenant slug:** `{slug}`")
+                st.write(f"**Vendor portal route:** `?portal=vendor&tenant={slug}`")
+                st.write(
+                    "**Institution category:** "
+                    f"{tenant.get('institution_category') or 'Not configured'}"
+                )
+                st.write(f"**Current status:** `{status}`")
 
-    if df_tenants is None or df_tenants.empty:
-        st.info("?? No tenant records found in the persistent registry yet. Complete an onboarding submission to populate records.")
+                if not is_active:
+                    if st.button(
+                        f"Activate tenant: {name}",
+                        key=f"activate_{slug}",
+                    ):
+                        try:
+                            db.save_tenant({**tenant, "status": "Active"})
+                        except (sqlite3.Error, RuntimeError, ValueError):
+                            logging.exception(
+                                "Tenant activation failed for slug %s.", slug
+                            )
+                            st.error(f"Tenant {name} could not be activated.")
+                        else:
+                            st.success(f"Tenant {name} activated.")
+                            st.rerun()
+                else:
+                    st.success("Tenant is active.")
+
+
+if st.query_params.get("mode") == "dev":
+    configured_password = _configured_developer_password()
+    if configured_password is None:
+        st.error(
+            "Developer access is unavailable: configure "
+            "NEXUSVAULT_DEVELOPER_GRANT_PASSWORD."
+        )
+        st.stop()
+
+    st.markdown("## NexusVault Developer Authentication")
+    with st.form(key="developer_authentication_form"):
+        dev_pass = st.text_input(
+            "Enter Developer Grant Password",
+            type="password",
+            key="dev_grant_input",
+        )
+        submitted = st.form_submit_button("Authenticate")
+
+    if submitted:
+        authenticated = hmac.compare_digest(dev_pass, configured_password)
+        st.session_state["dev_authenticated"] = authenticated
+        if authenticated:
+            st.success("Developer access granted.")
+        else:
+            st.error("Invalid developer credentials.")
+
+    if st.session_state.get("dev_authenticated", False):
+        render_developer_console()
+        st.stop()
     else:
-        st.success(f"? Active Sovereign Tenants Registered: **{len(df_tenants)}**")
-        st.dataframe(df_tenants, use_container_width=True)
-
-        st.markdown("---")
-        st.markdown("### ?? Tenant Slug & URL Routing Inspector")
-        slug_list = df_tenants["slug"].tolist() if "slug" in df_tenants.columns else []
-        selected_tenant = st.selectbox("Select Tenant Slug to Inspect:", slug_list)
-        
-        if selected_tenant:
-            tenant_record = df_tenants[df_tenants["slug"] == selected_tenant].iloc[0]
-            st.json(tenant_record.to_dict())
+        st.warning("Restricted Developer Console. Please authenticate to continue.")
+        st.stop()
+else:
+    try:
+        _portal, _tenant_slug, _intake_type = _parse_route()
+    except ValueError as exc:
+        _sync_tenant_session(None)
+        _render_route_error(str(exc))
+    else:
+        _sync_tenant_session(_tenant_slug)
+        if _portal == "home":
+            _render_home()
+        else:
+            try:
+                db.init_db()
+                _tenant = db.get_tenant_by_slug(_tenant_slug)
+            except (sqlite3.Error, RuntimeError):
+                logging.exception("Tenant lookup failed.")
+                _render_route_error(
+                    "Tenant access could not be verified. Please try again later."
+                )
+            else:
+                if (
+                    _tenant is None
+                    or str(_tenant.get("status", "")).strip().upper() != "ACTIVE"
+                ):
+                    _render_route_error(
+                        "The requested tenant was not found or is inactive."
+                    )
+                elif _portal == "vendor":
+                    _render_vendor_portal(_tenant_slug)
+                elif _portal == "internal":
+                    _render_internal_portal(_tenant, _tenant_slug)
