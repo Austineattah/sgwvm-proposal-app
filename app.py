@@ -150,8 +150,8 @@ def _configured_developer_password() -> str | None:
     try:
         password = st.secrets.get("NEXUSVAULT_DEVELOPER_GRANT_PASSWORD")
     except (KeyError, StreamlitSecretNotFoundError):
-        return None
-    return password if isinstance(password, str) and password else None
+        return ""
+    return password if isinstance(password, str) and password else ""
 
 
 def _verify_password(password: str, encoded_hash: Any) -> bool:
