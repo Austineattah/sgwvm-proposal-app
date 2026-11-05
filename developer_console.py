@@ -1,11 +1,23 @@
-﻿import streamlit as st
+import hmac
+import os
+
+import streamlit as st
 import database as db
 
-PRODUCTION_BASE_URL = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
+PRODUCTION_BASE_URL = "https://nexusvault-proposal-enterprise-connect.streamlit.app"
 
 def render_developer_master_console():
     st.markdown("<div class='section-hdr'>🔑 Master Developer & SaaS Platform Administrator Console</div>", unsafe_allow_html=True)
     st.info("Central Multi-Tenant Management Hub: Monitor tenant subscriptions, identify locked-out nodes, reassign passwords, or manage the purge archive.")
+    configured_password = os.environ.get(
+        "NEXUSVAULT_DEVELOPER_GRANT_PASSWORD", ""
+    ).strip()
+    if not configured_password:
+        st.error(
+            "Developer access is unavailable: configure "
+            "NEXUSVAULT_DEVELOPER_GRANT_PASSWORD."
+        )
+        return
 
     if "dev_master_logged_in" not in st.session_state:
         st.session_state["dev_master_logged_in"] = False
@@ -17,7 +29,7 @@ def render_developer_master_console():
             btn_login = st.form_submit_button("Authenticate Developer Session", use_container_width=True)
 
             if btn_login:
-                if dev_pass == "NexusDevGrant2026!":
+                if hmac.compare_digest(dev_pass, configured_password):
                     st.session_state["dev_master_logged_in"] = True
                     st.success("✅ Developer Session Authenticated!")
                     st.rerun()
@@ -125,7 +137,7 @@ def render_developer_master_console():
                     <p style="color: #94a3b8; font-size: 13px; margin: 6px 0;"><b>Slug Reference:</b> <code>{client['client_slug']}</code> | <b>Tier:</b> {client['sub_package']}</p>
                     <p style="color: #38bdf8; font-size: 12px; margin: 4px 0;">🌐 <b>Client Tenant Link:</b> <a href="https://nexusvault-proposal-enterprise-connect.streamlit.app/?tenant={client['client_slug']}" target="_blank">https://nexusvault-proposal-enterprise-connect.streamlit.app/?tenant={client['client_slug']}</a></p>
                     <p style="color: #38bdf8; font-size: 12px; margin: 4px 0;">📄 <b>Vendor Portal Link:</b> <a href="https://nexusvault-proposal-enterprise-connect.streamlit.app/?portal=vendor&tenant={client['client_slug']}" target="_blank">https://nexusvault-proposal-enterprise-connect.streamlit.app/?portal=vendor&tenant={client['client_slug']}</a></p>
-                    <p style="color: #cbd5e1; font-size: 13px; margin: 2px 0;"><b>Admin Email:</b> {client['admin_email']} | <b>Pass:</b> <code>{client.get('client_admin_pass', 'NexusExec2026!')}</code></p>
+                    <p style="color: #cbd5e1; font-size: 13px; margin: 2px 0;"><b>Admin Email:</b> {client['admin_email']}</p>
                 </div>
             """, unsafe_allow_html=True)
 
@@ -133,14 +145,22 @@ def render_developer_master_console():
             with st.expander(f"⚙️ [{idx}] Manage Portal, Security & Credentials: {client['corp_name']}", expanded=False):
                 with st.form(f"reset_client_form_{client['client_id']}"):
                     st.markdown("##### 🔐 Password Reassignment & Lockout Controls")
-                    new_c_pass = st.text_input("New Executive Password", value=client.get('client_admin_pass', 'NexusExec2026!'), type="password", key=f"pass_{client['client_id']}")
+                    new_c_pass = st.text_input(
+                        "New Executive Password",
+                        type="password",
+                        placeholder="Set a new password",
+                        key=f"pass_{client['client_id']}",
+                    )
                     btn_reset = st.form_submit_button("🔄 Save New Password & Lift Lockout", use_container_width=True)
 
                     if btn_reset:
-                        db.reset_client_password(client['client_id'], new_c_pass)
-                        db.update_client_lockout(client['client_id'], "False")
-                        st.success(f"✅ Password updated and lockout lifted for '{client['corp_name']}'!")
-                        st.rerun()
+                        if not new_c_pass:
+                            st.error("Enter a new executive password before saving.")
+                        else:
+                            db.reset_client_password(client['client_id'], new_c_pass)
+                            db.update_client_lockout(client['client_id'], "False")
+                            st.success(f"✅ Password updated and lockout lifted for '{client['corp_name']}'!")
+                            st.rerun()
 
                 st.markdown("##### 🚀 Direct Portal Navigation")
                 if st.button(f"🔗 Launch Portal for [{client['client_slug']}]", key=f"launch_{client['client_id']}", use_container_width=True):

@@ -30,6 +30,12 @@ _TABLE_COLUMNS = {
         ("sub_directorates_json", "TEXT", 0, None),
         ("logo_path", "TEXT", 0, None),
         ("status", "TEXT", 0, None),
+        ("is_deleted", "INTEGER", 0, "0"),
+        ("deleted_at", "TEXT", 0, None),
+        ("activated_at", "TEXT", 0, None),
+        ("activated_by", "TEXT", 0, None),
+        ("deactivated_at", "TEXT", 0, None),
+        ("deactivated_by", "TEXT", 0, None),
     ),
     "tenant_onboarding_contacts": (
         ("tenant_slug", "TEXT", 1, None),
@@ -254,7 +260,13 @@ _CREATE_TABLES = (
         apex_title TEXT,
         sub_directorates_json TEXT,
         logo_path TEXT,
-        status TEXT
+        status TEXT,
+        is_deleted INTEGER NOT NULL DEFAULT 0 CHECK (is_deleted IN (0, 1)),
+        deleted_at TEXT,
+        activated_at TEXT,
+        activated_by TEXT,
+        deactivated_at TEXT,
+        deactivated_by TEXT
     )
     """,
     """
@@ -642,6 +654,24 @@ def _verify_schema(connection: sqlite3.Connection) -> None:
 
 
 def _migrate_database_schema(connection: sqlite3.Connection) -> None:
+    tenant_columns = {
+        row["name"]
+        for row in connection.execute('PRAGMA table_info("tenants")').fetchall()
+    }
+    tenant_lifecycle_columns = (
+        ("is_deleted", "INTEGER NOT NULL DEFAULT 0"),
+        ("deleted_at", "TEXT"),
+        ("activated_at", "TEXT"),
+        ("activated_by", "TEXT"),
+        ("deactivated_at", "TEXT"),
+        ("deactivated_by", "TEXT"),
+    )
+    for column_name, column_definition in tenant_lifecycle_columns:
+        if column_name not in tenant_columns:
+            connection.execute(
+                f"ALTER TABLE tenants ADD COLUMN {column_name} {column_definition}"
+            )
+
     unsolicited_columns = {
         row["name"]
         for row in connection.execute(
@@ -958,7 +988,7 @@ def create_physical_proposal(
     with get_connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         tenant = connection.execute(
-            "SELECT status FROM tenants WHERE tenant_slug = ?",
+            "SELECT status FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
             (normalized_slug,),
         ).fetchone()
         if tenant is None or str(tenant["status"] or "").strip().upper() != "ACTIVE":
@@ -1133,7 +1163,7 @@ def save_tenant_gateway_config(
     with get_connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         tenant = connection.execute(
-            "SELECT status FROM tenants WHERE tenant_slug = ?",
+            "SELECT status FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
             (normalized_slug,),
         ).fetchone()
         if tenant is None or str(tenant["status"] or "").strip().upper() != "ACTIVE":
@@ -1275,7 +1305,7 @@ def create_tenant_tender(
     with get_connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         tenant = connection.execute(
-            "SELECT status FROM tenants WHERE tenant_slug = ?",
+            "SELECT status FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
             (normalized_slug,),
         ).fetchone()
         if tenant is None or str(tenant["status"] or "").strip().upper() != "ACTIVE":
@@ -1485,7 +1515,7 @@ def replace_tenant_committee(
     with get_connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         tenant = connection.execute(
-            "SELECT status FROM tenants WHERE tenant_slug = ?",
+            "SELECT status FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
             (normalized_slug,),
         ).fetchone()
         if tenant is None or str(tenant["status"] or "").strip().upper() != "ACTIVE":
@@ -1587,7 +1617,7 @@ def authenticate_tenant_committee_member(
     init_db()
     with get_connection() as connection:
         tenant = connection.execute(
-            "SELECT status FROM tenants WHERE tenant_slug = ?",
+            "SELECT status FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
             (normalized_slug,),
         ).fetchone()
         if tenant is None or str(tenant["status"] or "").strip().upper() != "ACTIVE":
@@ -1670,7 +1700,7 @@ def record_committee_coi_signoff(
     with get_connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         tenant = connection.execute(
-            "SELECT status FROM tenants WHERE tenant_slug = ?",
+            "SELECT status FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
             (normalized_slug,),
         ).fetchone()
         if tenant is None or str(tenant["status"] or "").strip().upper() != "ACTIVE":
@@ -1810,7 +1840,7 @@ def save_committee_proposal_evaluation(
     with get_connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         tenant = connection.execute(
-            "SELECT status FROM tenants WHERE tenant_slug = ?",
+            "SELECT status FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
             (normalized_slug,),
         ).fetchone()
         if tenant is None or str(tenant["status"] or "").strip().upper() != "ACTIVE":
@@ -2001,7 +2031,7 @@ def record_unsolicited_proposal(
     with get_connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         tenant = connection.execute(
-            "SELECT status FROM tenants WHERE tenant_slug = ?",
+            "SELECT status FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
             (normalized_slug,),
         ).fetchone()
         if tenant is None or str(tenant["status"] or "").strip().upper() != "ACTIVE":
@@ -2137,7 +2167,7 @@ def save_departmental_review_dossier(
     with get_connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         tenant = connection.execute(
-            "SELECT status FROM tenants WHERE tenant_slug = ?",
+            "SELECT status FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
             (normalized_slug,),
         ).fetchone()
         if tenant is None or str(tenant["status"] or "").strip().upper() != "ACTIVE":
@@ -2354,7 +2384,7 @@ def save_statutory_compliance_checks(
     with get_connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         tenant = connection.execute(
-            "SELECT status FROM tenants WHERE tenant_slug = ?",
+            "SELECT status FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
             (normalized_slug,),
         ).fetchone()
         if tenant is None or str(tenant["status"] or "").strip().upper() != "ACTIVE":
@@ -2461,7 +2491,7 @@ def save_departmental_appraisal(
     with get_connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         tenant = connection.execute(
-            "SELECT status FROM tenants WHERE tenant_slug = ?",
+            "SELECT status FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
             (normalized_slug,),
         ).fetchone()
         if tenant is None or str(tenant["status"] or "").strip().upper() != "ACTIVE":
@@ -2823,23 +2853,14 @@ def activate_vendor(vendor_slug: str) -> bool:
 
 
 def update_tenant_status(tenant_slug: str, status: str) -> bool:
-    """Update an existing tenant status without creating a tenant implicitly."""
+    """Compatibility wrapper for audited tenant activation and suspension."""
     normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
-    normalized_status = _required_text(status, "status")
-    init_db()
-    with get_connection() as connection:
-        cursor = connection.execute(
-            "UPDATE tenants SET status = ? WHERE tenant_slug = ?",
-            (normalized_status, normalized_slug),
-        )
-        if cursor.rowcount == 1:
-            _insert_tenant_activity(
-                connection,
-                normalized_slug,
-                "Tenant status updated",
-                f"Tenant status changed to {normalized_status}.",
-            )
-    return cursor.rowcount == 1
+    normalized_status = _required_text(status, "status").strip().upper()
+    if normalized_status == "ACTIVE":
+        return activate_tenant(normalized_slug) is not None
+    if normalized_status in {"INACTIVE", "SUSPENDED"}:
+        return deactivate_tenant(normalized_slug)
+    raise ValueError("Tenant status changes must use activate or deactivate.")
 
 
 def archive_tenant(tenant_slug: str) -> bool:
@@ -3042,6 +3063,60 @@ def purge_archived_tenant(tenant_slug: str) -> bool:
         connection.execute(
             "DELETE FROM tenant_archive WHERE tenant_slug = ?", (normalized_slug,)
         )
+        _purge_tenant_records(connection, normalized_slug)
+        _insert_tenant_activity(
+            connection,
+            normalized_slug,
+            "Tenant permanently purged",
+            "Archived tenant data permanently purged after administrative confirmation.",
+            "developer",
+        )
+    return True
+
+
+def _purge_tenant_records(
+    connection: sqlite3.Connection,
+    tenant_slug: str,
+) -> None:
+    """Delete rows keyed to one tenant from every application table."""
+    tables = connection.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name NOT LIKE 'sqlite_%' ORDER BY name"
+    ).fetchall()
+    for row in tables:
+        table_name = str(row["name"])
+        escaped_table_name = table_name.replace('"', '""')
+        columns = connection.execute(
+            f'PRAGMA table_info("{escaped_table_name}")'
+        ).fetchall()
+        if any(column["name"] == "tenant_slug" for column in columns):
+            connection.execute(
+                f'DELETE FROM "{escaped_table_name}" WHERE tenant_slug = ?',
+                (tenant_slug,),
+            )
+
+
+def purge_tenant_permanently(tenant_slug: str) -> bool:
+    """Purge tenant data only after it has entered the recycle bin."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    init_db()
+    with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        tenant = connection.execute(
+            "SELECT 1 FROM tenants WHERE tenant_slug = ? AND is_deleted = 1",
+            (normalized_slug,),
+        ).fetchone()
+        if tenant is None:
+            return False
+        _purge_tenant_records(connection, normalized_slug)
+        _insert_tenant_activity(
+            connection,
+            normalized_slug,
+            "tenant_permanently_purged",
+            "Soft-deleted tenant and tenant-scoped records permanently purged "
+            "after administrative confirmation.",
+            "developer",
+        )
     return True
 
 
@@ -3079,27 +3154,39 @@ def get_general_broadcast() -> dict[str, str] | None:
 
 
 def get_tenant_by_slug(tenant_slug: str) -> dict[str, Any] | None:
-    """Return a tenant record, or None when the slug is not registered."""
+    """Return a non-deleted tenant record, or None when it is unavailable."""
     normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
     init_db()
     with get_connection() as connection:
         row = connection.execute(
             "SELECT tenant_slug, full_corporation_name, institution_category, "
-            "apex_title, sub_directorates_json, logo_path, status "
-            "FROM tenants WHERE tenant_slug = ?",
+            "apex_title, sub_directorates_json, logo_path, status, is_deleted, "
+            "deleted_at, activated_at, activated_by, deactivated_at, deactivated_by "
+            "FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
             (normalized_slug,),
         ).fetchone()
     return dict(row) if row is not None else None
 
 
 def list_tenants() -> list[dict[str, Any]]:
-    """Return registered tenants ordered by slug."""
+    """Return non-deleted tenants and their onboarding contacts."""
     init_db()
     with get_connection() as connection:
         rows = connection.execute(
-            "SELECT tenant_slug, full_corporation_name, institution_category, "
-            "apex_title, sub_directorates_json, logo_path, status "
-            "FROM tenants ORDER BY tenant_slug"
+            """
+            SELECT tenants.tenant_slug, tenants.full_corporation_name,
+                   tenants.institution_category, tenants.apex_title,
+                   tenants.sub_directorates_json, tenants.logo_path, tenants.status,
+                   tenants.activated_at, tenants.activated_by,
+                   tenants.deactivated_at, tenants.deactivated_by,
+                   tenant_onboarding_contacts.admin_email,
+                   tenant_onboarding_contacts.admin_phone
+            FROM tenants
+            LEFT JOIN tenant_onboarding_contacts
+              ON tenant_onboarding_contacts.tenant_slug = tenants.tenant_slug
+            WHERE tenants.is_deleted = 0
+            ORDER BY tenants.tenant_slug
+            """
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -3126,8 +3213,13 @@ def save_tenant(tenant_data: dict[str, Any]) -> dict[str, Any]:
     init_db()
     with get_connection() as connection:
         existing = connection.execute(
-            "SELECT 1 FROM tenants WHERE tenant_slug = ?", (tenant_slug,)
+            "SELECT is_deleted, status FROM tenants WHERE tenant_slug = ?",
+            (tenant_slug,),
         ).fetchone()
+        if existing is not None and existing["is_deleted"]:
+            raise ValueError(
+                f"Cannot update {tenant_slug!r}: restore it from the recycle bin first."
+            )
         connection.execute(
             """
             INSERT INTO tenants (
@@ -3144,6 +3236,30 @@ def save_tenant(tenant_data: dict[str, Any]) -> dict[str, Any]:
             """,
             values,
         )
+        requested_status = str(values[-1] or "").strip().upper()
+        previous_status = (
+            str(existing["status"] or "").strip().upper()
+            if existing is not None
+            else ""
+        )
+        if requested_status == "ACTIVE" and previous_status != "ACTIVE":
+            activated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            connection.execute(
+                """
+                UPDATE tenants SET activated_at = ?, activated_by = 'developer'
+                WHERE tenant_slug = ?
+                """,
+                (activated_at, tenant_slug),
+            )
+        elif requested_status == "INACTIVE" and previous_status != "INACTIVE":
+            deactivated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            connection.execute(
+                """
+                UPDATE tenants SET deactivated_at = ?, deactivated_by = 'developer'
+                WHERE tenant_slug = ?
+                """,
+                (deactivated_at, tenant_slug),
+            )
         row = connection.execute(
             "SELECT tenant_slug, full_corporation_name, institution_category, "
             "apex_title, sub_directorates_json, logo_path, status "
@@ -3160,6 +3276,21 @@ def save_tenant(tenant_data: dict[str, Any]) -> dict[str, Any]:
                 else "Tenant registry details updated."
             ),
         )
+        if existing is not None and requested_status != previous_status:
+            _insert_tenant_activity(
+                connection,
+                tenant_slug,
+                (
+                    "tenant_activated"
+                    if requested_status == "ACTIVE"
+                    else "tenant_deactivated"
+                    if requested_status == "INACTIVE"
+                    else "tenant_status_updated"
+                ),
+                f"Tenant status changed from {previous_status or 'unset'} to "
+                f"{requested_status or 'unset'} through a developer registry update.",
+                "developer",
+            )
     return dict(row)
 
 
@@ -3225,26 +3356,36 @@ def create_tenant_onboarding(onboarding_data: dict[str, Any]) -> dict[str, Any]:
 
 
 def activate_tenant(tenant_slug: str) -> dict[str, Any] | None:
-    """Activate one pending tenant and return its private notification contact."""
+    """Activate one pending or inactive tenant and return its private contact."""
     normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     init_db()
     with get_connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         row = connection.execute(
             """
             SELECT tenant_slug, full_corporation_name, status
-            FROM tenants WHERE tenant_slug = ?
+            FROM tenants WHERE tenant_slug = ? AND is_deleted = 0
             """,
             (normalized_slug,),
         ).fetchone()
-        if row is None or str(row["status"] or "").strip().upper() == "ACTIVE":
+        if row is None:
+            return None
+        current_status = str(row["status"] or "").strip().upper()
+        if current_status not in {
+            "PENDING",
+            "PENDING ACTIVATION",
+            "INACTIVE",
+            "SUSPENDED",
+        }:
             return None
         cursor = connection.execute(
             """
-            UPDATE tenants SET status = 'Active'
-            WHERE tenant_slug = ? AND status = ?
+            UPDATE tenants
+            SET status = 'Active', activated_at = ?, activated_by = 'developer'
+            WHERE tenant_slug = ? AND is_deleted = 0 AND status = ?
             """,
-            (normalized_slug, row["status"]),
+            (timestamp, normalized_slug, row["status"]),
         )
         if cursor.rowcount != 1:
             return None
@@ -3272,6 +3413,106 @@ def activate_tenant(tenant_slug: str) -> dict[str, Any] | None:
     }
 
 
+def deactivate_tenant(tenant_slug: str) -> bool:
+    """Immediately suspend a registered tenant without deleting its records."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    init_db()
+    with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        cursor = connection.execute(
+            """
+            UPDATE tenants
+            SET status = 'Inactive', deactivated_at = ?, deactivated_by = 'developer'
+            WHERE tenant_slug = ? AND is_deleted = 0
+              AND UPPER(TRIM(COALESCE(status, ''))) = 'ACTIVE'
+            """,
+            (timestamp, normalized_slug),
+        )
+        if cursor.rowcount != 1:
+            return False
+        _insert_tenant_activity(
+            connection,
+            normalized_slug,
+            "tenant_deactivated",
+            "Tenant access revoked by the developer console.",
+            "developer",
+        )
+    return True
+
+
+def soft_delete_tenant(tenant_slug: str) -> bool:
+    """Move a tenant into the recycle bin without deleting its records."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    deleted_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    init_db()
+    with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        cursor = connection.execute(
+            """
+            UPDATE tenants SET is_deleted = 1, deleted_at = ?
+            WHERE tenant_slug = ? AND is_deleted = 0
+            """,
+            (deleted_at, normalized_slug),
+        )
+        if cursor.rowcount != 1:
+            return False
+        _insert_tenant_activity(
+            connection,
+            normalized_slug,
+            "tenant_soft_deleted",
+            "Tenant moved to the recycle bin by the developer console.",
+            "developer",
+        )
+    return True
+
+
+def restore_tenant(tenant_slug: str) -> bool:
+    """Restore a tenant while preserving its prior active or inactive status."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    init_db()
+    with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        cursor = connection.execute(
+            """
+            UPDATE tenants SET is_deleted = 0, deleted_at = NULL
+            WHERE tenant_slug = ? AND is_deleted = 1
+            """,
+            (normalized_slug,),
+        )
+        if cursor.rowcount != 1:
+            return False
+        _insert_tenant_activity(
+            connection,
+            normalized_slug,
+            "tenant_restored",
+            "Tenant restored from the recycle bin with its prior status.",
+            "developer",
+        )
+    return True
+
+
+def list_recycle_bin_tenants() -> list[dict[str, Any]]:
+    """Return soft-deleted tenants and their onboarding contact details."""
+    init_db()
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT tenants.tenant_slug, tenants.full_corporation_name,
+                   tenants.institution_category, tenants.apex_title,
+                   tenants.status, tenants.deleted_at,
+                   tenant_onboarding_contacts.admin_email,
+                   tenant_onboarding_contacts.admin_phone
+            FROM tenants
+            LEFT JOIN tenant_onboarding_contacts
+              ON tenant_onboarding_contacts.tenant_slug = tenants.tenant_slug
+            WHERE tenants.is_deleted = 1
+            ORDER BY tenants.deleted_at DESC, tenants.tenant_slug
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_tenant_activation_contact(tenant_slug: str) -> dict[str, str] | None:
     """Return activation contact details for an authorized developer operation."""
     normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
@@ -3289,26 +3530,8 @@ def get_tenant_activation_contact(tenant_slug: str) -> dict[str, str] | None:
 
 
 def delete_tenant(tenant_slug: str) -> bool:
-    """Delete a tenant by slug; return whether a record was deleted."""
-    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
-    init_db()
-    with get_connection() as connection:
-        cursor = connection.execute(
-            "DELETE FROM tenants WHERE tenant_slug = ?",
-            (normalized_slug,),
-        )
-        if cursor.rowcount > 0:
-            connection.execute(
-                "DELETE FROM tenant_onboarding_contacts WHERE tenant_slug = ?",
-                (normalized_slug,),
-            )
-            _insert_tenant_activity(
-                connection,
-                normalized_slug,
-                "Tenant deleted",
-                "Tenant deleted from the tenant registry.",
-            )
-    return cursor.rowcount > 0
+    """Compatibility alias that moves a tenant to the recycle bin."""
+    return soft_delete_tenant(tenant_slug)
 
 
 def log_admin_access(tenant_slug: str, action: str, actor: str) -> int:
@@ -3438,7 +3661,7 @@ def record_tenant_payment_verification_in_connection(
     if amount_minor <= 0:
         raise ValueError("Verified payment amount must be positive.")
     tenant = connection.execute(
-        "SELECT status FROM tenants WHERE tenant_slug = ?",
+        "SELECT status FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
         (normalized_slug,),
     ).fetchone()
     if tenant is None or str(tenant["status"] or "").strip().upper() != "ACTIVE":

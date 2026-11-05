@@ -1,4 +1,5 @@
 import hashlib
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -27,6 +28,40 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
     def tearDown(self):
         self.database_patch.stop()
         self.temporary_directory.cleanup()
+
+    def test_existing_tenant_schema_migrates_lifecycle_columns(self):
+        legacy_path = Path(self.temporary_directory.name) / "legacy.db"
+        connection = sqlite3.connect(legacy_path)
+        try:
+            connection.execute(
+                """
+                CREATE TABLE tenants (
+                    tenant_slug TEXT PRIMARY KEY,
+                    full_corporation_name TEXT,
+                    institution_category TEXT,
+                    apex_title TEXT,
+                    sub_directorates_json TEXT,
+                    logo_path TEXT,
+                    status TEXT
+                )
+                """
+            )
+            connection.execute(
+                "INSERT INTO tenants (tenant_slug, status) VALUES (?, ?)",
+                ("legacy_tenant", "Pending"),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        with patch.object(database, "DB_FILE", legacy_path):
+            database.init_db()
+            tenant = database.get_tenant_by_slug("legacy_tenant")
+
+        self.assertEqual(tenant["status"], "Pending")
+        self.assertEqual(tenant["is_deleted"], 0)
+        self.assertIsNone(tenant["deleted_at"])
+        self.assertIsNone(tenant["activated_at"])
 
     def test_vendor_activation_does_not_change_clearance_status(self):
         database.create_clearance_pass(
@@ -160,6 +195,100 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
                     "example_tenant"
                 )
             ],
+        )
+
+    def test_tenant_lifecycle_preserves_records_and_isolates_permanent_purge(self):
+        database.save_tenant(
+            {
+                "tenant_slug": "other_tenant",
+                "full_corporation_name": "Other Tenant",
+                "status": "Active",
+            }
+        )
+        example_pass = {
+            "qr_pass_id": "pass-lifecycle-example",
+            "tenant_slug": "example_tenant",
+            "rfq_code": "RFP-3",
+            "vendor_name": "Example Vendor",
+            "email": "example@example.test",
+            "payment_reference": "payment-example",
+            "proposal_title": "Example proposal",
+            "clearance_status": "PAYMENT_VERIFIED",
+        }
+        other_pass = {
+            **example_pass,
+            "qr_pass_id": "pass-lifecycle-other",
+            "tenant_slug": "other_tenant",
+            "payment_reference": "payment-other",
+        }
+        database.create_clearance_pass(example_pass)
+        database.create_clearance_pass(other_pass)
+
+        self.assertFalse(database.purge_tenant_permanently("example_tenant"))
+        activated = database.activate_tenant("example_tenant")
+        self.assertEqual(activated["status"], "Active")
+        self.assertIsNotNone(database.get_tenant_by_slug("example_tenant")["activated_at"])
+        self.assertTrue(database.deactivate_tenant("example_tenant"))
+        self.assertEqual(
+            database.get_tenant_by_slug("example_tenant")["status"],
+            "Inactive",
+        )
+
+        self.assertTrue(database.soft_delete_tenant("example_tenant"))
+        self.assertIsNone(database.get_tenant_by_slug("example_tenant"))
+        self.assertNotIn(
+            "example_tenant",
+            {tenant["tenant_slug"] for tenant in database.list_tenants()},
+        )
+        with self.assertRaisesRegex(ValueError, "active tenant"):
+            database.create_tenant_tender(
+                tenant_slug="example_tenant",
+                title="Should be rejected",
+                description="Soft-deleted tenants cannot create tenders.",
+                expiration_at=(
+                    datetime.now(timezone.utc) + timedelta(days=1)
+                ).isoformat(),
+                auto_lock=True,
+                created_by="tenant_executive",
+            )
+        recycled = database.list_recycle_bin_tenants()
+        self.assertEqual(recycled[0]["tenant_slug"], "example_tenant")
+        self.assertEqual(recycled[0]["status"], "Inactive")
+        self.assertIsNotNone(recycled[0]["deleted_at"])
+        self.assertTrue(database.restore_tenant("example_tenant"))
+        self.assertEqual(
+            database.get_tenant_by_slug("example_tenant")["status"],
+            "Inactive",
+        )
+        self.assertTrue(database.activate_tenant("example_tenant"))
+        lifecycle_actions = {
+            event["action_type"]
+            for event in database.get_tenant_activities("example_tenant")
+        }
+        self.assertTrue(
+            {
+                "tenant_activated",
+                "tenant_deactivated",
+                "tenant_soft_deleted",
+                "tenant_restored",
+            }.issubset(lifecycle_actions)
+        )
+
+        self.assertTrue(database.soft_delete_tenant("example_tenant"))
+        self.assertTrue(database.purge_tenant_permanently("example_tenant"))
+        self.assertIsNone(database.get_tenant_by_slug("example_tenant"))
+        self.assertIsNone(
+            database.get_clearance_pass("pass-lifecycle-example", "example_tenant")
+        )
+        self.assertIsNotNone(
+            database.get_clearance_pass("pass-lifecycle-other", "other_tenant")
+        )
+        self.assertEqual(
+            [
+                event["action_type"]
+                for event in database.get_tenant_activities("example_tenant")
+            ],
+            ["tenant_permanently_purged"],
         )
 
     def test_vendor_registration_is_stable_and_type_scoped(self):
