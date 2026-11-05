@@ -851,10 +851,26 @@ def render_unsolicited_vendor_portal(
     tenant_slug: str | None = None,
     key_prefix: str | None = None,
 ) -> None:
-    st.markdown("### Unsolicited Proposal Submission")
-    st.caption(
-        "Submit organization details and an encrypted PDF or DOCX proposal "
-        "for preliminary review."
+    st.markdown(
+        """
+        <div style="
+            background-color: #0f172a;
+            color: #f8fafc;
+            padding: 24px;
+            border-radius: 12px;
+            border: 1px solid #1e293b;
+            margin-bottom: 20px;
+        ">
+            <h3 style="color: #60a5fa; margin-top: 0;">
+                Unsolicited Vendor Portal
+            </h3>
+            <p style="color: #cbd5e1; font-size: 14px; margin-bottom: 0;">
+                Submit unsolicited proposals for administrative review and
+                statutory evaluation.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
     try:
