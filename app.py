@@ -16,7 +16,7 @@ from email.utils import parseaddr
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 import streamlit as st
 import requests
@@ -28,12 +28,26 @@ from streamlit.errors import StreamlitSecretNotFoundError
 import database as db
 
 
+PRODUCTION_BASE_URL = "https://nexusvault-proposal-enterprise-connect.streamlit.app"
+
+
 st.set_page_config(
     page_title="NEXUSVAULT Sovereign Enterprise Portal",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+
+def _tenant_portal_url(
+    portal: str,
+    tenant_slug: str,
+    intake_type: str | None = None,
+) -> str:
+    params = {"portal": portal, "tenant": tenant_slug}
+    if intake_type is not None:
+        params["type"] = intake_type
+    return f"{PRODUCTION_BASE_URL}/?{urlencode(params)}"
 _DEPARTMENTAL_SECTORS = (
     "Food / Consumables",
     "Engineering / Infrastructure",
@@ -1715,7 +1729,7 @@ def _render_executive_tenders_tab(tenant_slug: str, actor: str) -> None:
         )
         publish_now = st.checkbox(
             "Publish immediately",
-            value=True,
+            value=False,
             key=_tenant_key(tenant_slug, "executive", "tender_publish_now"),
         )
         create_tender = st.form_submit_button(
@@ -2750,12 +2764,14 @@ def _render_internal_portal(tenant: Mapping[str, Any], tenant_slug: str) -> None
 
 def _render_vendor_portal(
     tenant_slug: str,
+    intake_type: str | None = None,
 ) -> None:
     from sector_logic import render_unified_vendor_portal
 
     render_unified_vendor_portal(
         tenant_slug=tenant_slug,
         key_prefix=f"tenant:{tenant_slug}:vendor",
+        intake_type=intake_type,
     )
 
 
@@ -3120,34 +3136,39 @@ def _render_home() -> None:
         )
 
     if st.session_state.get("onboarding_submitted", False):
+        tenant_slug = str(st.session_state.get("onboarded_tenant_slug", ""))
+        vendor_url = _tenant_portal_url("vendor", tenant_slug, "unsolicited")
         st.markdown(
-            """
-            <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-                        border: 2px solid #38bdf8; padding: 40px; border-radius: 16px;
-                        text-align: center; margin: 40px auto; max-width: 800px;
-                        box-shadow: 0 20px 25px -5px rgba(56, 189, 248, 0.3);">
-                <h2 style="color: #38bdf8; margin-bottom: 20px; font-family: monospace;
-                           font-size: 1.8rem;">NEXUSVAULT AGENTIC AI ENTERPRISE PORTAL</h2>
-                <div style="background: rgba(56, 189, 248, 0.12); border: 2px dashed #38bdf8;
-                            padding: 25px; border-radius: 10px; margin: 20px 0;">
-                    <p style="color: #f8fafc; font-size: 1.35rem; font-weight: 800;
-                              letter-spacing: 1.5px; margin: 0;">
-                        YOUR SUBMISSION HAS BEEN ACKNOWLEDGED.
+            f"""
+            <section style="background: linear-gradient(135deg, #061a36 0%, #0b2d5c 100%);
+                            border: 1px solid rgba(147, 197, 253, 0.65);
+                            border-radius: 16px; padding: 2.2rem;
+                            margin: 2rem auto; max-width: 860px;
+                            box-shadow: 0 18px 48px rgba(4, 17, 40, 0.35);">
+                <h2 style="color: #bfdbfe; margin: 0 0 1.2rem; text-align: center;">
+                    NEXUSVAULT INSTITUTIONAL ONBOARDING
+                </h2>
+                <div style="background: rgba(255, 255, 255, 0.07);
+                            border: 1px solid rgba(191, 219, 254, 0.3);
+                            border-radius: 12px; padding: 1.4rem; text-align: center;">
+                    <p style="color: #eff6ff; font-size: 1.2rem; font-weight: 800;
+                              letter-spacing: 0.04em; margin: 0;">
+                        YOUR INSTITUTIONAL CREDENTIALS HAVE BEEN ONBOARDED,
+                        AWAITING ACTIVATION SHORTLY
                     </p>
                 </div>
-                <p style="color: #94a3b8; font-size: 1.05rem; margin-top: 20px;
-                          line-height: 1.6;">
-                    Your sovereign tenant workspace is ready for vendor access.
+                <p style="color: #dbeafe; text-align: center; margin: 1.2rem 0 0;">
+                    Status: Pending Activation · Tenant: {html.escape(tenant_slug)}
                 </p>
-            </div>
+                <p style="color: #bfdbfe; text-align: center; margin: 0.6rem 0 0;">
+                    Public submissions become available after institutional activation.
+                </p>
+            </section>
             """,
             unsafe_allow_html=True,
         )
-        st.success("Vendor portal link")
-        st.code(
-            f"?portal=vendor&tenant={st.session_state['onboarded_tenant_slug']}",
-            language="text",
-        )
+        st.caption("Production unsolicited portal URL (available after activation)")
+        st.code(vendor_url, language="text")
         if st.button("Return to Onboarding Portal", use_container_width=True):
             st.session_state["onboarding_submitted"] = False
             st.rerun()
@@ -3399,6 +3420,7 @@ def _render_home() -> None:
                     {
                         "tenant_slug": tenant_slug,
                         "full_corporation_name": org,
+                        "institution_category": entity_type,
                         "logo_path": logo_filename,
                         "cac_registration_number": "N/A",
                         "admin_email": admin_email.strip() or email,
@@ -3428,14 +3450,7 @@ def _render_home() -> None:
                 st.session_state["custom_portal_heading"] = custom_title_input.strip()
                 st.session_state["onboarded_tenant_slug"] = tenant_slug
                 st.session_state["onboarding_submitted"] = True
-                st.success(
-                    "🎉 Organizational node created and activated successfully."
-                )
-                st.code(
-                    f"?portal=vendor&tenant={tenant_slug}",
-                    language="text",
-                )
-                st.balloons()
+                st.rerun()
 
     st.markdown(
         """
@@ -3455,6 +3470,70 @@ def _render_route_error(message: str) -> None:
     st.title("Access unavailable")
     st.error(message)
     st.caption("Use a valid tenant-issued link or contact your platform administrator.")
+
+
+def _send_tenant_activation_notification(tenant: Mapping[str, Any]) -> bool:
+    recipient = str(tenant.get("admin_email") or "").strip()
+    tenant_slug = str(tenant.get("tenant_slug") or "").strip()
+    institution_name = str(
+        tenant.get("full_corporation_name") or tenant_slug
+    ).strip()
+    if not recipient:
+        logging.warning(
+            "Tenant %s has no onboarding email for activation notification.",
+            tenant_slug,
+        )
+        return False
+
+    internal_url = _tenant_portal_url("internal", tenant_slug)
+    vendor_url = _tenant_portal_url("vendor", tenant_slug, "unsolicited")
+    subject = f"Institutional node activated: {institution_name}"
+    body = (
+        f"Hello {institution_name},\n\n"
+        "Your NexusVault institutional node has been activated.\n"
+        f"Tenant slug: {tenant_slug}\n"
+        f"Internal portal: {internal_url}\n"
+        f"Open unsolicited submissions: {vendor_url}\n\n"
+        "For security, passwords and shared access keys are not included in email. "
+        "Use the access credentials provided to your authorized administrators."
+    )
+    try:
+        import notifications
+    except ImportError:
+        logging.exception(
+            "Tenant activation mail service is unavailable for %s.",
+            tenant_slug,
+        )
+        sent = False
+    else:
+        sent = notifications.send_email_notification(
+            subject,
+            body,
+            recipient,
+        )[0]
+
+    try:
+        db.log_tenant_activity(
+            tenant_slug,
+            "developer",
+            (
+                "tenant_activation_notification_sent"
+                if sent
+                else "tenant_activation_notification_failed"
+            ),
+            (
+                "Institutional activation details were emailed to the onboarding "
+                "contact."
+                if sent
+                else "Activation email was not delivered; manual follow-up is required."
+            ),
+        )
+    except (sqlite3.Error, RuntimeError, ValueError):
+        logging.exception(
+            "Could not audit activation notification status for tenant %s.",
+            tenant_slug,
+        )
+    return bool(sent)
 
 
 
@@ -3480,22 +3559,46 @@ def render_developer_console() -> None:
             current_broadcast["message"] if current_broadcast else ""
         )
 
-    registry_tab, copy_tab, recycle_tab, settings_tab, activity_tab = st.tabs(
+    activation_tab, copy_tab, recycle_tab, settings_tab, activity_tab = st.tabs(
         [
-            "Tenant Registry & Activation",
-            "Slug Copy Registry",
+            "Tenant Activation & Registry",
+            "Slug / URL Copy Registry",
             "Recycle Bin / Archive & Purge",
             "Platform Broadcasts",
             "📋 Activity Audit Trail",
         ]
     )
 
-    with registry_tab:
+    activation_feedback = st.session_state.pop(
+        "_developer_activation_feedback",
+        None,
+    )
+    if isinstance(activation_feedback, tuple) and len(activation_feedback) == 2:
+        feedback_level, feedback_message = activation_feedback
+        if feedback_level == "success":
+            st.success(feedback_message)
+        else:
+            st.warning(feedback_message)
+
+    with activation_tab:
         st.button("Refresh Tenant Registry", key="refresh_tenant_registry")
         if not tenants:
             st.info("No tenant records are available in the registry.")
         else:
             st.success(f"Registered client tenants: **{len(tenants)}**")
+            st.dataframe(
+                [
+                    {
+                        "Institution": tenant.get("full_corporation_name")
+                        or tenant["tenant_slug"],
+                        "Tenant slug": tenant["tenant_slug"],
+                        "Status": tenant.get("status") or "Unknown",
+                    }
+                    for tenant in tenants
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
         for tenant in tenants:
             slug = tenant["tenant_slug"]
             name = tenant.get("full_corporation_name") or slug
@@ -3511,22 +3614,41 @@ def render_developer_console() -> None:
 
                 if not is_active:
                     if st.button(
-                        f"Activate tenant subscription: {name}",
+                        f"Activate Institutional Node: {name}",
                         key=f"activate_tenant_{slug}",
                     ):
                         try:
-                            updated = db.update_tenant_status(slug, "Active")
+                            activated = db.activate_tenant(slug)
                         except (sqlite3.Error, RuntimeError, ValueError):
                             logging.exception(
                                 "Tenant activation failed for slug %s.", slug
                             )
                             st.error(f"Tenant {name} could not be activated.")
                         else:
-                            if updated:
-                                st.success(f"Tenant {name} activated.")
+                            if activated:
+                                notification_sent = (
+                                    _send_tenant_activation_notification(activated)
+                                )
+                                st.session_state["_developer_activation_feedback"] = (
+                                    (
+                                        "success",
+                                        f"Tenant {name} activated and the "
+                                        "activation details were emailed."
+                                    )
+                                    if notification_sent
+                                    else (
+                                        "warning",
+                                        f"Tenant {name} activated, but the "
+                                        "activation email was not delivered. "
+                                        "Confirm SMTP settings and contact the "
+                                        "onboarding administrator."
+                                    )
+                                )
                                 st.rerun()
                             else:
-                                st.error(f"Tenant {name} no longer exists.")
+                                st.error(
+                                    f"Tenant {name} is already active or no longer exists."
+                                )
                 else:
                     st.success("Tenant subscription is active.")
 
@@ -3549,11 +3671,56 @@ def render_developer_console() -> None:
                             st.error(f"Tenant {name} no longer exists.")
 
     with copy_tab:
-        st.markdown("### Client Tenant Slugs")
-        tenant_slugs = [tenant["tenant_slug"] for tenant in tenants]
-        st.json(tenant_slugs)
-        for tenant_slug in tenant_slugs:
-            st.code(tenant_slug, language="text")
+        st.markdown("### Production Tenant URL Registry")
+        registry_rows = []
+        for tenant in tenants:
+            tenant_slug = str(tenant["tenant_slug"])
+            status = str(tenant.get("status") or "Unknown")
+            registry_rows.append(
+                {
+                    "Institution": tenant.get("full_corporation_name")
+                    or tenant_slug,
+                    "Tenant slug": tenant_slug,
+                    "Status": status,
+                    "Internal portal": _tenant_portal_url("internal", tenant_slug),
+                    "Public unsolicited portal": _tenant_portal_url(
+                        "vendor",
+                        tenant_slug,
+                        "unsolicited",
+                    ),
+                    "Solicited portal (published window required)": _tenant_portal_url(
+                        "vendor",
+                        tenant_slug,
+                        "solicited",
+                    ),
+                }
+            )
+        if registry_rows:
+            st.dataframe(
+                registry_rows,
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption(
+                "Copy any slug or full production URL with the copy control on its "
+                "code block. Solicited links remain locked until a tender window is "
+                "published and unexpired."
+            )
+            for row in registry_rows:
+                with st.expander(
+                    f"{row['Institution']} · {row['Tenant slug']} · {row['Status']}"
+                ):
+                    st.write("Tenant slug")
+                    st.code(row["Tenant slug"], language="text")
+                    for label in (
+                        "Internal portal",
+                        "Public unsolicited portal",
+                        "Solicited portal (published window required)",
+                    ):
+                        st.write(label)
+                        st.code(row[label], language="text")
+        else:
+            st.info("No tenant URLs are available to copy.")
 
     with recycle_tab:
         if not archived_tenants:
@@ -3777,6 +3944,6 @@ else:
                 else:
                     render_sovereign_tenant_header(_tenant)
                     if _portal == "vendor":
-                        _render_vendor_portal(_tenant_slug)
+                        _render_vendor_portal(_tenant_slug, _intake_type)
                     elif _portal == "internal":
                         _render_internal_portal(_tenant, _tenant_slug)

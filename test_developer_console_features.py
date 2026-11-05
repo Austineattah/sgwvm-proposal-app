@@ -92,6 +92,22 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
             database.get_tenant_by_slug("branded_tenant")["logo_path"],
             "branded_tenant.png",
         )
+        pending = database.get_tenant_by_slug("branded_tenant")
+        self.assertEqual(pending["status"], "Pending Activation")
+        contact = database.get_tenant_activation_contact("branded_tenant")
+        self.assertEqual(contact["admin_email"], "admin@example.test")
+        self.assertEqual(contact["admin_phone"], "+2348000000000")
+        activated = database.activate_tenant("branded_tenant")
+        self.assertEqual(activated["status"], "Active")
+        self.assertEqual(activated["admin_email"], "admin@example.test")
+        self.assertIsNone(database.activate_tenant("branded_tenant"))
+        activities = database.get_tenant_activities("branded_tenant")
+        self.assertTrue(
+            any(
+                activity["action_type"] == "tenant_activated"
+                for activity in activities
+            )
+        )
 
     def test_archive_restore_and_permanent_purge(self):
         database.create_clearance_pass(
@@ -519,9 +535,20 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
             expiration_at=(datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
             auto_lock=True,
             created_by="tenant_executive",
+            publish_now=True,
         )
         self.assertEqual(tender["publishing_status"], "PUBLISHED")
+        self.assertEqual(
+            [
+                active["tender_id"]
+                for active in database.get_active_solicited_tenders(
+                    "example_tenant"
+                )
+            ],
+            [tender["tender_id"]],
+        )
         self.assertEqual(database.get_tenant_tenders("other_tenant"), [])
+        self.assertEqual(database.get_active_solicited_tenders("other_tenant"), [])
 
         with database.get_connection() as connection:
             connection.execute(
@@ -533,6 +560,7 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
             )
         records = database.get_tenant_tenders("example_tenant")
         self.assertEqual(records[0]["publishing_status"], "LOCKED")
+        self.assertEqual(database.get_active_solicited_tenders("example_tenant"), [])
         self.assertFalse(
             database.update_tenant_tender(
                 "other_tenant",
@@ -557,6 +585,41 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
             )
         )
 
+    def test_solicited_tender_is_not_public_until_explicitly_published(self):
+        database.save_tenant(
+            {
+                "tenant_slug": "example_tenant",
+                "full_corporation_name": "Example Tenant",
+                "status": "Active",
+            }
+        )
+        tender = database.create_tenant_tender(
+            tenant_slug="example_tenant",
+            title="Draft solicitation",
+            description="Not yet public.",
+            expiration_at=(datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+            auto_lock=True,
+            created_by="tenant_executive",
+        )
+        self.assertEqual(tender["publishing_status"], "DRAFT")
+        self.assertEqual(database.get_active_solicited_tenders("example_tenant"), [])
+        self.assertTrue(
+            database.update_tenant_tender(
+                "example_tenant",
+                tender["tender_id"],
+                "PUBLISHED",
+                True,
+                "tenant_executive",
+            )
+        )
+        self.assertEqual(
+            [
+                row["tender_id"]
+                for row in database.get_active_solicited_tenders("example_tenant")
+            ],
+            [tender["tender_id"]],
+        )
+
     def test_verified_payment_ledger_retains_amount_and_is_tenant_scoped(self):
         import sector_logic
 
@@ -574,9 +637,30 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
                 "status": "Active",
             }
         )
+        with self.assertRaisesRegex(ValueError, "not currently published"):
+            sector_logic._create_payment_verified_pass(
+                tenant_slug="example_tenant",
+                rfq_code="RFP-9",
+                vendor_name="Example Vendor",
+                vendor_email="vendor@example.test",
+                payment_reference="RRR-9-unpublished",
+                proposal_title="Example proposal",
+                amount_minor=125_000,
+            )
+        tender = database.create_tenant_tender(
+            tenant_slug="example_tenant",
+            title="Road Maintenance Tender",
+            description="Published solicitation.",
+            expiration_at=(
+                datetime.now(timezone.utc) + timedelta(days=1)
+            ).isoformat(),
+            auto_lock=True,
+            created_by="tenant_executive",
+            publish_now=True,
+        )
         pass_id = sector_logic._create_payment_verified_pass(
             tenant_slug="example_tenant",
-            rfq_code="RFP-9",
+            rfq_code=tender["tender_id"],
             vendor_name="Example Vendor",
             vendor_email="vendor@example.test",
             payment_reference="RRR-9",
@@ -590,6 +674,20 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
         self.assertEqual(ledger[0]["provider"], "Paystack")
         self.assertEqual(ledger[0]["qr_pass_id"], pass_id)
         self.assertEqual(database.get_tenant_financial_ledger("other_tenant"), [])
+        with database.get_connection() as connection:
+            connection.execute(
+                "UPDATE tenant_tenders SET expiration_at = ? WHERE tender_id = ?",
+                (
+                    (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),
+                    tender["tender_id"],
+                ),
+            )
+        self.assertFalse(
+            sector_logic._mark_dossier_submitted(
+                "example_tenant",
+                pass_id,
+            )
+        )
         with self.assertRaisesRegex(ValueError, "no clearance pass"):
             database.record_tenant_payment_verification(
                 tenant_slug="other_tenant",

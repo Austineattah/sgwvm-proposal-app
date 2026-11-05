@@ -31,6 +31,12 @@ _TABLE_COLUMNS = {
         ("logo_path", "TEXT", 0, None),
         ("status", "TEXT", 0, None),
     ),
+    "tenant_onboarding_contacts": (
+        ("tenant_slug", "TEXT", 1, None),
+        ("admin_email", "TEXT", 0, None),
+        ("admin_phone", "TEXT", 0, None),
+        ("created_at", "TEXT", 0, None),
+    ),
     "admin_access_logs": (
         ("id", "INTEGER", 1, None),
         ("tenant_slug", "TEXT", 0, None),
@@ -249,6 +255,14 @@ _CREATE_TABLES = (
         sub_directorates_json TEXT,
         logo_path TEXT,
         status TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS tenant_onboarding_contacts (
+        tenant_slug TEXT PRIMARY KEY,
+        admin_email TEXT NOT NULL,
+        admin_phone TEXT NOT NULL,
+        created_at TEXT NOT NULL
     )
     """,
     """
@@ -1232,7 +1246,7 @@ def create_tenant_tender(
     expiration_at: str,
     auto_lock: bool,
     created_by: str,
-    publish_now: bool = True,
+    publish_now: bool = False,
 ) -> dict[str, Any]:
     """Create a tender with a timezone-aware hard expiration timestamp."""
     normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
@@ -1346,6 +1360,39 @@ def get_tenant_tenders(tenant_slug: str) -> list[dict[str, Any]]:
             (normalized_slug,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_active_solicited_tenders(tenant_slug: str) -> list[dict[str, Any]]:
+    """Return only this active tenant's published, unexpired tender windows."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    tenant = get_tenant_by_slug(normalized_slug)
+    if tenant is None or str(tenant.get("status", "")).strip().upper() != "ACTIVE":
+        return []
+    now = datetime.now(timezone.utc)
+    tenders = get_tenant_tenders(normalized_slug)
+    active = []
+    for tender in tenders:
+        if tender["publishing_status"] != "PUBLISHED":
+            continue
+        try:
+            expiration = datetime.fromisoformat(
+                str(tender["expiration_at"]).replace("Z", "+00:00")
+            )
+        except ValueError:
+            logging.error(
+                "Tenant tender %s has an invalid expiration timestamp.",
+                tender["tender_id"],
+            )
+            continue
+        if expiration.tzinfo is None or expiration.utcoffset() is None:
+            logging.error(
+                "Tenant tender %s has a timezone-naive expiration timestamp.",
+                tender["tender_id"],
+            )
+            continue
+        if expiration.astimezone(timezone.utc) > now:
+            active.append(tender)
+    return active
 
 
 def update_tenant_tender(
@@ -2970,6 +3017,10 @@ def purge_archived_tenant(tenant_slug: str) -> bool:
             (normalized_slug,),
         )
         connection.execute(
+            "DELETE FROM tenant_onboarding_contacts WHERE tenant_slug = ?",
+            (normalized_slug,),
+        )
+        connection.execute(
             "DELETE FROM proposal_governance WHERE tenant_slug = ?",
             (normalized_slug,),
         )
@@ -3113,7 +3164,7 @@ def save_tenant(tenant_data: dict[str, Any]) -> dict[str, Any]:
 
 
 def create_tenant_onboarding(onboarding_data: dict[str, Any]) -> dict[str, Any]:
-    """Create an active tenant from the sovereign onboarding form payload."""
+    """Create a pending tenant and store private activation contact details."""
     if not isinstance(onboarding_data, dict):
         raise TypeError("onboarding_data must be a dictionary.")
 
@@ -3122,17 +3173,119 @@ def create_tenant_onboarding(onboarding_data: dict[str, Any]) -> dict[str, Any]:
         onboarding_data.get("full_corporation_name"),
         "full_corporation_name",
     )
-    _required_text(onboarding_data.get("admin_email"), "admin_email")
-    _required_text(onboarding_data.get("admin_phone"), "admin_phone")
+    admin_email = _required_text(onboarding_data.get("admin_email"), "admin_email")
+    admin_phone = _required_text(onboarding_data.get("admin_phone"), "admin_phone")
+    sub_directorates = onboarding_data.get("sub_directorates_json", "[]")
+    if not isinstance(sub_directorates, str):
+        sub_directorates = json.dumps(sub_directorates)
+    created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    return save_tenant(
-        {
-            "tenant_slug": tenant_slug,
-            "full_corporation_name": organization_name,
-            "logo_path": onboarding_data.get("logo_path", ""),
-            "status": "Active",
-        }
-    )
+    init_db()
+    with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            """
+            INSERT INTO tenants (
+                tenant_slug, full_corporation_name, institution_category,
+                apex_title, sub_directorates_json, logo_path, status
+            ) VALUES (?, ?, ?, ?, ?, ?, 'Pending Activation')
+            """,
+            (
+                tenant_slug,
+                organization_name,
+                onboarding_data.get("institution_category"),
+                onboarding_data.get("apex_title"),
+                sub_directorates,
+                onboarding_data.get("logo_path", ""),
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO tenant_onboarding_contacts (
+                tenant_slug, admin_email, admin_phone, created_at
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (tenant_slug, admin_email, admin_phone, created_at),
+        )
+        _insert_tenant_activity(
+            connection,
+            tenant_slug,
+            "tenant_onboarded_pending_activation",
+            "Institutional node submitted and is awaiting developer activation.",
+        )
+        row = connection.execute(
+            """
+            SELECT tenant_slug, full_corporation_name, institution_category,
+                   apex_title, sub_directorates_json, logo_path, status
+            FROM tenants WHERE tenant_slug = ?
+            """,
+            (tenant_slug,),
+        ).fetchone()
+    return dict(row)
+
+
+def activate_tenant(tenant_slug: str) -> dict[str, Any] | None:
+    """Activate one pending tenant and return its private notification contact."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    init_db()
+    with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            """
+            SELECT tenant_slug, full_corporation_name, status
+            FROM tenants WHERE tenant_slug = ?
+            """,
+            (normalized_slug,),
+        ).fetchone()
+        if row is None or str(row["status"] or "").strip().upper() == "ACTIVE":
+            return None
+        cursor = connection.execute(
+            """
+            UPDATE tenants SET status = 'Active'
+            WHERE tenant_slug = ? AND status = ?
+            """,
+            (normalized_slug, row["status"]),
+        )
+        if cursor.rowcount != 1:
+            return None
+        contact = connection.execute(
+            """
+            SELECT admin_email, admin_phone
+            FROM tenant_onboarding_contacts
+            WHERE tenant_slug = ?
+            """,
+            (normalized_slug,),
+        ).fetchone()
+        _insert_tenant_activity(
+            connection,
+            normalized_slug,
+            "tenant_activated",
+            "Institutional node activated by the developer console.",
+            "developer",
+        )
+    return {
+        "tenant_slug": normalized_slug,
+        "full_corporation_name": str(row["full_corporation_name"] or normalized_slug),
+        "status": "Active",
+        "admin_email": str(contact["admin_email"]) if contact else "",
+        "admin_phone": str(contact["admin_phone"]) if contact else "",
+    }
+
+
+def get_tenant_activation_contact(tenant_slug: str) -> dict[str, str] | None:
+    """Return activation contact details for an authorized developer operation."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    init_db()
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT admin_email, admin_phone
+            FROM tenant_onboarding_contacts
+            WHERE tenant_slug = ?
+            """,
+            (normalized_slug,),
+        ).fetchone()
+    return dict(row) if row is not None else None
 
 
 def delete_tenant(tenant_slug: str) -> bool:
@@ -3145,6 +3298,10 @@ def delete_tenant(tenant_slug: str) -> bool:
             (normalized_slug,),
         )
         if cursor.rowcount > 0:
+            connection.execute(
+                "DELETE FROM tenant_onboarding_contacts WHERE tenant_slug = ?",
+                (normalized_slug,),
+            )
             _insert_tenant_activity(
                 connection,
                 normalized_slug,

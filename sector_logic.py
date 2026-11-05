@@ -12,9 +12,10 @@ import sqlite3
 import tempfile
 import zipfile
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from email.utils import parseaddr
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import requests
 import qrcode
@@ -31,6 +32,18 @@ _TENANT_SLUG_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{0,62}\Z")
 _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _CLEARANCE_ACTIVE_STATUS = "PAYMENT_VERIFIED"
 _CLEARANCE_SUBMITTED_STATUS = "DOSSIER_SUBMITTED"
+PRODUCTION_BASE_URL = "https://nexusvault-proposal-enterprise-connect.streamlit.app"
+
+
+def _tenant_vendor_url(tenant_slug: str, intake_type: str) -> str:
+    params = urlencode(
+        {
+            "portal": "vendor",
+            "tenant": tenant_slug,
+            "type": intake_type,
+        }
+    )
+    return f"{PRODUCTION_BASE_URL}/?{params}"
 
 
 def _widget_key(key_prefix: str | None, name: str) -> str:
@@ -142,6 +155,22 @@ def _create_payment_verified_pass(
         ).fetchone()
         if tenant is None or str(tenant["status"] or "").strip().upper() != "ACTIVE":
             raise ValueError("This tenant is not active. No pass was issued.")
+
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        active_tender = connection.execute(
+            """
+            SELECT 1 FROM tenant_tenders
+            WHERE tenant_slug = ? AND tender_id = ?
+              AND publishing_status = 'PUBLISHED'
+              AND expiration_at > ?
+            LIMIT 1
+            """,
+            (tenant_slug, rfq_code, now),
+        ).fetchone()
+        if active_tender is None:
+            raise ValueError(
+                "The selected tender is not currently published for this tenant."
+            )
 
         existing_payment = connection.execute(
             "SELECT 1 FROM clearance_passes WHERE payment_reference = ? LIMIT 1",
@@ -459,6 +488,7 @@ def _mark_dossier_submitted(
     pass_id: str,
 ) -> bool:
     db.init_db()
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with db.get_connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         cursor = connection.execute(
@@ -468,12 +498,20 @@ def _mark_dossier_submitted(
             WHERE qr_pass_id = ?
               AND tenant_slug = ?
               AND clearance_status = ?
+              AND EXISTS (
+                  SELECT 1 FROM tenant_tenders AS tender
+                  WHERE tender.tenant_slug = clearance_passes.tenant_slug
+                    AND tender.tender_id = clearance_passes.rfq_code
+                    AND tender.publishing_status = 'PUBLISHED'
+                    AND tender.expiration_at > ?
+              )
             """,
             (
                 _CLEARANCE_SUBMITTED_STATUS,
                 pass_id,
                 tenant_slug,
                 _CLEARANCE_ACTIVE_STATUS,
+                now,
             ),
         )
     return cursor.rowcount == 1
@@ -483,6 +521,22 @@ def _render_solicited_vendor_portal(
     tenant_slug: str,
     key_prefix: str | None,
 ) -> None:
+    try:
+        active_tenders = db.get_active_solicited_tenders(tenant_slug)
+    except (sqlite3.Error, RuntimeError, ValueError):
+        logging.exception(
+            "Could not load active solicited tender windows for %s.",
+            tenant_slug,
+        )
+        st.error("Solicited tender availability could not be verified.")
+        return
+    if not active_tenders:
+        st.info(
+            "Solicited submissions are closed. This tenant has no currently "
+            "published tender window."
+        )
+        return
+
     st.markdown("### Solicited Vendor Submission")
     st.caption(
         "Complete payment verification, confirm clearance, then submit your "
@@ -504,10 +558,16 @@ def _render_solicited_vendor_portal(
 
     with step1_tab:
         st.markdown("#### Verify payment and issue a clearance pass")
+        tenders_by_id = {
+            str(tender["tender_id"]): tender for tender in active_tenders
+        }
         with st.form(key=_widget_key(key_prefix, "solicited_step1_form")):
-            rfq_code = st.text_input(
-                "Official RFP / RFQ reference*",
-                max_chars=100,
+            rfq_code = st.selectbox(
+                "Published tender window*",
+                options=list(tenders_by_id),
+                format_func=lambda tender_id: (
+                    f"{tenders_by_id[tender_id]['title']} · {tender_id}"
+                ),
                 key=_widget_key(key_prefix, "rfq_code"),
             )
             vendor_name = st.text_input(
@@ -616,11 +676,23 @@ def _render_solicited_vendor_portal(
                 if clearance_record is None:
                     st.error("No clearance pass was found for this tenant.")
                 elif clearance_record["clearance_status"] == _CLEARANCE_ACTIVE_STATUS:
-                    st.success("Clearance is active. The sealed dossier step is unlocked.")
-                    _render_clearance_qr(tenant_slug, candidate_pass_id)
-                    st.code(candidate_pass_id, language="text")
-                    st.write("RFP reference:", clearance_record["rfq_code"])
-                    st.write("Proposal:", clearance_record["proposal_title"])
+                    tender_is_open = any(
+                        tender["tender_id"] == clearance_record["rfq_code"]
+                        for tender in active_tenders
+                    )
+                    if tender_is_open:
+                        st.success(
+                            "Clearance is active. The sealed dossier step is unlocked."
+                        )
+                        _render_clearance_qr(tenant_slug, candidate_pass_id)
+                        st.code(candidate_pass_id, language="text")
+                        st.write("Tender:", clearance_record["rfq_code"])
+                        st.write("Proposal:", clearance_record["proposal_title"])
+                    else:
+                        st.warning(
+                            "The tender window has closed. This clearance cannot "
+                            "unlock a dossier submission."
+                        )
                 elif clearance_record["clearance_status"] == _CLEARANCE_SUBMITTED_STATUS:
                     st.info("A dossier has already been submitted for this pass.")
                 else:
@@ -653,6 +725,11 @@ def _render_solicited_vendor_portal(
                 st.error("Locked: no valid pass exists for this tenant.")
             elif clearance_record["clearance_status"] == _CLEARANCE_SUBMITTED_STATUS:
                 st.info("A dossier has already been submitted for this pass.")
+            elif not any(
+                tender["tender_id"] == clearance_record["rfq_code"]
+                for tender in active_tenders
+            ):
+                st.error("Locked: the published tender window is closed.")
             elif clearance_record["clearance_status"] != _CLEARANCE_ACTIVE_STATUS:
                 st.error("Locked: the server-side clearance pass is not active.")
             else:
@@ -752,6 +829,20 @@ def render_solicited_vendor_qr_clearance_gate(
         return
     if not tenant_is_active:
         st.error("Solicited submissions are unavailable for this tenant.")
+        return
+    try:
+        active_tenders = db.get_active_solicited_tenders(tenant_slug)
+    except (sqlite3.Error, RuntimeError, ValueError):
+        logging.exception(
+            "Could not verify solicited tender availability for %s.",
+            tenant_slug,
+        )
+        st.error("Solicited submissions are temporarily unavailable.")
+        return
+    if not active_tenders:
+        st.info(
+            "Solicited submissions are closed. No published tender window is active."
+        )
         return
     _render_solicited_vendor_portal(tenant_slug, key_prefix)
 
@@ -934,6 +1025,7 @@ def render_unsolicited_vendor_portal(
 def render_unified_vendor_portal(
     tenant_slug: str | None = None,
     key_prefix: str | None = None,
+    intake_type: str | None = None,
 ) -> None:
     try:
         tenant = db.get_tenant_by_slug(tenant_slug) if tenant_slug else None
@@ -1029,19 +1121,65 @@ def render_unified_vendor_portal(
         unsafe_allow_html=True,
     )
 
+    try:
+        active_tenders = db.get_active_solicited_tenders(tenant_slug)
+    except (sqlite3.Error, RuntimeError, ValueError):
+        logging.exception(
+            "Could not resolve tender windows for public vendor portal %s.",
+            tenant_slug,
+        )
+        active_tenders = []
+    unsolicited_url = _tenant_vendor_url(tenant_slug, "unsolicited")
+    st.link_button("Open unsolicited submissions", unsolicited_url)
+    if active_tenders:
+        st.link_button(
+            "Open published solicited tender window",
+            _tenant_vendor_url(tenant_slug, "solicited"),
+        )
+    elif intake_type != "solicited":
+        st.info(
+            "Unsolicited submissions remain open. Solicited submissions appear "
+            "only while a tenant tender window is published and unexpired."
+        )
+
     prefix = key_prefix or f"tenant:{tenant_slug}:vendor"
-    solicited_tab, unsolicited_tab = st.tabs(
-        [
-            "Solicited Proposal & Clearance",
-            "Unsolicited Proposal Submission",
-        ]
-    )
-    with solicited_tab:
-        _render_solicited_vendor_portal(
+    if intake_type == "solicited":
+        if not active_tenders:
+            st.error(
+                "This solicited tender link is locked because no published window "
+                "is currently active."
+            )
+            return
+        render_solicited_vendor_qr_clearance_gate(
             tenant_slug=tenant_slug,
             key_prefix=f"{prefix}:solicited",
         )
-    with unsolicited_tab:
+        return
+    if intake_type == "unsolicited":
+        render_unsolicited_vendor_portal(
+            tenant_slug=tenant_slug,
+            key_prefix=f"{prefix}:unsolicited",
+        )
+        return
+
+    if active_tenders:
+        solicited_tab, unsolicited_tab = st.tabs(
+            [
+                "Solicited Proposal & Clearance",
+                "Unsolicited Proposal Submission",
+            ]
+        )
+        with solicited_tab:
+            render_solicited_vendor_qr_clearance_gate(
+                tenant_slug=tenant_slug,
+                key_prefix=f"{prefix}:solicited",
+            )
+        with unsolicited_tab:
+            render_unsolicited_vendor_portal(
+                tenant_slug=tenant_slug,
+                key_prefix=f"{prefix}:unsolicited",
+            )
+    else:
         render_unsolicited_vendor_portal(
             tenant_slug=tenant_slug,
             key_prefix=f"{prefix}:unsolicited",
