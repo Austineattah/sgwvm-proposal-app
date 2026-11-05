@@ -517,6 +517,49 @@ def _mark_dossier_submitted(
     return cursor.rowcount == 1
 
 
+def _render_vendor_intake_banner(title: str, description: str) -> None:
+    """Render a legible, theme-independent banner for vendor intake pages."""
+    st.markdown(
+        f"""
+        <div style="
+            background: linear-gradient(135deg, #121827 0%, #1e293b 100%);
+            border: 1px solid #059669;
+            border-left: 6px solid #10b981;
+            border-radius: 12px;
+            padding: 28px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 20px rgba(16, 185, 129, 0.15);
+        ">
+            <h2 style="
+                color: #34d399;
+                margin-top: 0;
+                font-weight: 700;
+                letter-spacing: 0.5px;
+            ">{html.escape(title)}</h2>
+            <p style="
+                color: #e2e8f0;
+                font-size: 15px;
+                margin-bottom: 12px;
+                line-height: 1.6;
+            ">{html.escape(description)}</p>
+            <div style="
+                display: inline-block;
+                background-color: rgba(16, 185, 129, 0.15);
+                color: #6ee7b7;
+                padding: 6px 14px;
+                border-radius: 20px;
+                font-size: 13px;
+                font-weight: 600;
+                border: 1px solid rgba(52, 211, 153, 0.3);
+            ">
+                ● Sovereign Gated Intake Node Active
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _render_solicited_vendor_portal(
     tenant_slug: str,
     key_prefix: str | None,
@@ -537,10 +580,10 @@ def _render_solicited_vendor_portal(
         )
         return
 
-    st.markdown("### Solicited Vendor Submission")
-    st.caption(
+    _render_vendor_intake_banner(
+        "Solicited Vendor Portal",
         "Complete payment verification, confirm clearance, then submit your "
-        "sealed dossier. Dossiers are encrypted at rest."
+        "sealed dossier. Dossiers are encrypted at rest.",
     )
 
     pass_key = _widget_key(key_prefix, "clearance_pass_id")
@@ -851,26 +894,10 @@ def render_unsolicited_vendor_portal(
     tenant_slug: str | None = None,
     key_prefix: str | None = None,
 ) -> None:
-    st.markdown(
-        """
-        <div style="
-            background-color: #0f172a;
-            color: #f8fafc;
-            padding: 24px;
-            border-radius: 12px;
-            border: 1px solid #1e293b;
-            margin-bottom: 20px;
-        ">
-            <h3 style="color: #60a5fa; margin-top: 0;">
-                Unsolicited Vendor Portal
-            </h3>
-            <p style="color: #cbd5e1; font-size: 14px; margin-bottom: 0;">
-                Submit unsolicited proposals for administrative review and
-                statutory evaluation.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    _render_vendor_intake_banner(
+        "Unsolicited Vendor Portal",
+        "Submit unsolicited proposals for administrative review and "
+        "statutory evaluation.",
     )
 
     try:
