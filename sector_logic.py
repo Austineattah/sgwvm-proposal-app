@@ -1,4 +1,5 @@
 import base64
+import binascii
 import hashlib
 import html
 import io
@@ -18,7 +19,7 @@ from urllib.parse import quote
 import requests
 import qrcode
 import streamlit as st
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from streamlit.errors import StreamlitSecretNotFoundError
 
 import database as db
@@ -59,14 +60,17 @@ def _get_paystack_secret_key() -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
-def _verify_paystack_payment(payment_reference: str, vendor_email: str) -> bool:
+def _verify_paystack_payment(
+    payment_reference: str,
+    vendor_email: str,
+) -> int | None:
     secret_key = _get_paystack_secret_key()
     if not secret_key:
         st.error(
             "Payment verification is unavailable because the Paystack secret "
             "is not configured."
         )
-        return False
+        return None
 
     try:
         response = requests.get(
@@ -79,16 +83,16 @@ def _verify_paystack_payment(payment_reference: str, vendor_email: str) -> bool:
     except (requests.RequestException, ValueError):
         logging.exception("Paystack payment verification request failed.")
         st.error("Payment could not be verified. Please retry or contact support.")
-        return False
+        return None
 
     if not isinstance(payload, Mapping) or payload.get("status") is not True:
         st.error("The payment provider did not confirm this payment.")
-        return False
+        return None
 
     transaction = payload.get("data")
     if not isinstance(transaction, Mapping):
         st.error("The payment provider returned an invalid verification response.")
-        return False
+        return None
 
     confirmed_reference = transaction.get("reference")
     transaction_status = transaction.get("status")
@@ -103,7 +107,7 @@ def _verify_paystack_payment(payment_reference: str, vendor_email: str) -> bool:
         or amount <= 0
     ):
         st.error("Payment is pending, invalid, or does not match the submitted reference.")
-        return False
+        return None
 
     if isinstance(customer, Mapping):
         paid_email = customer.get("email")
@@ -113,9 +117,9 @@ def _verify_paystack_payment(payment_reference: str, vendor_email: str) -> bool:
             and paid_email.strip().casefold() != vendor_email.casefold()
         ):
             st.error("The confirmed payment email does not match the vendor email.")
-            return False
+            return None
 
-    return True
+    return amount
 
 
 def _create_payment_verified_pass(
@@ -125,6 +129,7 @@ def _create_payment_verified_pass(
     vendor_email: str,
     payment_reference: str,
     proposal_title: str,
+    amount_minor: int,
 ) -> str:
     pass_id = f"NV-QRPASS-{secrets.token_urlsafe(32)}"
     db.init_db()
@@ -169,6 +174,16 @@ def _create_payment_verified_pass(
             vendor_name,
             "solicited",
             vendor_email,
+        )
+        db.record_tenant_payment_verification_in_connection(
+            connection,
+            tenant_slug=tenant_slug,
+            payment_reference=payment_reference,
+            qr_pass_id=pass_id,
+            amount_minor=amount_minor,
+            currency="NGN",
+            provider="Paystack",
+            vendor_email=vendor_email,
         )
     return pass_id
 
@@ -243,6 +258,124 @@ def _dossier_path(tenant_slug: str, pass_id: str) -> Path:
     ).expanduser()
     pass_digest = hashlib.sha256(pass_id.encode("utf-8")).hexdigest()
     return storage_root / tenant_slug / f"{pass_digest}.fernet"
+
+
+def get_departmental_proposal_document(
+    tenant_slug: str,
+    tracking_id: str,
+) -> tuple[str, bytes]:
+    """Decrypt one active-tenant proposal source document for staff download."""
+    if not isinstance(tenant_slug, str) or not _TENANT_SLUG_PATTERN.fullmatch(
+        tenant_slug
+    ):
+        raise ValueError("The tenant identifier is invalid.")
+    if not isinstance(tracking_id, str) or not tracking_id.strip():
+        raise ValueError("A proposal tracking ID is required.")
+    normalized_slug = tenant_slug.lower()
+    normalized_tracking = tracking_id.strip()
+    if not _tenant_is_active(normalized_slug):
+        raise ValueError("Proposal documents are available only for active tenants.")
+    proposal = next(
+        (
+            item
+            for item in db.get_tenant_governance_proposals(normalized_slug)
+            if item["tracking_id"] == normalized_tracking
+        ),
+        None,
+    )
+    if proposal is None:
+        raise ValueError("The proposal is not available in this tenant.")
+    key = _get_encryption_key()
+    if key is None:
+        raise ValueError("Encrypted dossier storage is not configured.")
+    fernet = Fernet(key)
+
+    if proposal["source_type"] == "physical":
+        stored_document = db.get_physical_proposal_document(
+            normalized_slug,
+            normalized_tracking,
+        )
+        if stored_document is None:
+            raise FileNotFoundError("The scanned physical proposal is unavailable.")
+        file_name = Path(stored_document["document_filename"]).name
+        try:
+            file_bytes = fernet.decrypt(stored_document["document_ciphertext"])
+        except InvalidToken as exc:
+            raise ValueError(
+                "The scanned physical proposal could not be decrypted."
+            ) from exc
+    else:
+        if proposal["source_type"] == "solicited":
+            clearance = db.get_clearance_pass(
+                normalized_tracking,
+                normalized_slug,
+            )
+            if (
+                clearance is None
+                or clearance["clearance_status"] != _CLEARANCE_SUBMITTED_STATUS
+            ):
+                raise FileNotFoundError("The submitted solicited dossier is unavailable.")
+        storage_root = Path(
+            os.environ.get(
+                "NEXUSVAULT_DOSSIER_DIR",
+                Path(__file__).resolve().parent / "uploads" / "sealed_dossiers",
+            )
+        ).expanduser()
+        tenant_directory = storage_root / normalized_slug
+        if tenant_directory.is_symlink():
+            raise RuntimeError("Tenant dossier storage cannot be a symbolic link.")
+        if not tenant_directory.is_dir():
+            raise FileNotFoundError("The encrypted proposal document is unavailable.")
+        encrypted_path = _dossier_path(normalized_slug, normalized_tracking)
+        if encrypted_path.is_symlink():
+            raise RuntimeError("Proposal dossier files cannot be symbolic links.")
+        resolved_root = storage_root.resolve(strict=True)
+        resolved_directory = tenant_directory.resolve(strict=True)
+        resolved_path = encrypted_path.resolve(strict=True)
+        if (
+            resolved_directory.parent != resolved_root
+            or resolved_path.parent != resolved_directory
+        ):
+            raise RuntimeError("The proposal document is outside its tenant directory.")
+        if resolved_path.stat().st_size > 2 * MAX_DOSSIER_SIZE_BYTES:
+            raise ValueError("The encrypted proposal document exceeds the safe size limit.")
+        try:
+            decrypted_payload = fernet.decrypt(resolved_path.read_bytes())
+        except InvalidToken as exc:
+            raise ValueError("The encrypted proposal document could not be decrypted.") from exc
+        if proposal["source_type"] == "unsolicited":
+            try:
+                payload = json.loads(decrypted_payload)
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ValueError("The unsolicited dossier payload is malformed.") from exc
+            if (
+                not isinstance(payload, dict)
+                or payload.get("tenant_slug") != normalized_slug
+                or payload.get("submission_id") != normalized_tracking
+                or not isinstance(payload.get("file_base64"), str)
+            ):
+                raise ValueError("The encrypted unsolicited dossier identity is invalid.")
+            try:
+                file_bytes = base64.b64decode(
+                    payload["file_base64"],
+                    validate=True,
+                )
+            except (ValueError, binascii.Error) as exc:
+                raise ValueError("The unsolicited proposal document is malformed.") from exc
+            file_name = Path(str(payload.get("filename") or "proposal.pdf")).name
+        else:
+            file_bytes = decrypted_payload
+            file_name = (
+                f"{normalized_tracking}.pdf"
+                if file_bytes.startswith(b"%PDF-")
+                else f"{normalized_tracking}.docx"
+            )
+
+    if not file_bytes or len(file_bytes) > MAX_DOSSIER_SIZE_BYTES:
+        raise ValueError("The decrypted proposal document has an invalid size.")
+    if proposal["source_type"] != "physical":
+        _validate_dossier(file_name, file_bytes)
+    return file_name, file_bytes
 
 
 def purge_tenant_dossiers(tenant_slug: str) -> int:
@@ -422,7 +555,12 @@ def _render_solicited_vendor_portal(
                 st.error("Complete all required fields with a valid corporate email.")
             elif not _tenant_is_active(tenant_slug):
                 st.error("This tenant is no longer active. No pass was issued.")
-            elif not _verify_paystack_payment(normalized_ref, parsed_email):
+            elif not (
+                verified_amount := _verify_paystack_payment(
+                    normalized_ref,
+                    parsed_email,
+                )
+            ):
                 pass
             else:
                 try:
@@ -433,6 +571,7 @@ def _render_solicited_vendor_portal(
                         vendor_email=parsed_email,
                         payment_reference=normalized_ref,
                         proposal_title=normalized_title,
+                        amount_minor=verified_amount,
                     )
                 except ValueError as exc:
                     st.error(str(exc))
@@ -739,12 +878,26 @@ def render_unsolicited_vendor_portal(
                     ensure_ascii=False,
                     separators=(",", ":"),
                 ).encode("utf-8")
-                _write_encrypted_dossier(
+                encrypted_path = _write_encrypted_dossier(
                     tenant_slug,
                     submission_id,
                     encrypted_payload,
                     encryption_key,
                 )
+                try:
+                    db.record_unsolicited_proposal(
+                        tenant_slug=tenant_slug,
+                        submission_id=submission_id,
+                        organization_name=organization,
+                        cac_registration_number=cac_number,
+                        proposal_title=proposal_title,
+                        document_filename=Path(dossier.name).name,
+                        document_sha256=hashlib.sha256(dossier_bytes).hexdigest(),
+                        tax_identification_number=tax_id,
+                    )
+                except (sqlite3.Error, RuntimeError, ValueError):
+                    encrypted_path.unlink(missing_ok=True)
+                    raise
             except ValueError as exc:
                 st.error(str(exc))
             except (OSError, sqlite3.Error):
