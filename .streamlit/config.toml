@@ -3,3 +3,10 @@ maxUploadSize = 200
 enableCORS = false
 enableXsrfProtection = true
 headless = true
+
+[client]
+showErrorDetails = false
+toolbarMode = "minimal"
+
+[ui]
+hideTopBar = true

@@ -31,12 +31,45 @@ import database as db
 PRODUCTION_BASE_URL = "https://nexusvault-proposal-enterprise-connect.streamlit.app"
 
 
+def inject_production_security_css() -> None:
+    """Hide Streamlit chrome and source controls from the public portal UI."""
+    isolated_portals = {"vendor", "internal", "frontdesk", "admin"}
+    portal = st.query_params.get("portal")
+    hide_sidebar_navigation = (
+        isinstance(portal, str) and portal.strip().lower() in isolated_portals
+    )
+    selectors = [
+        'header[data-testid="stHeader"]',
+        'div[data-testid="stToolbar"]',
+        'div[data-testid="stStatusWidget"]',
+        "#MainMenu",
+        "footer",
+        ".viewerBadge_container__16g8m",
+        'button[title="View app source"]',
+    ]
+    if hide_sidebar_navigation:
+        selectors.append('div[data-testid="stSidebarNav"]')
+    selector_list = ",\n".join(selectors)
+    st.markdown(
+        f"""
+        <style>
+        {selector_list} {{
+            display: none !important;
+            visibility: hidden !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 st.set_page_config(
     page_title="NEXUSVAULT Sovereign Enterprise Portal",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+inject_production_security_css()
 
 
 def _tenant_portal_url(
@@ -3055,6 +3088,7 @@ def _render_executive_ai_advisor(
                             "across the available proposals."
                         ),
                         "summary",
+                        tenant_id=tenant_id,
                     )
                 )
             except (RuntimeError, ValueError) as exc:
@@ -3088,6 +3122,7 @@ def _render_executive_ai_advisor(
                             advisor_data["ai_context"],
                             strategy_question,
                             "strategy",
+                            tenant_id=tenant_id,
                         )
                     )
                 except (RuntimeError, ValueError) as exc:
