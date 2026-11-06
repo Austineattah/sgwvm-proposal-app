@@ -1,12 +1,14 @@
+﻿[client]
+showErrorDetails = false
+toolbarMode = "viewer"
+
+[browser]
+gatherUsageStats = false
+
 [server]
-maxUploadSize = 200
+headless = true
 enableCORS = false
 enableXsrfProtection = true
-headless = true
-
-[client]
-showErrorDetails = false
-toolbarMode = "minimal"
 
 [ui]
 hideTopBar = true
