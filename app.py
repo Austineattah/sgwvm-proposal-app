@@ -2473,6 +2473,172 @@ def _proposal_compliance_matrix(proposal: Mapping[str, Any]) -> list[dict[str, s
     ]
 
 
+def _render_executive_ai_advisor(
+    tenant_id: str,
+    proposals_data: list[dict[str, Any]],
+) -> None:
+    if not _tenant_access_is_authenticated("executive", tenant_id):
+        return
+
+    import sector_logic
+
+    try:
+        advisor_data = sector_logic.build_executive_ai_advisor_context(
+            tenant_id,
+            proposals_data,
+        )
+        ai_configured = sector_logic.executive_ai_is_configured()
+    except (sqlite3.Error, RuntimeError, TypeError, ValueError):
+        logging.exception(
+            "Could not prepare the executive AI advisor for tenant %s.",
+            tenant_id,
+        )
+        st.error("The executive AI advisor could not load its proposal audit.")
+        return
+
+    summary_key = _tenant_key(tenant_id, "executive", "ai_advisor_summary")
+    strategy_key = _tenant_key(tenant_id, "executive", "ai_advisor_strategy")
+    with st.container(border=True):
+        st.markdown(
+            """
+            <style>
+            div[data-testid="stVerticalBlockBorderWrapper"]:has(
+                .executive-ai-advisor-anchor
+            ) {
+                border: 2px solid transparent !important;
+                border-radius: 18px !important;
+                background:
+                    linear-gradient(#121827, #121827) padding-box,
+                    linear-gradient(120deg, #10b981, #d4af37) border-box !important;
+            }
+            div[data-testid="stVerticalBlockBorderWrapper"]:has(
+                .executive-ai-advisor-anchor
+            ) [data-testid="stMarkdownContainer"] {
+                color: #f8fafc;
+            }
+            .executive-ai-advisor-anchor { height: 0; }
+            .executive-ai-advisor-status {
+                color: #34d399;
+                font-weight: 700;
+                letter-spacing: 0.02em;
+            }
+            </style>
+            <div class="executive-ai-advisor-anchor"></div>
+            <div class="executive-ai-advisor-status">
+                ● Agentic AI Executive Strategy Node Active
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.subheader("Sovereign Executive AI Consultation Advisor")
+        st.caption(
+            "Decision support only; not a procurement decision or compliance "
+            "certification. Gemini receives proposal titles, routing/workflow "
+            "status, compliance-check names and statuses, and aggregate committee "
+            "scores only. Proposal documents, organization/contact details, and "
+            "reviewer identities are not sent."
+        )
+
+        st.markdown("**Committee Evaluation & COI Anomaly Audit**")
+        if advisor_data["committee_audit"]:
+            st.dataframe(
+                advisor_data["committee_audit"],
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("No committee members or proposal-scoped COI records are available.")
+
+        st.caption(
+            "Scoring outlier screening flags reviewer category scores at least "
+            f"{advisor_data['outlier_threshold']} points from that proposal's panel "
+            "average. This is a review heuristic, not evidence of misconduct."
+        )
+        if advisor_data["scoring_outliers"]:
+            st.dataframe(
+                [
+                    {
+                        "Proposal": finding["proposal"],
+                        "Committee member": finding["reviewer"],
+                        "Category": finding["category"],
+                        "Score": finding["score"],
+                        "Panel average": finding["panel_average"],
+                        "Difference": finding["difference"],
+                    }
+                    for finding in advisor_data["scoring_outliers"]
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+        elif advisor_data["committee_audit"]:
+            st.success("No scoring outliers were detected by this screening heuristic.")
+
+        if not ai_configured:
+            st.warning(
+                "Gemini consultation is unavailable. Configure GEMINI_API_KEY in "
+                ".streamlit/secrets.toml to enable AI-generated summaries and "
+                "strategy responses. The committee audit and all other portal "
+                "features remain available."
+            )
+
+        st.markdown("**Executive Summary Generator**")
+        if st.button(
+            "Generate executive summary",
+            key=_tenant_key(tenant_id, "executive", "ai_summary_button"),
+            disabled=not ai_configured or advisor_data["proposal_count"] == 0,
+        ):
+            try:
+                st.session_state[summary_key] = (
+                    sector_logic.generate_executive_ai_consultation(
+                        advisor_data["ai_context"],
+                        (
+                            "Assess overall proposal viability and policy alignment "
+                            "across the available proposals."
+                        ),
+                        "summary",
+                    )
+                )
+            except (RuntimeError, ValueError) as exc:
+                st.error(str(exc))
+
+        summary = st.session_state.get(summary_key)
+        if isinstance(summary, str) and summary:
+            st.markdown(summary)
+
+        st.markdown("**Interactive Strategy Query**")
+        with st.form(key=_tenant_key(tenant_id, "executive", "ai_strategy_form")):
+            strategy_question = st.text_area(
+                "Ask the Executive Strategy Advisor",
+                placeholder=(
+                    "Analyze risk profiles for physical security proposals"
+                ),
+                max_chars=2_000,
+                key=_tenant_key(tenant_id, "executive", "ai_strategy_question"),
+            )
+            submitted = st.form_submit_button(
+                "Run strategy consultation",
+                disabled=not ai_configured,
+            )
+        if submitted:
+            if not strategy_question.strip():
+                st.warning("Enter a question for the executive advisor.")
+            else:
+                try:
+                    st.session_state[strategy_key] = (
+                        sector_logic.generate_executive_ai_consultation(
+                            advisor_data["ai_context"],
+                            strategy_question,
+                            "strategy",
+                        )
+                    )
+                except (RuntimeError, ValueError) as exc:
+                    st.error(str(exc))
+
+        strategy_response = st.session_state.get(strategy_key)
+        if isinstance(strategy_response, str) and strategy_response:
+            st.markdown(strategy_response)
+
+
 def _render_executive_apex_tab(tenant_slug: str, actor: str) -> None:
     st.subheader("Apex Proposal Hub")
     st.caption(
@@ -2487,6 +2653,7 @@ def _render_executive_apex_tab(tenant_slug: str, actor: str) -> None:
         logging.exception("Could not load apex proposals for %s.", tenant_slug)
         st.error("The proposal hub could not be loaded.")
         return
+    _render_executive_ai_advisor(tenant_slug, proposals)
     if not proposals:
         st.info("No physical proposals are available for executive review.")
         return
@@ -3314,7 +3481,7 @@ def _render_home() -> None:
     st.markdown(
         """
         <div class="onboarding-title-banner">
-            <h2>✨ ONBOARDING MODULE ✨</h2>
+            <h2>👉 ONBOARDING MODULE 👇</h2>
         </div>
         """,
         unsafe_allow_html=True,
