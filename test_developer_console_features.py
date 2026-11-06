@@ -436,6 +436,7 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
             {
                 "tenant_slug": "branded_tenant",
                 "full_corporation_name": "Branded Tenant",
+                "institution_category": "Federal Government Ministry / MDA",
                 "admin_email": "admin@example.test",
                 "admin_phone": "+2348000000000",
                 "logo_path": "branded_tenant.png",
@@ -447,6 +448,10 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
         self.assertEqual(
             database.get_tenant_by_slug("branded_tenant")["logo_path"],
             "branded_tenant.png",
+        )
+        self.assertEqual(
+            database.get_tenant_gateway_config("branded_tenant")["payment_mode"],
+            "remita_tsa",
         )
         pending = database.get_tenant_by_slug("branded_tenant")
         self.assertEqual(pending["status"], "Pending Activation")
@@ -1069,6 +1074,213 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
             ],
             [tender["tender_id"]],
         )
+
+    def test_tenant_gateway_defaults_follow_institution_category(self):
+        database.save_tenant(
+            {
+                "tenant_slug": "public_mda",
+                "institution_category": "Federal Government Ministry / MDA",
+                "full_corporation_name": "Public MDA",
+                "status": "Active",
+            }
+        )
+        database.save_tenant(
+            {
+                "tenant_slug": "public_university",
+                "institution_category": (
+                    "Public University / Polytechnic / Research Institute "
+                    "(Academic Sector)"
+                ),
+                "full_corporation_name": "Public University",
+                "status": "Active",
+            }
+        )
+
+        self.assertEqual(
+            database.get_tenant_gateway_config("public_mda")["payment_mode"],
+            "remita_tsa",
+        )
+        self.assertEqual(
+            database.get_tenant_gateway_config("public_university")["payment_mode"],
+            "corporate_lodgment",
+        )
+
+    def test_existing_corporate_lodgment_table_migrates_fee_snapshot_columns(self):
+        legacy_path = Path(self.temporary_directory.name) / "legacy_lodgments.db"
+        connection = sqlite3.connect(legacy_path)
+        try:
+            connection.execute(
+                """
+                CREATE TABLE tenant_corporate_lodgments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_slug TEXT NOT NULL,
+                    qr_pass_id TEXT NOT NULL,
+                    payment_reference TEXT NOT NULL,
+                    submitted_at TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    resolved_at TEXT,
+                    resolved_by TEXT,
+                    UNIQUE (tenant_slug, payment_reference),
+                    UNIQUE (tenant_slug, qr_pass_id)
+                )
+                """
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        with patch.object(database, "DB_FILE", legacy_path):
+            database.init_db()
+            with database.get_connection() as connection:
+                columns = {
+                    row["name"]
+                    for row in connection.execute(
+                        'PRAGMA table_info("tenant_corporate_lodgments")'
+                    ).fetchall()
+                }
+
+        self.assertIn("fee_amount_minor", columns)
+        self.assertIn("currency", columns)
+
+    def test_corporate_lodgment_requires_review_and_only_approval_unlocks(self):
+        database.save_tenant(
+            {
+                "tenant_slug": "example_tenant",
+                "full_corporation_name": "Example Tenant",
+                "status": "Active",
+            }
+        )
+        database.save_tenant_gateway_config(
+            tenant_slug="example_tenant",
+            tsa_endpoint="",
+            tsa_key_ciphertext=None,
+            remita_endpoint="",
+            remita_merchant_key_ciphertext=None,
+            service_head="Tender Fee",
+            fee_amount_minor=125_000,
+            updated_by="executive",
+            payment_mode="corporate_lodgment",
+            corporate_bank_name="Example Bank",
+            corporate_account_number="1234567890",
+            corporate_account_name="Example Tenant",
+            payment_reference_prefix="BID-2026-",
+            lodgment_instructions="Use the issued bid reference.",
+        )
+        tender = database.create_tenant_tender(
+            tenant_slug="example_tenant",
+            title="Road Maintenance",
+            description="Published solicitation.",
+            expiration_at=(datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+            auto_lock=True,
+            created_by="tenant_executive",
+            publish_now=True,
+        )
+
+        pending_pass = database.submit_corporate_lodgment(
+            tenant_slug="example_tenant",
+            rfq_code=tender["tender_id"],
+            vendor_name="Example Vendor",
+            vendor_email="vendor@example.test",
+            payment_reference="BID-2026-REF-001",
+            proposal_title="Road proposal",
+        )
+        self.assertEqual(
+            database.get_clearance_pass(pending_pass, "example_tenant")[
+                "clearance_status"
+            ],
+            "PENDING_PAYMENT_REVIEW",
+        )
+        self.assertEqual(len(database.get_pending_corporate_lodgments("example_tenant")), 1)
+        with self.assertRaisesRegex(ValueError, "already been submitted"):
+            database.submit_corporate_lodgment(
+                tenant_slug="example_tenant",
+                rfq_code=tender["tender_id"],
+                vendor_name="Another Vendor",
+                vendor_email="another@example.test",
+                payment_reference="BID-2026-REF-001",
+                proposal_title="Duplicate reference",
+            )
+        with self.assertRaisesRegex(ValueError, "must begin"):
+            database.submit_corporate_lodgment(
+                tenant_slug="example_tenant",
+                rfq_code=tender["tender_id"],
+                vendor_name="Another Vendor",
+                vendor_email="another@example.test",
+                payment_reference="OTHER-REF-002",
+                proposal_title="Wrong prefix",
+            )
+
+        self.assertTrue(
+            database.resolve_corporate_lodgment(
+                "example_tenant",
+                pending_pass,
+                "APPROVE",
+                "tenant_executive",
+            )
+        )
+        self.assertEqual(
+            database.get_clearance_pass(pending_pass, "example_tenant")[
+                "clearance_status"
+            ],
+            "PAYMENT_VERIFIED",
+        )
+        payment = database.get_tenant_financial_ledger("example_tenant")[0]
+        self.assertEqual(payment["provider"], "Corporate bank lodgment")
+        self.assertEqual(payment["amount_minor"], 125_000)
+        self.assertEqual(database.get_pending_corporate_lodgments("example_tenant"), [])
+
+    def test_rejected_corporate_lodgment_never_creates_payment_clearance(self):
+        database.save_tenant(
+            {
+                "tenant_slug": "example_tenant",
+                "full_corporation_name": "Example Tenant",
+                "status": "Active",
+            }
+        )
+        database.save_tenant_gateway_config(
+            tenant_slug="example_tenant",
+            tsa_endpoint="",
+            tsa_key_ciphertext=None,
+            remita_endpoint="",
+            remita_merchant_key_ciphertext=None,
+            service_head="Tender Fee",
+            fee_amount_minor=125_000,
+            updated_by="executive",
+            payment_mode="corporate_lodgment",
+            corporate_bank_name="Example Bank",
+            corporate_account_number="1234567890",
+            corporate_account_name="Example Tenant",
+        )
+        tender = database.create_tenant_tender(
+            tenant_slug="example_tenant",
+            title="Road Maintenance",
+            description="Published solicitation.",
+            expiration_at=(datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+            auto_lock=True,
+            created_by="tenant_executive",
+            publish_now=True,
+        )
+        pass_id = database.submit_corporate_lodgment(
+            tenant_slug="example_tenant",
+            rfq_code=tender["tender_id"],
+            vendor_name="Example Vendor",
+            vendor_email="vendor@example.test",
+            payment_reference="TRANSFER-REJECT-001",
+            proposal_title="Road proposal",
+        )
+
+        self.assertTrue(
+            database.resolve_corporate_lodgment(
+                "example_tenant",
+                pass_id,
+                "REJECT",
+                "tenant_executive",
+            )
+        )
+        self.assertEqual(
+            database.get_clearance_pass(pass_id, "example_tenant")["clearance_status"],
+            "PAYMENT_REJECTED",
+        )
+        self.assertIsNone(database.get_tenant_financial_ledger("example_tenant")[0]["amount_minor"])
 
     def test_verified_payment_ledger_retains_amount_and_is_tenant_scoped(self):
         import sector_logic

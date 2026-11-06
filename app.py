@@ -1959,10 +1959,11 @@ def _valid_gateway_endpoint(value: str, label: str) -> str:
 
 
 def _render_executive_gateway_tab(tenant_slug: str, actor: str) -> None:
-    st.subheader("TSA & Remita Gateway Configuration")
+    st.subheader("Tenant Payment Gateway Configuration")
     st.caption(
-        "Settings are stored for this tenant only. This configures endpoints and "
-        "fee metadata; it does not connect to or verify payments with a live gateway."
+        "Configure tenant-specific payment instructions and choose the active "
+        "collection mode. TSA/Remita endpoints are configuration only; live "
+        "provider verification remains subject to the existing Paystack integration."
     )
     try:
         config = db.get_tenant_gateway_config(tenant_slug)
@@ -1971,62 +1972,45 @@ def _render_executive_gateway_tab(tenant_slug: str, actor: str) -> None:
         st.error("Gateway settings could not be loaded.")
         return
 
-    tsa_default = str(config.get("tsa_endpoint") or "") if config else ""
-    remita_default = str(config.get("remita_endpoint") or "") if config else ""
-    service_head_default = (
-        str(config.get("service_head") or "Tender Fee/Bidding Document Fee")
-        if config
-        else "Tender Fee/Bidding Document Fee"
+    config = config or {}
+    tsa_default = str(config.get("tsa_endpoint") or "")
+    remita_default = str(config.get("remita_endpoint") or "")
+    service_head_default = str(
+        config.get("service_head") or "Tender Fee/Bidding Document Fee"
     )
-    fee_default = (
-        f"{Decimal(config['fee_amount_minor']) / 100:.2f}"
-        if config
-        else "0.00"
+    fee_default = f"{Decimal(config.get('fee_amount_minor') or 0) / 100:.2f}"
+    payment_modes = ("remita_tsa", "corporate_lodgment")
+    configured_mode = str(config.get("payment_mode") or "corporate_lodgment")
+    if configured_mode not in payment_modes:
+        configured_mode = "corporate_lodgment"
+    mode_key = _tenant_key(tenant_slug, "executive", "payment_mode")
+    selected_mode = st.radio(
+        "Active payment mode",
+        options=payment_modes,
+        index=payment_modes.index(configured_mode),
+        format_func=lambda mode: (
+            "Government TSA / Remita" if mode == "remita_tsa"
+            else "Corporate bank lodgment"
+        ),
+        horizontal=True,
+        key=mode_key,
     )
-    with st.form(
-        key=_tenant_key(tenant_slug, "executive", "gateway_form"),
-        clear_on_submit=True,
-    ):
-        tsa_endpoint = st.text_input(
-            "TSA payment endpoint",
-            value=tsa_default,
-            key=_tenant_key(tenant_slug, "executive", "tsa_endpoint"),
-        )
-        tsa_key = st.text_input(
-            "TSA key (leave blank to preserve saved key)",
-            type="password",
-            max_chars=512,
-            key=_tenant_key(tenant_slug, "executive", "tsa_key_input"),
-        )
-        remita_endpoint = st.text_input(
-            "Remita payment endpoint",
-            value=remita_default,
-            key=_tenant_key(tenant_slug, "executive", "remita_endpoint"),
-        )
-        remita_key = st.text_input(
-            "Remita merchant key (leave blank to preserve saved key)",
-            type="password",
-            max_chars=512,
-            key=_tenant_key(tenant_slug, "executive", "remita_merchant_key_input"),
-        )
-        service_head = st.text_input(
-            "Service head",
-            value=service_head_default,
-            max_chars=160,
-            key=_tenant_key(tenant_slug, "executive", "service_head"),
-        )
-        fee_amount = st.text_input(
-            "Tender Fee/Bidding Document Fee (NGN)",
-            value=fee_default,
-            max_chars=24,
-            key=_tenant_key(tenant_slug, "executive", "fee_amount"),
-        )
-        save_config = st.form_submit_button(
-            "Save tenant gateway configuration",
-            type="primary",
-        )
+    st.caption("The selected mode becomes active when either configuration tab is saved.")
 
-    if save_config:
+    def save_config(
+        *,
+        tsa_endpoint: str,
+        tsa_key: str,
+        remita_endpoint: str,
+        remita_key: str,
+        service_head: str,
+        fee_amount: str,
+        corporate_bank_name: str,
+        corporate_account_number: str,
+        corporate_account_name: str,
+        payment_reference_prefix: str,
+        lodgment_instructions: str,
+    ) -> None:
         try:
             tsa_url = _valid_gateway_endpoint(tsa_endpoint, "TSA endpoint")
             remita_url = _valid_gateway_endpoint(remita_endpoint, "Remita endpoint")
@@ -2053,7 +2037,7 @@ def _render_executive_gateway_tab(tenant_slug: str, actor: str) -> None:
                 if fernet and remita_key.strip()
                 else None
             )
-            saved = db.save_tenant_gateway_config(
+            db.save_tenant_gateway_config(
                 tenant_slug=tenant_slug,
                 tsa_endpoint=tsa_url,
                 tsa_key_ciphertext=tsa_ciphertext,
@@ -2062,6 +2046,12 @@ def _render_executive_gateway_tab(tenant_slug: str, actor: str) -> None:
                 service_head=service_head,
                 fee_amount_minor=fee_minor,
                 updated_by=actor,
+                payment_mode=selected_mode,
+                corporate_bank_name=corporate_bank_name,
+                corporate_account_number=corporate_account_number,
+                corporate_account_name=corporate_account_name,
+                payment_reference_prefix=payment_reference_prefix,
+                lodgment_instructions=lodgment_instructions,
             )
         except (
             InvalidOperation,
@@ -2073,11 +2063,141 @@ def _render_executive_gateway_tab(tenant_slug: str, actor: str) -> None:
             logging.exception("Could not save gateway settings for %s.", tenant_slug)
             st.error(f"Gateway configuration was not saved: {exc}")
         else:
-            st.success(
-                "Tenant gateway configuration saved. Credential values are not "
-                "displayed after saving."
+            st.success("Tenant gateway configuration saved.")
+            st.session_state[_tenant_key(
+                tenant_slug, "executive", "gateway_config_saved"
+            )] = True
+            st.rerun()
+
+    tsa_tab, corporate_tab = st.tabs(
+        [
+            "🏛️ Government TSA & Remita Gateway",
+            "🏢 Corporate & Institutional Bank Lodgment",
+        ]
+    )
+    with tsa_tab:
+        with st.form(
+            key=_tenant_key(tenant_slug, "executive", "tsa_gateway_form"),
+        ):
+            tsa_endpoint = st.text_input(
+                "TSA payment endpoint",
+                value=tsa_default,
+                key=_tenant_key(tenant_slug, "executive", "tsa_endpoint"),
             )
-            config = saved
+            tsa_key = st.text_input(
+                "TSA key (leave blank to preserve saved key)",
+                type="password",
+                max_chars=512,
+                key=_tenant_key(tenant_slug, "executive", "tsa_key_input"),
+            )
+            remita_endpoint = st.text_input(
+                "Remita payment endpoint",
+                value=remita_default,
+                key=_tenant_key(tenant_slug, "executive", "remita_endpoint"),
+            )
+            remita_key = st.text_input(
+                "Remita merchant key (leave blank to preserve saved key)",
+                type="password",
+                max_chars=512,
+                key=_tenant_key(tenant_slug, "executive", "remita_merchant_key_input"),
+            )
+            service_head = st.text_input(
+                "Service head",
+                value=service_head_default,
+                max_chars=160,
+                key=_tenant_key(tenant_slug, "executive", "service_head"),
+            )
+            fee_amount = st.text_input(
+                "Tender Fee/Bidding Document Fee (NGN)",
+                value=fee_default,
+                max_chars=24,
+                key=_tenant_key(tenant_slug, "executive", "fee_amount"),
+            )
+            save_tsa = st.form_submit_button(
+                "Save TSA / Remita configuration",
+                type="primary",
+            )
+        if save_tsa:
+            save_config(
+                tsa_endpoint=tsa_endpoint,
+                tsa_key=tsa_key,
+                remita_endpoint=remita_endpoint,
+                remita_key=remita_key,
+                service_head=service_head,
+                fee_amount=fee_amount,
+                corporate_bank_name=str(config.get("corporate_bank_name") or ""),
+                corporate_account_number=str(
+                    config.get("corporate_account_number") or ""
+                ),
+                corporate_account_name=str(
+                    config.get("corporate_account_name") or ""
+                ),
+                payment_reference_prefix=str(
+                    config.get("payment_reference_prefix") or ""
+                ),
+                lodgment_instructions=str(config.get("lodgment_instructions") or ""),
+            )
+
+    with corporate_tab:
+        with st.form(
+            key=_tenant_key(tenant_slug, "executive", "corporate_gateway_form"),
+        ):
+            corporate_bank_name = st.text_input(
+                "Bank Name",
+                value=str(config.get("corporate_bank_name") or ""),
+                max_chars=120,
+                key=_tenant_key(tenant_slug, "executive", "corporate_bank_name"),
+            )
+            corporate_account_number = st.text_input(
+                "Account Number",
+                value=str(config.get("corporate_account_number") or ""),
+                max_chars=34,
+                key=_tenant_key(
+                    tenant_slug, "executive", "corporate_account_number"
+                ),
+            )
+            corporate_account_name = st.text_input(
+                "Account Name",
+                value=str(config.get("corporate_account_name") or ""),
+                max_chars=160,
+                key=_tenant_key(
+                    tenant_slug, "executive", "corporate_account_name"
+                ),
+            )
+            payment_reference_prefix = st.text_input(
+                "Payment Reference Prefix",
+                value=str(config.get("payment_reference_prefix") or ""),
+                max_chars=40,
+                key=_tenant_key(
+                    tenant_slug, "executive", "payment_reference_prefix"
+                ),
+            )
+            lodgment_instructions = st.text_area(
+                "Transfer Instructions",
+                value=str(config.get("lodgment_instructions") or ""),
+                max_chars=2000,
+                key=_tenant_key(
+                    tenant_slug, "executive", "lodgment_instructions"
+                ),
+            )
+            save_corporate = st.form_submit_button(
+                "Save corporate lodgment configuration",
+                type="primary",
+            )
+        if save_corporate:
+            save_config(
+                tsa_endpoint=tsa_default,
+                tsa_key="",
+                remita_endpoint=remita_default,
+                remita_key="",
+                service_head=service_head_default,
+                fee_amount=fee_default,
+                corporate_bank_name=corporate_bank_name,
+                corporate_account_number=corporate_account_number,
+                corporate_account_name=corporate_account_name,
+                payment_reference_prefix=payment_reference_prefix,
+                lodgment_instructions=lodgment_instructions,
+            )
 
     if config:
         tsa_col, remita_col, fee_col = st.columns(3)
@@ -2102,12 +2222,14 @@ def _render_executive_financial_tab(tenant_slug: str) -> None:
     st.subheader("DFA Financial Reconciliation")
     st.caption(
         "Tenant-local payment reference ledger sourced from recorded clearance "
-        "passes and provider verification events. Paystack is the current live "
-        "verification source; the configured TSA/Remita endpoints are not connected."
+        "passes and provider verification events. Corporate bank references remain "
+        "locked until an executive approves them; TSA/Remita configuration does "
+        "not itself verify a payment."
     )
     try:
         ledger = db.get_tenant_financial_ledger(tenant_slug)
         config = db.get_tenant_gateway_config(tenant_slug)
+        pending_lodgments = db.get_pending_corporate_lodgments(tenant_slug)
     except (sqlite3.Error, RuntimeError, ValueError):
         logging.exception("Could not load financial ledger for %s.", tenant_slug)
         st.error("The financial ledger could not be loaded.")
@@ -2168,6 +2290,76 @@ def _render_executive_financial_tab(tenant_slug: str) -> None:
         )
     else:
         st.info("No payment-reference records exist for this tenant yet.")
+
+    st.markdown("#### Corporate lodgment review queue")
+    if not pending_lodgments:
+        st.info("There are no corporate transfer references awaiting review.")
+        return
+    for lodgment in pending_lodgments:
+        st.text(
+            f"{lodgment['vendor_name']} · {lodgment['email']}\n"
+            f"Reference: {lodgment['payment_reference']} · "
+            f"Tender: {lodgment['rfq_code']}\n"
+            f"Proposal: {lodgment['proposal_title']} · "
+            f"Submitted: {lodgment['submitted_at']}"
+        )
+        approve_col, reject_col = st.columns(2)
+        if approve_col.button(
+            "Approve transfer",
+            key=_tenant_key(
+                tenant_slug,
+                "executive",
+                f"approve_lodgment_{lodgment['qr_pass_id']}",
+            ),
+            type="primary",
+        ):
+            try:
+                resolved = db.resolve_corporate_lodgment(
+                    tenant_slug,
+                    lodgment["qr_pass_id"],
+                    "APPROVE",
+                    "tenant_executive",
+                    _security_session_identifier(),
+                )
+            except (sqlite3.Error, RuntimeError, TypeError, ValueError) as exc:
+                logging.exception(
+                    "Could not approve corporate lodgment for %s.",
+                    tenant_slug,
+                )
+                st.error(f"The transfer could not be approved: {exc}")
+            else:
+                if resolved:
+                    st.success("Transfer approved and clearance pass activated.")
+                    st.rerun()
+                st.warning("This transfer was already resolved by another session.")
+        if reject_col.button(
+            "Reject transfer",
+            key=_tenant_key(
+                tenant_slug,
+                "executive",
+                f"reject_lodgment_{lodgment['qr_pass_id']}",
+            ),
+        ):
+            try:
+                resolved = db.resolve_corporate_lodgment(
+                    tenant_slug,
+                    lodgment["qr_pass_id"],
+                    "REJECT",
+                    "tenant_executive",
+                    _security_session_identifier(),
+                )
+            except (sqlite3.Error, RuntimeError, TypeError, ValueError):
+                logging.exception(
+                    "Could not reject corporate lodgment for %s.",
+                    tenant_slug,
+                )
+                st.error("The transfer could not be rejected.")
+            else:
+                if resolved:
+                    st.success("Transfer rejected; its clearance pass remains locked.")
+                    st.rerun()
+                st.warning("This transfer was already resolved by another session.")
+        st.divider()
 
 
 def _render_executive_tenders_tab(tenant_slug: str, actor: str) -> None:
@@ -3277,7 +3469,7 @@ def _render_executive_command_center(
     )
     gateway_tab, finance_tab, tenders_tab, committee_tab, apex_tab = st.tabs(
         [
-            "TSA & Remita Gateway",
+            "Payment Gateway",
             "DFA Reconciliation",
             "Tender Publishing",
             "Committee Provisioning",

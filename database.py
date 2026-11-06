@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import sqlite3
 import uuid
 from collections.abc import Mapping
@@ -174,8 +175,26 @@ _TABLE_COLUMNS = {
         ("service_head", "TEXT", 0, None),
         ("fee_amount_minor", "INTEGER", 0, None),
         ("currency", "TEXT", 0, "NGN"),
+        ("payment_mode", "TEXT", 0, "CORPORATE_LODGMENT"),
+        ("corporate_bank_name", "TEXT", 0, ""),
+        ("corporate_account_number", "TEXT", 0, ""),
+        ("corporate_account_name", "TEXT", 0, ""),
+        ("payment_reference_prefix", "TEXT", 0, ""),
+        ("lodgment_instructions", "TEXT", 0, ""),
         ("updated_at", "TEXT", 0, None),
         ("updated_by", "TEXT", 0, None),
+    ),
+    "tenant_corporate_lodgments": (
+        ("id", "INTEGER", 1, None),
+        ("tenant_slug", "TEXT", 0, None),
+        ("qr_pass_id", "TEXT", 0, None),
+        ("payment_reference", "TEXT", 0, None),
+        ("submitted_at", "TEXT", 0, None),
+        ("status", "TEXT", 0, None),
+        ("resolved_at", "TEXT", 0, None),
+        ("resolved_by", "TEXT", 0, None),
+        ("fee_amount_minor", "INTEGER", 0, "0"),
+        ("currency", "TEXT", 0, "NGN"),
     ),
     "tenant_tenders": (
         ("tender_id", "TEXT", 1, None),
@@ -472,9 +491,36 @@ _CREATE_TABLES = (
         service_head TEXT NOT NULL,
         fee_amount_minor INTEGER NOT NULL CHECK (fee_amount_minor >= 0),
         currency TEXT NOT NULL DEFAULT 'NGN',
+        payment_mode TEXT NOT NULL DEFAULT 'corporate_lodgment'
+            CHECK (payment_mode IN ('corporate_lodgment', 'remita_tsa')),
+        corporate_bank_name TEXT NOT NULL DEFAULT '',
+        corporate_account_number TEXT NOT NULL DEFAULT '',
+        corporate_account_name TEXT NOT NULL DEFAULT '',
+        payment_reference_prefix TEXT NOT NULL DEFAULT '',
+        lodgment_instructions TEXT NOT NULL DEFAULT '',
         updated_at TEXT NOT NULL,
         updated_by TEXT NOT NULL
     )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS tenant_corporate_lodgments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_slug TEXT NOT NULL,
+        qr_pass_id TEXT NOT NULL,
+        payment_reference TEXT NOT NULL,
+        submitted_at TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')),
+        resolved_at TEXT,
+        resolved_by TEXT,
+        fee_amount_minor INTEGER NOT NULL DEFAULT 0,
+        currency TEXT NOT NULL DEFAULT 'NGN',
+        UNIQUE (tenant_slug, payment_reference),
+        UNIQUE (tenant_slug, qr_pass_id)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tenant_corporate_lodgments_pending
+    ON tenant_corporate_lodgments (tenant_slug, status, submitted_at DESC, id DESC)
     """,
     """
     CREATE TABLE IF NOT EXISTS tenant_tenders (
@@ -695,6 +741,43 @@ def _verify_schema(connection: sqlite3.Connection) -> None:
         )
 
 
+def _default_tenant_payment_mode(institution_category: Any) -> str:
+    category = str(institution_category or "").strip().casefold()
+    government_markers = (
+        "government",
+        "mda",
+        "parastatal",
+        "national assembly",
+        "parliament",
+        "legislative directorate",
+    )
+    return (
+        "remita_tsa"
+        if any(marker in category for marker in government_markers)
+        else "corporate_lodgment"
+    )
+
+
+def _bounded_setting_text(
+    value: Any,
+    field_name: str,
+    max_length: int,
+    *,
+    multiline: bool = False,
+) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} must be text.")
+    normalized = value.strip()
+    if len(normalized) > max_length:
+        raise ValueError(f"{field_name} cannot exceed {max_length} characters.")
+    if any(
+        ord(character) < 32 and not (multiline and character in "\r\n\t")
+        for character in normalized
+    ):
+        raise ValueError(f"{field_name} contains unsupported control characters.")
+    return normalized
+
+
 def _migrate_database_schema(connection: sqlite3.Connection) -> None:
     tenant_columns = {
         row["name"]
@@ -759,6 +842,79 @@ def _migrate_database_schema(connection: sqlite3.Connection) -> None:
             CREATE INDEX IF NOT EXISTS idx_unsolicited_proposals_tenant_submitted
             ON unsolicited_proposals (tenant_slug, submitted_at DESC, submission_id)
             """
+        )
+
+    gateway_columns = {
+        row["name"]
+        for row in connection.execute(
+            'PRAGMA table_info("tenant_gateway_configs")'
+        ).fetchall()
+    }
+    payment_mode_was_missing = "payment_mode" not in gateway_columns
+    gateway_migrations = (
+        ("payment_mode", "TEXT NOT NULL DEFAULT 'corporate_lodgment'"),
+        ("corporate_bank_name", "TEXT NOT NULL DEFAULT ''"),
+        ("corporate_account_number", "TEXT NOT NULL DEFAULT ''"),
+        ("corporate_account_name", "TEXT NOT NULL DEFAULT ''"),
+        ("payment_reference_prefix", "TEXT NOT NULL DEFAULT ''"),
+        ("lodgment_instructions", "TEXT NOT NULL DEFAULT ''"),
+    )
+    for column_name, column_definition in gateway_migrations:
+        if column_name not in gateway_columns:
+            connection.execute(
+                f"ALTER TABLE tenant_gateway_configs "
+                f"ADD COLUMN {column_name} {column_definition}"
+            )
+    lodgment_columns = {
+        row["name"]
+        for row in connection.execute(
+            'PRAGMA table_info("tenant_corporate_lodgments")'
+        ).fetchall()
+    }
+    for column_name, column_definition in (
+        ("fee_amount_minor", "INTEGER NOT NULL DEFAULT 0"),
+        ("currency", "TEXT NOT NULL DEFAULT 'NGN'"),
+    ):
+        if column_name not in lodgment_columns:
+            connection.execute(
+                f"ALTER TABLE tenant_corporate_lodgments "
+                f"ADD COLUMN {column_name} {column_definition}"
+            )
+    if payment_mode_was_missing:
+        for row in connection.execute(
+            "SELECT tenant_slug, institution_category FROM tenants"
+        ).fetchall():
+            connection.execute(
+                "UPDATE tenant_gateway_configs SET payment_mode = ? "
+                "WHERE tenant_slug = ?",
+                (
+                    _default_tenant_payment_mode(row["institution_category"]),
+                    row["tenant_slug"],
+                ),
+            )
+
+    onboarding_timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    for row in connection.execute(
+        "SELECT tenant_slug, institution_category FROM tenants"
+    ).fetchall():
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO tenant_gateway_configs (
+                tenant_slug, tsa_endpoint, tsa_key_ciphertext, remita_endpoint,
+                remita_merchant_key_ciphertext, service_head, fee_amount_minor,
+                currency, payment_mode, corporate_bank_name,
+                corporate_account_number, corporate_account_name,
+                payment_reference_prefix, lodgment_instructions,
+                updated_at, updated_by
+            ) VALUES (?, '', NULL, '', NULL, ?, 0, 'NGN', ?, '', '', '', '', '', ?, ?)
+            """,
+            (
+                row["tenant_slug"],
+                "Tender Fee/Bidding Document Fee",
+                _default_tenant_payment_mode(row["institution_category"]),
+                onboarding_timestamp,
+                "system_onboarding",
+            ),
         )
 
     audit_columns = {
@@ -1363,6 +1519,12 @@ def save_tenant_gateway_config(
     fee_amount_minor: int,
     updated_by: str,
     currency: str = "NGN",
+    payment_mode: str | None = None,
+    corporate_bank_name: str = "",
+    corporate_account_number: str = "",
+    corporate_account_name: str = "",
+    payment_reference_prefix: str = "",
+    lodgment_instructions: str = "",
 ) -> dict[str, Any]:
     """Save gateway settings while keeping credential ciphertext out of reads."""
     normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
@@ -1371,6 +1533,54 @@ def save_tenant_gateway_config(
     normalized_service_head = _required_text(service_head, "service_head")
     normalized_actor = _required_text(updated_by, "updated_by")
     normalized_currency = _required_text(currency, "currency").upper()
+    normalized_bank_name = _bounded_setting_text(
+        corporate_bank_name,
+        "corporate_bank_name",
+        120,
+    )
+    normalized_account_number = _bounded_setting_text(
+        corporate_account_number,
+        "corporate_account_number",
+        34,
+    ).replace(" ", "")
+    normalized_account_name = _bounded_setting_text(
+        corporate_account_name,
+        "corporate_account_name",
+        160,
+    )
+    normalized_reference_prefix = _bounded_setting_text(
+        payment_reference_prefix,
+        "payment_reference_prefix",
+        40,
+    )
+    normalized_lodgment_instructions = _bounded_setting_text(
+        lodgment_instructions,
+        "lodgment_instructions",
+        2000,
+        multiline=True,
+    )
+    if normalized_account_number and not re.fullmatch(
+        r"\d{6,34}",
+        normalized_account_number,
+    ):
+        raise ValueError("corporate_account_number must contain 6 to 34 digits.")
+    if normalized_reference_prefix and not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9_-]{0,39}",
+        normalized_reference_prefix,
+    ):
+        raise ValueError(
+            "payment_reference_prefix must use letters, digits, underscores, "
+            "or hyphens."
+        )
+    if payment_mode is not None:
+        normalized_payment_mode = _required_text(
+            payment_mode,
+            "payment_mode",
+        ).lower()
+        if normalized_payment_mode not in {"corporate_lodgment", "remita_tsa"}:
+            raise ValueError("Unsupported tenant payment mode.")
+    else:
+        normalized_payment_mode = ""
     if not isinstance(fee_amount_minor, int) or isinstance(fee_amount_minor, bool):
         raise TypeError("fee_amount_minor must be an integer.")
     if fee_amount_minor < 0:
@@ -1389,18 +1599,33 @@ def save_tenant_gateway_config(
     with get_connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         tenant = connection.execute(
-            "SELECT status FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
+            "SELECT status, institution_category FROM tenants "
+            "WHERE tenant_slug = ? AND is_deleted = 0",
             (normalized_slug,),
         ).fetchone()
         if tenant is None or str(tenant["status"] or "").strip().upper() != "ACTIVE":
             raise ValueError("Gateway settings require an active tenant.")
+        if not normalized_payment_mode:
+            existing_mode = connection.execute(
+                "SELECT payment_mode FROM tenant_gateway_configs "
+                "WHERE tenant_slug = ?",
+                (normalized_slug,),
+            ).fetchone()
+            normalized_payment_mode = (
+                str(existing_mode["payment_mode"])
+                if existing_mode is not None
+                else _default_tenant_payment_mode(tenant["institution_category"])
+            )
         connection.execute(
             """
             INSERT INTO tenant_gateway_configs (
                 tenant_slug, tsa_endpoint, tsa_key_ciphertext, remita_endpoint,
                 remita_merchant_key_ciphertext, service_head, fee_amount_minor,
-                currency, updated_at, updated_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                currency, payment_mode, corporate_bank_name,
+                corporate_account_number, corporate_account_name,
+                payment_reference_prefix, lodgment_instructions,
+                updated_at, updated_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(tenant_slug) DO UPDATE SET
                 tsa_endpoint = excluded.tsa_endpoint,
                 tsa_key_ciphertext = COALESCE(
@@ -1415,6 +1640,12 @@ def save_tenant_gateway_config(
                 service_head = excluded.service_head,
                 fee_amount_minor = excluded.fee_amount_minor,
                 currency = excluded.currency,
+                payment_mode = excluded.payment_mode,
+                corporate_bank_name = excluded.corporate_bank_name,
+                corporate_account_number = excluded.corporate_account_number,
+                corporate_account_name = excluded.corporate_account_name,
+                payment_reference_prefix = excluded.payment_reference_prefix,
+                lodgment_instructions = excluded.lodgment_instructions,
                 updated_at = excluded.updated_at,
                 updated_by = excluded.updated_by
             """,
@@ -1427,6 +1658,12 @@ def save_tenant_gateway_config(
                 normalized_service_head,
                 fee_amount_minor,
                 normalized_currency,
+                normalized_payment_mode,
+                normalized_bank_name,
+                normalized_account_number,
+                normalized_account_name,
+                normalized_reference_prefix,
+                normalized_lodgment_instructions,
                 timestamp,
                 normalized_actor,
             ),
@@ -1436,7 +1673,8 @@ def save_tenant_gateway_config(
             normalized_slug,
             "gateway_configuration_updated",
             (
-                f"Gateway endpoints and {normalized_service_head} fee settings "
+                f"{normalized_payment_mode} gateway and {normalized_service_head} "
+                f"fee settings "
                 f"updated to {normalized_currency} "
                 f"{fee_amount_minor / 100:.2f}."
             ),
@@ -1461,7 +1699,10 @@ def get_tenant_gateway_config(tenant_slug: str) -> dict[str, Any] | None:
                    remita_endpoint,
                    CASE WHEN remita_merchant_key_ciphertext IS NOT NULL
                        THEN 1 ELSE 0 END AS remita_key_configured,
-                   service_head, fee_amount_minor, currency, updated_at, updated_by
+                   service_head, fee_amount_minor, currency, payment_mode,
+                   corporate_bank_name, corporate_account_number,
+                   corporate_account_name, payment_reference_prefix,
+                   lodgment_instructions, updated_at, updated_by
             FROM tenant_gateway_configs
             WHERE tenant_slug = ?
             """,
@@ -1493,6 +1734,293 @@ def get_tenant_financial_ledger(tenant_slug: str) -> list[dict[str, Any]]:
             (normalized_slug,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_pending_corporate_lodgments(tenant_slug: str) -> list[dict[str, Any]]:
+    """Return pending corporate transfer references for one tenant."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    init_db()
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT lodgment.qr_pass_id, lodgment.payment_reference,
+                   lodgment.submitted_at, pass.rfq_code, pass.vendor_name,
+                   pass.email, pass.proposal_title
+            FROM tenant_corporate_lodgments AS lodgment
+            JOIN clearance_passes AS pass
+              ON pass.tenant_slug = lodgment.tenant_slug
+             AND pass.qr_pass_id = lodgment.qr_pass_id
+            WHERE lodgment.tenant_slug = ? AND lodgment.status = 'PENDING'
+            ORDER BY lodgment.submitted_at, lodgment.id
+            """,
+            (normalized_slug,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def submit_corporate_lodgment(
+    tenant_slug: str,
+    rfq_code: str,
+    vendor_name: str,
+    vendor_email: str,
+    payment_reference: str,
+    proposal_title: str,
+    ip_or_session: str = "unknown",
+) -> str:
+    """Create a locked clearance pass for executive review of a bank transfer."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    normalized_rfq = _required_text(rfq_code, "rfq_code")
+    normalized_name = _bounded_setting_text(vendor_name, "vendor_name", 200)
+    normalized_email = _required_text(vendor_email, "vendor_email").lower()
+    normalized_reference = _bounded_setting_text(
+        payment_reference,
+        "payment_reference",
+        150,
+    )
+    normalized_title = _bounded_setting_text(proposal_title, "proposal_title", 250)
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9/_-]{2,149}", normalized_reference):
+        raise ValueError(
+            "The transfer reference must be 3-150 letters, digits, or /_- characters."
+        )
+
+    pass_id = f"NV-QRPASS-{secrets.token_urlsafe(32)}"
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    init_db()
+    with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        tenant = connection.execute(
+            "SELECT status FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
+            (normalized_slug,),
+        ).fetchone()
+        if tenant is None or str(tenant["status"] or "").strip().upper() != "ACTIVE":
+            raise ValueError("This tenant is not active. No pass was issued.")
+        config = connection.execute(
+            """
+            SELECT payment_mode, payment_reference_prefix, corporate_bank_name,
+                   corporate_account_number, corporate_account_name,
+                   fee_amount_minor, currency
+            FROM tenant_gateway_configs WHERE tenant_slug = ?
+            """,
+            (normalized_slug,),
+        ).fetchone()
+        if config is None or config["payment_mode"] != "corporate_lodgment":
+            raise ValueError("Corporate bank lodgment is not active for this tenant.")
+        if not all(
+            str(config[field] or "").strip()
+            for field in (
+                "corporate_bank_name",
+                "corporate_account_number",
+                "corporate_account_name",
+            )
+        ):
+            raise ValueError("Corporate bank account details are not fully configured.")
+        if not isinstance(config["fee_amount_minor"], int) or config["fee_amount_minor"] <= 0:
+            raise ValueError("The tenant has not configured a positive tender fee.")
+        prefix = str(config["payment_reference_prefix"] or "").strip()
+        if prefix and not normalized_reference.casefold().startswith(prefix.casefold()):
+            raise ValueError(
+                f"The transfer reference must begin with the configured prefix {prefix!r}."
+            )
+        tender = connection.execute(
+            """
+            SELECT 1 FROM tenant_tenders
+            WHERE tenant_slug = ? AND tender_id = ?
+              AND publishing_status = 'PUBLISHED' AND expiration_at > ?
+            LIMIT 1
+            """,
+            (normalized_slug, normalized_rfq, now),
+        ).fetchone()
+        if tender is None:
+            raise ValueError(
+                "The selected tender is not currently published for this tenant."
+            )
+        duplicate = connection.execute(
+            """
+            SELECT 1 FROM tenant_payment_verifications
+            WHERE tenant_slug = ? AND payment_reference = ?
+            UNION ALL
+            SELECT 1 FROM tenant_corporate_lodgments
+            WHERE tenant_slug = ? AND payment_reference = ?
+            UNION ALL
+            SELECT 1 FROM clearance_passes
+            WHERE tenant_slug = ? AND payment_reference = ?
+            LIMIT 1
+            """,
+            (
+                normalized_slug,
+                normalized_reference,
+                normalized_slug,
+                normalized_reference,
+                normalized_slug,
+                normalized_reference,
+            ),
+        ).fetchone()
+        if duplicate is not None:
+            raise ValueError("This transfer reference has already been submitted.")
+        connection.execute(
+            """
+            INSERT INTO clearance_passes (
+                qr_pass_id, tenant_slug, rfq_code, vendor_name, email,
+                payment_reference, proposal_title, clearance_status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT_REVIEW')
+            """,
+            (
+                pass_id,
+                normalized_slug,
+                normalized_rfq,
+                normalized_name,
+                normalized_email,
+                normalized_reference,
+                normalized_title,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO tenant_corporate_lodgments (
+                tenant_slug, qr_pass_id, payment_reference, fee_amount_minor,
+                currency, submitted_at, status
+            ) VALUES (?, ?, ?, ?, ?, ?, 'PENDING')
+            """,
+            (
+                normalized_slug,
+                pass_id,
+                normalized_reference,
+                config["fee_amount_minor"],
+                config["currency"],
+                now,
+            ),
+        )
+        register_vendor_in_connection(
+            connection,
+            normalized_slug,
+            normalized_name,
+            "solicited",
+            normalized_email,
+        )
+        log_security_audit_event_in_connection(
+            connection,
+            normalized_slug,
+            "vendor",
+            "CORPORATE_LODGMENT_SUBMITTED",
+            {
+                "qr_pass_id": pass_id,
+                "payment_reference": normalized_reference,
+                "rfq_code": normalized_rfq,
+            },
+            ip_or_session,
+        )
+    return pass_id
+
+
+def resolve_corporate_lodgment(
+    tenant_slug: str,
+    qr_pass_id: str,
+    decision: str,
+    resolved_by: str,
+    ip_or_session: str = "unknown",
+) -> bool:
+    """Approve a pending corporate transfer or reject it without unlocking its pass."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    normalized_pass_id = _required_text(qr_pass_id, "qr_pass_id")
+    normalized_actor = _required_text(resolved_by, "resolved_by")
+    normalized_decision = _required_text(decision, "decision").upper()
+    if normalized_decision not in {"APPROVE", "REJECT"}:
+        raise ValueError("decision must be APPROVE or REJECT.")
+
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    init_db()
+    with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            """
+            SELECT lodgment.payment_reference, pass.email, pass.clearance_status,
+                   lodgment.fee_amount_minor, lodgment.currency
+            FROM tenant_corporate_lodgments AS lodgment
+            JOIN clearance_passes AS pass
+              ON pass.tenant_slug = lodgment.tenant_slug
+             AND pass.qr_pass_id = lodgment.qr_pass_id
+            WHERE lodgment.tenant_slug = ? AND lodgment.qr_pass_id = ?
+              AND lodgment.status = 'PENDING'
+            """,
+            (normalized_slug, normalized_pass_id),
+        ).fetchone()
+        if row is None:
+            return False
+        tenant = connection.execute(
+            "SELECT status FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
+            (normalized_slug,),
+        ).fetchone()
+        if tenant is None or str(tenant["status"] or "").strip().upper() != "ACTIVE":
+            raise ValueError("Corporate lodgment review requires an active tenant.")
+
+        if normalized_decision == "APPROVE":
+            amount_minor = row["fee_amount_minor"]
+            if not isinstance(amount_minor, int) or amount_minor <= 0:
+                raise ValueError(
+                    "Configure a positive tender fee before approving a transfer."
+                )
+            updated = connection.execute(
+                """
+                UPDATE clearance_passes SET clearance_status = 'PAYMENT_VERIFIED'
+                WHERE tenant_slug = ? AND qr_pass_id = ?
+                  AND clearance_status = 'PENDING_PAYMENT_REVIEW'
+                """,
+                (normalized_slug, normalized_pass_id),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("The clearance pass is no longer pending review.")
+            record_tenant_payment_verification_in_connection(
+                connection,
+                tenant_slug=normalized_slug,
+                payment_reference=row["payment_reference"],
+                qr_pass_id=normalized_pass_id,
+                amount_minor=amount_minor,
+                currency=row["currency"],
+                provider="Corporate bank lodgment",
+                vendor_email=row["email"],
+            )
+            lodgment_status = "APPROVED"
+            action = "CORPORATE_LODGMENT_APPROVED"
+        else:
+            updated = connection.execute(
+                """
+                UPDATE clearance_passes SET clearance_status = 'PAYMENT_REJECTED'
+                WHERE tenant_slug = ? AND qr_pass_id = ?
+                  AND clearance_status = 'PENDING_PAYMENT_REVIEW'
+                """,
+                (normalized_slug, normalized_pass_id),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("The clearance pass is no longer pending review.")
+            lodgment_status = "REJECTED"
+            action = "CORPORATE_LODGMENT_REJECTED"
+
+        connection.execute(
+            """
+            UPDATE tenant_corporate_lodgments
+            SET status = ?, resolved_at = ?, resolved_by = ?
+            WHERE tenant_slug = ? AND qr_pass_id = ? AND status = 'PENDING'
+            """,
+            (
+                lodgment_status,
+                now,
+                normalized_actor,
+                normalized_slug,
+                normalized_pass_id,
+            ),
+        )
+        log_security_audit_event_in_connection(
+            connection,
+            normalized_slug,
+            "executive",
+            action,
+            {
+                "qr_pass_id": normalized_pass_id,
+                "payment_reference": row["payment_reference"],
+            },
+            ip_or_session,
+        )
+    return True
 
 
 def create_tenant_tender(
@@ -3238,6 +3766,10 @@ def purge_archived_tenant(tenant_slug: str) -> bool:
             "DELETE FROM clearance_passes WHERE tenant_slug = ?", (normalized_slug,)
         )
         connection.execute(
+            "DELETE FROM tenant_corporate_lodgments WHERE tenant_slug = ?",
+            (normalized_slug,),
+        )
+        connection.execute(
             "DELETE FROM tenant_payment_verifications WHERE tenant_slug = ?",
             (normalized_slug,),
         )
@@ -3478,6 +4010,26 @@ def save_tenant(tenant_data: dict[str, Any]) -> dict[str, Any]:
             """,
             values,
         )
+        gateway_timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO tenant_gateway_configs (
+                tenant_slug, tsa_endpoint, tsa_key_ciphertext, remita_endpoint,
+                remita_merchant_key_ciphertext, service_head, fee_amount_minor,
+                currency, payment_mode, corporate_bank_name,
+                corporate_account_number, corporate_account_name,
+                payment_reference_prefix, lodgment_instructions,
+                updated_at, updated_by
+            ) VALUES (?, '', NULL, '', NULL, ?, 0, 'NGN', ?, '', '', '', '', '', ?, ?)
+            """,
+            (
+                tenant_slug,
+                "Tender Fee/Bidding Document Fee",
+                _default_tenant_payment_mode(values[2]),
+                gateway_timestamp,
+                "system_onboarding",
+            ),
+        )
         requested_status = str(values[-1] or "").strip().upper()
         previous_status = (
             str(existing["status"] or "").strip().upper()
@@ -3546,6 +4098,7 @@ def create_tenant_onboarding(onboarding_data: dict[str, Any]) -> dict[str, Any]:
         onboarding_data.get("full_corporation_name"),
         "full_corporation_name",
     )
+    institution_category = onboarding_data.get("institution_category")
     admin_email = _required_text(onboarding_data.get("admin_email"), "admin_email")
     admin_phone = _required_text(onboarding_data.get("admin_phone"), "admin_phone")
     sub_directorates = onboarding_data.get("sub_directorates_json", "[]")
@@ -3566,10 +4119,29 @@ def create_tenant_onboarding(onboarding_data: dict[str, Any]) -> dict[str, Any]:
             (
                 tenant_slug,
                 organization_name,
-                onboarding_data.get("institution_category"),
+                institution_category,
                 onboarding_data.get("apex_title"),
                 sub_directorates,
                 onboarding_data.get("logo_path", ""),
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO tenant_gateway_configs (
+                tenant_slug, tsa_endpoint, tsa_key_ciphertext, remita_endpoint,
+                remita_merchant_key_ciphertext, service_head, fee_amount_minor,
+                currency, payment_mode, corporate_bank_name,
+                corporate_account_number, corporate_account_name,
+                payment_reference_prefix, lodgment_instructions,
+                updated_at, updated_by
+            ) VALUES (?, '', NULL, '', NULL, ?, 0, 'NGN', ?, '', '', '', '', '', ?, ?)
+            """,
+            (
+                tenant_slug,
+                "Tender Fee/Bidding Document Fee",
+                _default_tenant_payment_mode(institution_category),
+                created_at,
+                "system_onboarding",
             ),
         )
         connection.execute(

@@ -997,12 +997,20 @@ def _render_solicited_vendor_portal(
 ) -> None:
     try:
         active_tenders = db.get_active_solicited_tenders(tenant_slug)
+        gateway_config = db.get_tenant_gateway_config(tenant_slug)
     except (sqlite3.Error, RuntimeError, ValueError):
         logging.exception(
             "Could not load active solicited tender windows for %s.",
             tenant_slug,
         )
         st.error("Solicited tender availability could not be verified.")
+        return
+    if gateway_config is None:
+        st.error("Tenant payment instructions are not configured.")
+        return
+    payment_mode = str(gateway_config.get("payment_mode") or "")
+    if payment_mode not in {"corporate_lodgment", "remita_tsa"}:
+        st.error("The tenant payment mode is invalid. Contact the tenant administrator.")
         return
     if not active_tenders:
         st.info(
@@ -1013,9 +1021,40 @@ def _render_solicited_vendor_portal(
 
     _render_vendor_intake_banner(
         "Solicited Vendor Portal",
-        "Complete payment verification, confirm clearance, then submit your "
-        "sealed dossier. Dossiers are encrypted at rest.",
+        (
+            "Submit your bank transfer reference for executive review. Clearance "
+            "is granted only after approval; dossiers are encrypted at rest."
+            if payment_mode == "corporate_lodgment"
+            else "Complete payment verification, confirm clearance, then submit "
+            "your sealed dossier. Dossiers are encrypted at rest."
+        ),
     )
+    if payment_mode == "corporate_lodgment":
+        st.markdown("#### Corporate bank lodgment")
+        bank_col, reference_col = st.columns(2)
+        bank_col.text(
+            f"Bank: {gateway_config.get('corporate_bank_name') or 'Not configured'}"
+        )
+        bank_col.text(
+            f"Account name: {gateway_config.get('corporate_account_name') or 'Not configured'}"
+        )
+        bank_col.text(
+            f"Account number: {gateway_config.get('corporate_account_number') or 'Not configured'}"
+        )
+        fee_minor = int(gateway_config.get("fee_amount_minor") or 0)
+        bank_col.text(
+            f"Tender fee: {gateway_config.get('currency') or 'NGN'} "
+            f"{fee_minor / 100:.2f}"
+        )
+        prefix = str(gateway_config.get("payment_reference_prefix") or "").strip()
+        reference_col.text(f"Required reference prefix: {prefix or 'None'}")
+        instructions = str(gateway_config.get("lodgment_instructions") or "").strip()
+        if instructions:
+            st.info(instructions)
+        st.warning(
+            "Transfer references are self-reported and will remain pending until "
+            "verified by a tenant executive."
+        )
 
     pass_key = _widget_key(key_prefix, "clearance_pass_id")
     verification_key = _widget_key(key_prefix, "pass_verification_input")
@@ -1031,7 +1070,11 @@ def _render_solicited_vendor_portal(
     )
 
     with step1_tab:
-        st.markdown("#### Verify payment and issue a clearance pass")
+        st.markdown(
+            "#### Submit transfer for review"
+            if payment_mode == "corporate_lodgment"
+            else "#### Verify payment and issue a clearance pass"
+        )
         tenders_by_id = {
             str(tender["tender_id"]): tender for tender in active_tenders
         }
@@ -1055,7 +1098,11 @@ def _render_solicited_vendor_portal(
                 key=_widget_key(key_prefix, "vendor_email"),
             )
             payment_reference = st.text_input(
-                "Paystack transaction reference*",
+                (
+                    "Bank transfer transaction reference / receipt ID*"
+                    if payment_mode == "corporate_lodgment"
+                    else "Paystack / Remita payment reference*"
+                ),
                 max_chars=150,
                 key=_widget_key(key_prefix, "payment_reference"),
             )
@@ -1065,7 +1112,11 @@ def _render_solicited_vendor_portal(
                 key=_widget_key(key_prefix, "proposal_title"),
             )
             submitted = st.form_submit_button(
-                "Verify payment and generate QR clearance pass",
+                (
+                    "Submit transfer reference for executive review"
+                    if payment_mode == "corporate_lodgment"
+                    else "Verify payment and generate QR clearance pass"
+                ),
                 key=_widget_key(key_prefix, "step1_submit"),
                 type="primary",
             )
@@ -1089,6 +1140,30 @@ def _render_solicited_vendor_portal(
                 st.error("Complete all required fields with a valid corporate email.")
             elif not _tenant_is_active(tenant_slug):
                 st.error("This tenant is no longer active. No pass was issued.")
+            elif payment_mode == "corporate_lodgment":
+                try:
+                    created_pass_id = db.submit_corporate_lodgment(
+                        tenant_slug=tenant_slug,
+                        rfq_code=normalized_rfq,
+                        vendor_name=normalized_name,
+                        vendor_email=parsed_email,
+                        payment_reference=normalized_ref,
+                        proposal_title=normalized_title,
+                        ip_or_session=_security_audit_session_id(),
+                    )
+                except (sqlite3.Error, RuntimeError, TypeError, ValueError) as exc:
+                    st.error(str(exc))
+                else:
+                    st.session_state[pass_key] = created_pass_id
+                    st.success(
+                        "Bank transfer reference submitted for executive review."
+                    )
+                    st.code(created_pass_id, language="text")
+                    st.info(
+                        "The pass remains locked until a tenant executive verifies "
+                        "the transfer."
+                    )
+                    st.rerun()
             elif not (
                 verified_amount := _verify_paystack_payment(
                     normalized_ref,
