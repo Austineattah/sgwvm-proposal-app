@@ -27,7 +27,6 @@ from streamlit.errors import StreamlitSecretNotFoundError
 
 import database as db
 
-
 PRODUCTION_BASE_URL = "https://nexusvault-proposal-enterprise-connect.streamlit.app"
 
 
@@ -81,6 +80,8 @@ def _tenant_portal_url(
     if intake_type is not None:
         params["type"] = intake_type
     return f"{PRODUCTION_BASE_URL}/?{urlencode(params)}"
+
+
 _DEPARTMENTAL_SECTORS = (
     "Food / Consumables",
     "Engineering / Infrastructure",
@@ -169,15 +170,13 @@ def _authenticated_actor_context() -> tuple[str, str] | None:
             return tenant_slug, role
 
     tenant_slug = st.session_state.get("tenant_exec_auth_slug")
-    if (
-        st.session_state.get("tenant_exec_auth") is True
-        and isinstance(tenant_slug, str)
+    if st.session_state.get("tenant_exec_auth") is True and isinstance(
+        tenant_slug, str
     ):
         return tenant_slug, "executive"
     tenant_slug = st.session_state.get("tenant_staff_auth_slug")
-    if (
-        st.session_state.get("tenant_staff_auth") is True
-        and isinstance(tenant_slug, str)
+    if st.session_state.get("tenant_staff_auth") is True and isinstance(
+        tenant_slug, str
     ):
         return tenant_slug, "staff"
     return None
@@ -302,19 +301,14 @@ def _sync_tenant_session(
     previous_slug = st.session_state.get("_active_tenant_slug")
     previous_portal = st.session_state.get("_active_tenant_portal")
     has_active_tenant = "_active_tenant_slug" in st.session_state
-    if (
-        has_active_tenant
-        and previous_slug == tenant_slug
-        and previous_portal == portal
-    ):
+    if has_active_tenant and previous_slug == tenant_slug and previous_portal == portal:
         for key in _LEGACY_TENANT_SESSION_KEYS:
             st.session_state.pop(key, None)
         return
 
     for key in list(st.session_state.keys()):
         if (
-            isinstance(key, str)
-            and key.startswith(_TENANT_SESSION_PREFIX)
+            isinstance(key, str) and key.startswith(_TENANT_SESSION_PREFIX)
         ) or key in _LEGACY_TENANT_SESSION_KEYS | _TENANT_SCOPED_AUTH_KEYS:
             del st.session_state[key]
 
@@ -1024,20 +1018,21 @@ def _local_compliance_results(
 
 def _configured_prembly_credentials() -> tuple[str | None, str | None]:
     api_key = (
-        os.environ.get("PREMBLY_API_KEY")
-        or os.environ.get("PREMBLY_SECRET_KEY")
-        or ""
+        os.environ.get("PREMBLY_API_KEY") or os.environ.get("PREMBLY_SECRET_KEY") or ""
     ).strip()
     app_id = (os.environ.get("PREMBLY_APP_ID") or "").strip()
     if api_key and app_id:
         return api_key, app_id
     try:
         secrets = st.secrets
-        api_key = api_key or str(
-            secrets.get("PREMBLY_API_KEY")
-            or secrets.get("PREMBLY_SECRET_KEY")
-            or ""
-        ).strip()
+        api_key = (
+            api_key
+            or str(
+                secrets.get("PREMBLY_API_KEY")
+                or secrets.get("PREMBLY_SECRET_KEY")
+                or ""
+            ).strip()
+        )
         app_id = app_id or str(secrets.get("PREMBLY_APP_ID") or "").strip()
     except (KeyError, StreamlitSecretNotFoundError):
         return None, None
@@ -1123,17 +1118,17 @@ def _run_statutory_compliance_screening(
     verification_status = (
         "VERIFIED"
         if company_status == "ACTIVE"
-        else "FAILED"
-        if company_status in {"INACTIVE", "DORMANT", "DISSOLVED", "CANCELLED"}
-        else "MANUAL_REVIEW"
+        else (
+            "FAILED"
+            if company_status in {"INACTIVE", "DORMANT", "DISSOLVED", "CANCELLED"}
+            else "MANUAL_REVIEW"
+        )
     )
     cac_check.update(
         {
             "verification_status": verification_status,
             "registry_source": "Prembly CAC registry",
-            "result_details": (
-                f"Prembly returned company status {company_status}."
-            ),
+            "result_details": (f"Prembly returned company status {company_status}."),
         }
     )
     registry_tin = data.get(
@@ -1153,9 +1148,7 @@ def _run_statutory_compliance_screening(
                 {
                     "verification_status": "VERIFIED",
                     "registry_source": "Prembly CAC registry",
-                    "credential_reference": _masked_compliance_reference(
-                        registry_tin
-                    ),
+                    "credential_reference": _masked_compliance_reference(registry_tin),
                     "result_details": "Prembly returned a TIN for the matched entity.",
                 }
             )
@@ -1170,13 +1163,9 @@ def _generate_departmental_executive_summary(
     checks: list[Mapping[str, Any]],
 ) -> str:
     present = sum(
-        check.get("verification_status") == "PROVIDED_UNVERIFIED"
-        for check in checks
+        check.get("verification_status") == "PROVIDED_UNVERIFIED" for check in checks
     )
-    missing = sum(
-        check.get("verification_status") == "MISSING"
-        for check in checks
-    )
+    missing = sum(check.get("verification_status") == "MISSING" for check in checks)
     notes = appraisal_notes.strip()
     note_sentence = f" Directorate appraisal: {notes}" if notes else ""
     external_checks = sorted(
@@ -1313,23 +1302,31 @@ def _render_departmental_directorate_interface(
     st.write("Tracking ID:", proposal["tracking_id"])
     st.write("Routing basis:", proposal["routing_basis"])
     if proposal.get("cac_registration_number"):
-        st.write("CAC reference:", _masked_compliance_reference(
-            str(proposal["cac_registration_number"])
-        ))
+        st.write(
+            "CAC reference:",
+            _masked_compliance_reference(str(proposal["cac_registration_number"])),
+        )
     if proposal.get("tax_identification_number"):
-        st.write("TIN reference:", _masked_compliance_reference(
-            str(proposal["tax_identification_number"])
-        ))
+        st.write(
+            "TIN reference:",
+            _masked_compliance_reference(str(proposal["tax_identification_number"])),
+        )
 
     inferred_sector = "Other / Not specified"
     title_lower = str(proposal["proposal_title"]).casefold()
     if any(term in title_lower for term in ("food", "consumable", "medicine", "drug")):
         inferred_sector = "Food / Consumables"
-    elif any(term in title_lower for term in ("engineering", "construction", "bridge", "road", "infrastructure")):
+    elif any(
+        term in title_lower
+        for term in ("engineering", "construction", "bridge", "road", "infrastructure")
+    ):
         inferred_sector = "Engineering / Infrastructure"
     elif any(term in title_lower for term in ("security", "guard", "surveillance")):
         inferred_sector = "Private Security"
-    elif any(term in title_lower for term in ("software", "digital", "ict", "technology", "data")):
+    elif any(
+        term in title_lower
+        for term in ("software", "digital", "ict", "technology", "data")
+    ):
         inferred_sector = "IT & Software"
     stored_sector = str(review_record.get("sector") or "")
     sector = st.selectbox(
@@ -1395,9 +1392,7 @@ def _render_departmental_directorate_interface(
             )
             st.error("The statutory screening results could not be saved.")
         else:
-            cac_check = next(
-                check for check in checks if check["check_name"] == "CAC"
-            )
+            cac_check = next(check for check in checks if check["check_name"] == "CAC")
             screening_message = (
                 "Prembly CAC lookup completed with status "
                 f"{cac_check['verification_status']}; other registry states "
@@ -1457,7 +1452,9 @@ def _render_departmental_directorate_interface(
 
     st.markdown("#### Departmental appraisal & sign-off")
     notes_key = _tenant_key(tenant_slug, "internal", f"appraisal_notes_{selected_id}")
-    summary_key = _tenant_key(tenant_slug, "internal", f"appraisal_summary_{selected_id}")
+    summary_key = _tenant_key(
+        tenant_slug, "internal", f"appraisal_summary_{selected_id}"
+    )
     st.text_area(
         "Official departmental appraisal notes",
         value=str(dossier.get("appraisal_notes") or ""),
@@ -1573,7 +1570,10 @@ def _render_departmental_directorate_interface(
             str(dossier.get("appraisal_notes") or st.session_state.get(notes_key, "")),
             "",
             "Executive summary:",
-            str(dossier.get("executive_summary") or st.session_state.get(summary_key, "")),
+            str(
+                dossier.get("executive_summary")
+                or st.session_state.get(summary_key, "")
+            ),
         ]
     )
     st.download_button(
@@ -1583,7 +1583,9 @@ def _render_departmental_directorate_interface(
         mime="text/plain",
         key=_tenant_key(tenant_slug, "internal", f"download_dossier_{selected_id}"),
     )
-    st.caption("Open the downloaded dossier packet and use your browser/OS print command.")
+    st.caption(
+        "Open the downloaded dossier packet and use your browser/OS print command."
+    )
     if st.button(
         "Prepare original uploaded proposal document",
         key=_tenant_key(
@@ -1643,9 +1645,11 @@ def _render_departmental_directorate_interface(
                 mime=(
                     "application/pdf"
                     if Path(source_filename).suffix.lower() == ".pdf"
-                    else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    if Path(source_filename).suffix.lower() == ".docx"
-                    else "application/octet-stream"
+                    else (
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        if Path(source_filename).suffix.lower() == ".docx"
+                        else "application/octet-stream"
+                    )
                 ),
                 key=_tenant_key(
                     tenant_slug,
@@ -1679,11 +1683,27 @@ def _validate_physical_proposal_document(filename: str, document_bytes: bytes) -
 _DIRECTORATE_SUBJECT_RULES = (
     (
         "Information and Communications Technology",
-        ("ict", "technology", "digital", "software", "cybersecurity", "data", "network"),
+        (
+            "ict",
+            "technology",
+            "digital",
+            "software",
+            "cybersecurity",
+            "data",
+            "network",
+        ),
     ),
     (
         "Works and Infrastructure",
-        ("construction", "building", "road", "infrastructure", "facility", "water", "power"),
+        (
+            "construction",
+            "building",
+            "road",
+            "infrastructure",
+            "facility",
+            "water",
+            "power",
+        ),
     ),
     (
         "Finance and Treasury",
@@ -1725,7 +1745,11 @@ def _recommend_proposal_directorate(
 ) -> tuple[str, str]:
     normalized_title = re.sub(r"[^a-z0-9]+", " ", proposal_title.casefold()).strip()
     matches = [
-        (sum(keyword in normalized_title for keyword in keywords), directorate, keywords)
+        (
+            sum(keyword in normalized_title for keyword in keywords),
+            directorate,
+            keywords,
+        )
         for directorate, keywords in _DIRECTORATE_SUBJECT_RULES
     ]
     match_count, directorate, keywords = max(matches, default=(0, "", ()))
@@ -1752,9 +1776,7 @@ def _recommend_proposal_directorate(
             word for word in directorate.casefold().split() if len(word) > 3
         )
         configured_names = [
-            item.get("name")
-            if isinstance(item, Mapping)
-            else item
+            item.get("name") if isinstance(item, Mapping) else item
             for item in configured_departments
         ]
         matching_departments = [
@@ -1769,9 +1791,7 @@ def _recommend_proposal_directorate(
         if matching_departments:
             directorate = matching_departments[0]
 
-    matched_terms = [
-        keyword for keyword in keywords if keyword in normalized_title
-    ]
+    matched_terms = [keyword for keyword in keywords if keyword in normalized_title]
     return (
         directorate,
         "Local title-keyword match: " + ", ".join(matched_terms),
@@ -1989,13 +2009,16 @@ def _render_executive_gateway_tab(tenant_slug: str, actor: str) -> None:
         options=payment_modes,
         index=payment_modes.index(configured_mode),
         format_func=lambda mode: (
-            "Government TSA / Remita" if mode == "remita_tsa"
+            "Government TSA / Remita"
+            if mode == "remita_tsa"
             else "Corporate bank lodgment"
         ),
         horizontal=True,
         key=mode_key,
     )
-    st.caption("The selected mode becomes active when either configuration tab is saved.")
+    st.caption(
+        "The selected mode becomes active when either configuration tab is saved."
+    )
 
     def save_config(
         *,
@@ -2064,9 +2087,9 @@ def _render_executive_gateway_tab(tenant_slug: str, actor: str) -> None:
             st.error(f"Gateway configuration was not saved: {exc}")
         else:
             st.success("Tenant gateway configuration saved.")
-            st.session_state[_tenant_key(
-                tenant_slug, "executive", "gateway_config_saved"
-            )] = True
+            st.session_state[
+                _tenant_key(tenant_slug, "executive", "gateway_config_saved")
+            ] = True
             st.rerun()
 
     tsa_tab, corporate_tab = st.tabs(
@@ -2129,9 +2152,7 @@ def _render_executive_gateway_tab(tenant_slug: str, actor: str) -> None:
                 corporate_account_number=str(
                     config.get("corporate_account_number") or ""
                 ),
-                corporate_account_name=str(
-                    config.get("corporate_account_name") or ""
-                ),
+                corporate_account_name=str(config.get("corporate_account_name") or ""),
                 payment_reference_prefix=str(
                     config.get("payment_reference_prefix") or ""
                 ),
@@ -2152,33 +2173,25 @@ def _render_executive_gateway_tab(tenant_slug: str, actor: str) -> None:
                 "Account Number",
                 value=str(config.get("corporate_account_number") or ""),
                 max_chars=34,
-                key=_tenant_key(
-                    tenant_slug, "executive", "corporate_account_number"
-                ),
+                key=_tenant_key(tenant_slug, "executive", "corporate_account_number"),
             )
             corporate_account_name = st.text_input(
                 "Account Name",
                 value=str(config.get("corporate_account_name") or ""),
                 max_chars=160,
-                key=_tenant_key(
-                    tenant_slug, "executive", "corporate_account_name"
-                ),
+                key=_tenant_key(tenant_slug, "executive", "corporate_account_name"),
             )
             payment_reference_prefix = st.text_input(
                 "Payment Reference Prefix",
                 value=str(config.get("payment_reference_prefix") or ""),
                 max_chars=40,
-                key=_tenant_key(
-                    tenant_slug, "executive", "payment_reference_prefix"
-                ),
+                key=_tenant_key(tenant_slug, "executive", "payment_reference_prefix"),
             )
             lodgment_instructions = st.text_area(
                 "Transfer Instructions",
                 value=str(config.get("lodgment_instructions") or ""),
                 max_chars=2000,
-                key=_tenant_key(
-                    tenant_slug, "executive", "lodgment_instructions"
-                ),
+                key=_tenant_key(tenant_slug, "executive", "lodgment_instructions"),
             )
             save_corporate = st.form_submit_button(
                 "Save corporate lodgment configuration",
@@ -2213,9 +2226,7 @@ def _render_executive_gateway_tab(tenant_slug: str, actor: str) -> None:
             "Configured fee",
             f"{config['currency']} {Decimal(config['fee_amount_minor']) / 100:.2f}",
         )
-        st.caption(
-            f"Last updated {config['updated_at']} by {config['updated_by']}."
-        )
+        st.caption(f"Last updated {config['updated_at']} by {config['updated_by']}.")
 
 
 def _render_executive_financial_tab(tenant_slug: str) -> None:
@@ -2235,11 +2246,7 @@ def _render_executive_financial_tab(tenant_slug: str) -> None:
         st.error("The financial ledger could not be loaded.")
         return
 
-    verified = [
-        row
-        for row in ledger
-        if row["amount_minor"] is not None
-    ]
+    verified = [row for row in ledger if row["amount_minor"] is not None]
     unmatched = [row for row in ledger if row not in verified]
     verified_col, unmatched_col, fee_col = st.columns(3)
     verified_col.metric("Provider-verified payments", len(verified))
@@ -2534,7 +2541,9 @@ def _render_executive_tenders_tab(tenant_slug: str, actor: str) -> None:
                         actor,
                     )
                 except (sqlite3.Error, RuntimeError, TypeError, ValueError) as exc:
-                    logging.exception("Tender auto-lock update failed for %s.", tenant_slug)
+                    logging.exception(
+                        "Tender auto-lock update failed for %s.", tenant_slug
+                    )
                     st.error(f"Auto-lock could not be updated: {exc}")
                 else:
                     if changed:
@@ -2614,9 +2623,7 @@ def _render_executive_committee_tab(tenant_slug: str, actor: str) -> None:
                         "member_id": member_id,
                         "name": name,
                         "email": email,
-                        "encrypted_access_token": fernet.encrypt(
-                            token.encode("utf-8")
-                        ),
+                        "encrypted_access_token": fernet.encrypt(token.encode("utf-8")),
                     }
                 )
             try:
@@ -2631,9 +2638,7 @@ def _render_executive_committee_tab(tenant_slug: str, actor: str) -> None:
                 st.session_state[
                     _tenant_key(tenant_slug, "executive", "committee_credentials")
                 ] = credentials
-                st.success(
-                    f"Provisioned {len(credentials)} committee member slots."
-                )
+                st.success(f"Provisioned {len(credentials)} committee member slots.")
 
     credentials = st.session_state.get(
         _tenant_key(tenant_slug, "executive", "committee_credentials")
@@ -2781,9 +2786,7 @@ def _render_committee_leaderboard(tenant_slug: str) -> None:
     top_score = max(row["Equal-weight avg"] for row in leaderboard)
     for row in leaderboard:
         row["Recommendation"] = (
-            "Recommended Winner"
-            if row["Equal-weight avg"] == top_score
-            else ""
+            "Recommended Winner" if row["Equal-weight avg"] == top_score else ""
         )
     st.caption(
         "Scores weight Technical, Financial, and Compliance equally (1/3 each). "
@@ -2977,11 +2980,13 @@ def _render_committee_workspace(tenant_slug: str) -> None:
                 )
                 st.error("The COI attestation could not be recorded.")
             else:
-                st.session_state[_tenant_key(
-                    tenant_slug,
-                    "committee",
-                    "workspace_feedback",
-                )] = "COI attestation recorded. Proposal review is now unlocked."
+                st.session_state[
+                    _tenant_key(
+                        tenant_slug,
+                        "committee",
+                        "workspace_feedback",
+                    )
+                ] = "COI attestation recorded. Proposal review is now unlocked."
                 st.rerun()
         return
 
@@ -3079,10 +3084,7 @@ def _render_committee_workspace(tenant_slug: str) -> None:
         )
         submitted = st.form_submit_button("Save proposal evaluation", type="primary")
     if submitted:
-        scores = {
-            name: int(st.session_state[key])
-            for name, key in score_keys.items()
-        }
+        scores = {name: int(st.session_state[key]) for name, key in score_keys.items()}
         try:
             db.save_committee_proposal_evaluation(
                 tenant_slug=tenant_slug,
@@ -3231,7 +3233,9 @@ def _render_executive_ai_advisor(
                 hide_index=True,
             )
         else:
-            st.info("No committee members or proposal-scoped COI records are available.")
+            st.info(
+                "No committee members or proposal-scoped COI records are available."
+            )
 
         st.caption(
             "Scoring outlier screening flags reviewer category scores at least "
@@ -3294,9 +3298,7 @@ def _render_executive_ai_advisor(
         with st.form(key=_tenant_key(tenant_id, "executive", "ai_strategy_form")):
             strategy_question = st.text_area(
                 "Ask the Executive Strategy Advisor",
-                placeholder=(
-                    "Analyze risk profiles for physical security proposals"
-                ),
+                placeholder=("Analyze risk profiles for physical security proposals"),
                 max_chars=2_000,
                 key=_tenant_key(tenant_id, "executive", "ai_strategy_question"),
             )
@@ -3356,9 +3358,7 @@ def _render_executive_apex_tab(tenant_slug: str, actor: str) -> None:
                 "Departmental sign-off": (
                     proposal.get("departmental_signoff_status") or "Pending"
                 ),
-                "Pushed to Apex": bool(
-                    proposal.get("appraisal_pushed_to_apex")
-                ),
+                "Pushed to Apex": bool(proposal.get("appraisal_pushed_to_apex")),
             }
             for proposal in proposals
         ],
@@ -3412,11 +3412,12 @@ def _render_executive_apex_tab(tenant_slug: str, actor: str) -> None:
                 )
             if departmental_dossier:
                 st.markdown("**Departmental appraisal notes**")
-                st.write(departmental_dossier.get("appraisal_notes") or "Not submitted.")
+                st.write(
+                    departmental_dossier.get("appraisal_notes") or "Not submitted."
+                )
                 st.markdown("**Executive summary**")
                 st.write(
-                    departmental_dossier.get("executive_summary")
-                    or "Not generated."
+                    departmental_dossier.get("executive_summary") or "Not generated."
                 )
             choices = (
                 [("Recall proposal", "RECALLED"), ("Stop processing", "STOPPED")]
@@ -3682,9 +3683,7 @@ def _store_tenant_logo(tenant_slug: str, uploaded_logo: Any) -> str:
 
 
 def _tenant_audit_actor(tenant_slug: str) -> str:
-    identity = st.session_state.get(
-        _tenant_key(tenant_slug, "internal", "identity")
-    )
+    identity = st.session_state.get(_tenant_key(tenant_slug, "internal", "identity"))
     if isinstance(identity, Mapping) and identity.get("tenant_slug") == tenant_slug:
         username = identity.get("username")
         if isinstance(username, str) and username.strip():
@@ -3739,16 +3738,13 @@ def _open_tenant_audit_entry(tenant_slug: str, activity_id: int) -> None:
             f"Opened tenant audit entry {activity_id}.",
         )
     except (sqlite3.Error, RuntimeError, ValueError):
-        logging.exception(
-            "Could not record audit entry access for %s.", tenant_slug
-        )
+        logging.exception("Could not record audit entry access for %s.", tenant_slug)
 
 
 def _delete_tenant_audit_entry(tenant_slug: str, activity_id: int) -> None:
-    if (
-        st.session_state.get("_active_tenant_slug") != tenant_slug
-        or not _tenant_access_is_authenticated("executive", tenant_slug)
-    ):
+    if st.session_state.get(
+        "_active_tenant_slug"
+    ) != tenant_slug or not _tenant_access_is_authenticated("executive", tenant_slug):
         st.session_state[_tenant_key(tenant_slug, "audit", "error")] = (
             "Executive tenant access is required to delete audit records."
         )
@@ -3820,9 +3816,7 @@ def _render_tenant_audit_drawer(tenant_slug: str) -> None:
                 time_text = timestamp.strftime("%H:%M:%S %z").strip()
                 year_text = timestamp.strftime("%Y")
             except (TypeError, ValueError):
-                logging.error(
-                    "Audit record %s has an invalid timestamp.", activity_id
-                )
+                logging.error("Audit record %s has an invalid timestamp.", activity_id)
                 date_text = time_text = year_text = "Unknown"
 
             with st.container():
@@ -3833,9 +3827,7 @@ def _render_tenant_audit_drawer(tenant_slug: str) -> None:
                 )
                 open_column.button(
                     "Open",
-                    key=_tenant_key(
-                        tenant_slug, "audit", f"open_entry_{activity_id}"
-                    ),
+                    key=_tenant_key(tenant_slug, "audit", f"open_entry_{activity_id}"),
                     on_click=_open_tenant_audit_entry,
                     args=(tenant_slug, activity_id),
                     help="Open this activity's details.",
@@ -3991,6 +3983,9 @@ def _render_home() -> None:
         )
 
     if st.session_state.get("onboarding_submitted", False):
+        success_message = st.session_state.pop("onboarding_success_message", None)
+        if success_message:
+            st.success(success_message)
         tenant_slug = str(st.session_state.get("onboarded_tenant_slug", ""))
         vendor_url = _tenant_portal_url("vendor", tenant_slug, "unsolicited")
         st.markdown(
@@ -4282,7 +4277,7 @@ def _render_home() -> None:
                         "admin_phone": phone,
                     }
                 )
-            except (OSError, sqlite3.Error, RuntimeError, ValueError) as exc:
+            except Exception as exc:
                 logging.exception("Tenant onboarding failed.")
                 if logo_file_path is not None:
                     try:
@@ -4305,6 +4300,9 @@ def _render_home() -> None:
                 st.session_state["custom_portal_heading"] = custom_title_input.strip()
                 st.session_state["onboarded_tenant_slug"] = tenant_slug
                 st.session_state["onboarding_submitted"] = True
+                st.session_state["onboarding_success_message"] = (
+                    "Your tenant onboarding request was saved and is awaiting activation."
+                )
                 st.rerun()
 
     st.markdown(
@@ -4318,7 +4316,10 @@ def _render_home() -> None:
         unsafe_allow_html=True,
     )
     st.markdown("---")
-    st.markdown("<div style='color: #00FF66; font-weight: bold; text-align: center;'>NEXUSVAULT_TECH Sovereign Enterprise Engine • NITDA / NDPA Compliant</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div style='color: #00FF66; font-weight: bold; text-align: center;'>NEXUSVAULT_TECH Sovereign Enterprise Engine • NITDA / NDPA Compliant</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _render_route_error(message: str) -> None:
@@ -4330,9 +4331,7 @@ def _render_route_error(message: str) -> None:
 def _send_tenant_activation_notification(tenant: Mapping[str, Any]) -> bool:
     recipient = str(tenant.get("admin_email") or "").strip()
     tenant_slug = str(tenant.get("tenant_slug") or "").strip()
-    institution_name = str(
-        tenant.get("full_corporation_name") or tenant_slug
-    ).strip()
+    institution_name = str(tenant.get("full_corporation_name") or tenant_slug).strip()
     if not recipient:
         logging.warning(
             "Tenant %s has no onboarding email for activation notification.",
@@ -4391,13 +4390,9 @@ def _send_tenant_activation_notification(tenant: Mapping[str, Any]) -> bool:
     return bool(sent)
 
 
-
-
 def render_developer_console() -> None:
     st.markdown("## Sovereign Developer Command Console")
-    st.markdown(
-        "Client tenant, archive, and platform broadcast management."
-    )
+    st.markdown("Client tenant, archive, and platform broadcast management.")
 
     try:
         tenants = db.list_tenants()
@@ -4475,11 +4470,9 @@ def render_developer_console() -> None:
                 ):
                     try:
                         activated = db.activate_tenant(slug)
-                    except (sqlite3.Error, RuntimeError, ValueError):
-                        logging.exception(
-                            "Tenant activation failed for slug %s.", slug
-                        )
-                        st.error(f"Tenant {name} could not be activated.")
+                    except Exception as exc:
+                        logging.exception("Tenant activation failed for slug %s.", slug)
+                        st.error(f"Tenant {name} could not be activated: {exc}")
                     else:
                         if activated:
                             notification_sent = _send_tenant_activation_notification(
@@ -4519,9 +4512,7 @@ def render_developer_console() -> None:
             slug = tenant["tenant_slug"]
             name = tenant.get("full_corporation_name") or slug
             with st.expander(f"{name} · {slug}"):
-                st.warning(
-                    "Deactivation immediately blocks all tenant portal access."
-                )
+                st.warning("Deactivation immediately blocks all tenant portal access.")
                 confirmed = st.checkbox(
                     f"Confirm immediate access revocation for {name}",
                     key=f"confirm_deactivate_tenant_{slug}",
@@ -4534,11 +4525,11 @@ def render_developer_console() -> None:
                 ):
                     try:
                         deactivated = db.deactivate_tenant(slug)
-                    except (sqlite3.Error, RuntimeError, ValueError):
+                    except Exception as exc:
                         logging.exception(
                             "Tenant deactivation failed for slug %s.", slug
                         )
-                        st.error(f"Tenant {name} could not be deactivated.")
+                        st.error(f"Tenant {name} could not be deactivated: {exc}")
                     else:
                         if deactivated:
                             st.success(f"Tenant {name} access has been revoked.")
@@ -4607,9 +4598,7 @@ def render_developer_console() -> None:
                         st.error(f"Tenant {name} could not be restored.")
                     else:
                         if restored:
-                            st.success(
-                                f"Tenant {name} restored with its prior status."
-                            )
+                            st.success(f"Tenant {name} restored with its prior status.")
                             st.rerun()
                         else:
                             st.error("Tenant is no longer in the Recycle Bin.")
@@ -4629,9 +4618,7 @@ def render_developer_console() -> None:
                 if st.button(
                     "Permanently Purge Tenant",
                     key=f"purge_soft_deleted_tenant_{slug}",
-                    disabled=not (
-                        purge_checked and purge_slug.strip().lower() == slug
-                    ),
+                    disabled=not (purge_checked and purge_slug.strip().lower() == slug),
                     type="primary",
                 ):
                     try:
@@ -4710,9 +4697,7 @@ def render_developer_console() -> None:
                 if st.button(
                     "Permanently Purge Tenant",
                     key=f"purge_legacy_archived_tenant_{slug}",
-                    disabled=not (
-                        purge_checked and purge_slug.strip().lower() == slug
-                    ),
+                    disabled=not (purge_checked and purge_slug.strip().lower() == slug),
                     type="primary",
                 ):
                     try:
@@ -4756,8 +4741,7 @@ def render_developer_console() -> None:
             status = str(tenant.get("status") or "Unknown")
             registry_rows.append(
                 {
-                    "Institution": tenant.get("full_corporation_name")
-                    or tenant_slug,
+                    "Institution": tenant.get("full_corporation_name") or tenant_slug,
                     "Tenant slug": tenant_slug,
                     "Status": status,
                     "Internal portal": _tenant_portal_url("internal", tenant_slug),
@@ -4814,19 +4798,15 @@ def render_developer_console() -> None:
             on_change=_persist_general_broadcast,
         )
         if current_broadcast is not None:
-            st.caption(f"Currently published · Updated {current_broadcast['updated_at']}")
+            st.caption(
+                f"Currently published · Updated {current_broadcast['updated_at']}"
+            )
 
     with activity_tab:
         st.markdown("### Client Tenant Activity & Audit Trail")
         tenant_slugs = sorted(
-            {
-                tenant["tenant_slug"]
-                for tenant in tenants
-            }
-            | {
-                activity["tenant_slug"]
-                for activity in all_activities
-            }
+            {tenant["tenant_slug"] for tenant in tenants}
+            | {activity["tenant_slug"] for activity in all_activities}
         )
         selected_tenant = st.selectbox(
             "Filter by Client Tenant slug",
@@ -4852,8 +4832,7 @@ def render_developer_console() -> None:
         )
         recent_col.metric("Most recent activity", latest_timestamp)
         recent_timestamps = [
-            f"{activity['date']} {activity['time']}"
-            for activity in activities[:3]
+            f"{activity['date']} {activity['time']}" for activity in activities[:3]
         ]
         st.caption(
             "Recent activity timestamps: "
@@ -4879,6 +4858,7 @@ def render_developer_console() -> None:
                 ],
                 use_container_width=True,
             )
+
 
 session_expired_notice = st.session_state.pop("session_expired_notice", None)
 if isinstance(session_expired_notice, str) and session_expired_notice:

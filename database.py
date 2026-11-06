@@ -15,13 +15,7 @@ from typing import Any, Iterator
 
 from cryptography.fernet import Fernet, InvalidToken
 
-
-DB_FILE = Path(
-    os.environ.get(
-        "NEXUSVAULT_DB_PATH",
-        Path(__file__).resolve().with_name("nexus_sovereign.db"),
-    )
-).expanduser()
+DB_FILE = Path(__file__).resolve().with_name("nexus_sovereign.db")
 
 _TABLE_COLUMNS = {
     "tenants": (
@@ -686,6 +680,7 @@ def get_connection() -> Iterator[sqlite3.Connection]:
         connection.commit()
     except Exception:
         connection.rollback()
+        logging.exception("SQLite transaction failed for %s.", DB_FILE)
         raise
     finally:
         connection.close()
@@ -808,8 +803,7 @@ def _migrate_database_schema(connection: sqlite3.Connection) -> None:
             "ALTER TABLE unsolicited_proposals "
             "RENAME TO unsolicited_proposals_legacy"
         )
-        connection.execute(
-            """
+        connection.execute("""
             CREATE TABLE unsolicited_proposals (
                 submission_id TEXT PRIMARY KEY,
                 tenant_slug TEXT NOT NULL,
@@ -821,10 +815,8 @@ def _migrate_database_schema(connection: sqlite3.Connection) -> None:
                 document_sha256 TEXT NOT NULL,
                 submitted_at TEXT NOT NULL
             )
-            """
-        )
-        connection.execute(
-            """
+            """)
+        connection.execute("""
             INSERT INTO unsolicited_proposals (
                 submission_id, tenant_slug, organization_name,
                 cac_registration_number, tax_identification_number,
@@ -834,15 +826,12 @@ def _migrate_database_schema(connection: sqlite3.Connection) -> None:
                    cac_registration_number, '', proposal_title,
                    document_filename, document_sha256, submitted_at
             FROM unsolicited_proposals_legacy
-            """
-        )
+            """)
         connection.execute("DROP TABLE unsolicited_proposals_legacy")
-        connection.execute(
-            """
+        connection.execute("""
             CREATE INDEX IF NOT EXISTS idx_unsolicited_proposals_tenant_submitted
             ON unsolicited_proposals (tenant_slug, submitted_at DESC, submission_id)
-            """
-        )
+            """)
 
     gateway_columns = {
         row["name"]
@@ -933,12 +922,13 @@ def _migrate_database_schema(connection: sqlite3.Connection) -> None:
                 "Both legacy and unmigrated tenant audit tables exist; "
                 "manual database recovery is required."
             )
-        connection.execute("DROP INDEX IF EXISTS idx_tenant_audit_logs_tenant_timestamp")
+        connection.execute(
+            "DROP INDEX IF EXISTS idx_tenant_audit_logs_tenant_timestamp"
+        )
         connection.execute(
             "ALTER TABLE tenant_audit_logs RENAME TO tenant_legacy_audit_logs"
         )
-        connection.execute(
-            """
+        connection.execute("""
             CREATE TABLE tenant_audit_logs (
                 log_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 tenant_slug TEXT NOT NULL,
@@ -948,11 +938,9 @@ def _migrate_database_schema(connection: sqlite3.Connection) -> None:
                 timestamp TEXT NOT NULL,
                 details_json TEXT NOT NULL
             )
-            """
-        )
+            """)
 
-    connection.execute(
-        """
+    connection.execute("""
         CREATE TABLE IF NOT EXISTS tenant_legacy_audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             tenant_slug TEXT NOT NULL,
@@ -961,8 +949,7 @@ def _migrate_database_schema(connection: sqlite3.Connection) -> None:
             action_type TEXT NOT NULL,
             details TEXT NOT NULL
         )
-        """
-    )
+        """)
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_tenant_security_audit_timestamp "
         "ON tenant_audit_logs (tenant_slug, timestamp DESC, log_id DESC)"
@@ -971,26 +958,21 @@ def _migrate_database_schema(connection: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_tenant_legacy_audit_timestamp "
         "ON tenant_legacy_audit_logs (tenant_slug, timestamp DESC, id DESC)"
     )
-    connection.execute(
-        """
+    connection.execute("""
         CREATE TRIGGER IF NOT EXISTS tenant_audit_logs_block_update
         BEFORE UPDATE ON tenant_audit_logs
         BEGIN
             SELECT RAISE(ABORT, 'security audit records are immutable');
         END
-        """
-    )
-    connection.execute(
-        """
+        """)
+    connection.execute("""
         CREATE TRIGGER IF NOT EXISTS tenant_audit_logs_block_delete
         BEFORE DELETE ON tenant_audit_logs
         BEGIN
             SELECT RAISE(ABORT, 'security audit records are immutable');
         END
-        """
-    )
-    connection.execute(
-        """
+        """)
+    connection.execute("""
         CREATE TRIGGER IF NOT EXISTS tenant_audit_logs_block_replace
         BEFORE INSERT ON tenant_audit_logs
         WHEN NEW.log_id IS NOT NULL
@@ -1000,16 +982,18 @@ def _migrate_database_schema(connection: sqlite3.Connection) -> None:
         BEGIN
             SELECT RAISE(ABORT, 'security audit records are immutable');
         END
-        """
-    )
+        """)
 
 
 def init_db() -> None:
     """Create the required tables and fail clearly if an existing schema conflicts."""
     with get_connection() as connection:
-        vendors_table_exists = connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'vendors'"
-        ).fetchone() is not None
+        vendors_table_exists = (
+            connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'vendors'"
+            ).fetchone()
+            is not None
+        )
         for statement in _CREATE_TABLES:
             connection.execute(statement)
         _migrate_database_schema(connection)
@@ -1362,7 +1346,9 @@ def create_physical_proposal(
             (normalized_slug,),
         ).fetchone()
         if tenant is None or str(tenant["status"] or "").strip().upper() != "ACTIVE":
-            raise ValueError("This tenant is not active. Proposal intake is unavailable.")
+            raise ValueError(
+                "This tenant is not active. Proposal intake is unavailable."
+            )
 
         tracking_id = f"NV-PHY-{uuid.uuid4().hex.upper()}"
         submitted_at = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -1814,7 +1800,10 @@ def submit_corporate_lodgment(
             )
         ):
             raise ValueError("Corporate bank account details are not fully configured.")
-        if not isinstance(config["fee_amount_minor"], int) or config["fee_amount_minor"] <= 0:
+        if (
+            not isinstance(config["fee_amount_minor"], int)
+            or config["fee_amount_minor"] <= 0
+        ):
             raise ValueError("The tenant has not configured a positive tender fee.")
         prefix = str(config["payment_reference_prefix"] or "").strip()
         if prefix and not normalized_reference.casefold().startswith(prefix.casefold()):
@@ -2212,10 +2201,7 @@ def update_tenant_tender(
         if row is None:
             return False
         expiry = datetime.fromisoformat(row["expiration_at"])
-        if (
-            normalized_status == "PUBLISHED"
-            and expiry <= datetime.now(timezone.utc)
-        ):
+        if normalized_status == "PUBLISHED" and expiry <= datetime.now(timezone.utc):
             raise ValueError("An expired tender cannot be published.")
         connection.execute(
             """
@@ -2712,9 +2698,7 @@ def get_consolidated_committee_scores(
         for name in ("technical", "financial", "compliance")
     }
     combined_scores = [reviewer["combined_score"] for reviewer in reviewers]
-    weighted_average = (
-        sum(combined_scores) / reviewer_count if reviewer_count else None
-    )
+    weighted_average = sum(combined_scores) / reviewer_count if reviewer_count else None
     score_variance = (
         sum((score - weighted_average) ** 2 for score in combined_scores)
         / reviewer_count
@@ -2957,10 +2941,7 @@ def save_departmental_review_dossier(
                 timestamp,
             ),
         )
-        if (
-            previous is None
-            or previous["routed_directorate"] != directorate
-        ):
+        if previous is None or previous["routed_directorate"] != directorate:
             _insert_tenant_activity(
                 connection,
                 normalized_slug,
@@ -3125,7 +3106,9 @@ def save_statutory_compliance_checks(
             (name, status, registry_source, credential_reference, details)
         )
     if seen_names != _COMPLIANCE_CHECK_NAMES:
-        raise ValueError("The complete universal and sector compliance matrix is required.")
+        raise ValueError(
+            "The complete universal and sector compliance matrix is required."
+        )
 
     proposal_exists = any(
         proposal["tracking_id"] == normalized_tracking
@@ -3190,8 +3173,7 @@ def save_statutory_compliance_checks(
                 ),
             )
         provided_count = sum(
-            1 for _, status, *_ in normalized_checks
-            if status == "PROVIDED_UNVERIFIED"
+            1 for _, status, *_ in normalized_checks if status == "PROVIDED_UNVERIFIED"
         )
         _insert_tenant_activity(
             connection,
@@ -3484,7 +3466,9 @@ def get_all_tenant_activities(
     return [dict(row) for row in rows]
 
 
-def _vendor_slug(tenant_slug: str, vendor_name: str, vendor_type: str, email: str | None) -> str:
+def _vendor_slug(
+    tenant_slug: str, vendor_name: str, vendor_type: str, email: str | None
+) -> str:
     identity = (email or vendor_name).strip().casefold()
     digest = hashlib.sha256(
         f"{tenant_slug}\0{vendor_type}\0{identity}".encode("utf-8")
@@ -3506,7 +3490,9 @@ def _register_vendor(
     normalized_type = _required_text(vendor_type, "vendor_type").lower()
     if normalized_type not in {"solicited", "unsolicited"}:
         raise ValueError("vendor_type must be solicited or unsolicited.")
-    normalized_email = email.strip().lower() if isinstance(email, str) and email.strip() else None
+    normalized_email = (
+        email.strip().lower() if isinstance(email, str) and email.strip() else None
+    )
     slug = _vendor_slug(
         normalized_slug,
         normalized_name,
@@ -3946,8 +3932,7 @@ def list_tenants() -> list[dict[str, Any]]:
     """Return non-deleted tenants and their onboarding contacts."""
     init_db()
     with get_connection() as connection:
-        rows = connection.execute(
-            """
+        rows = connection.execute("""
             SELECT tenants.tenant_slug, tenants.full_corporation_name,
                    tenants.institution_category, tenants.apex_title,
                    tenants.sub_directorates_json, tenants.logo_path, tenants.status,
@@ -3960,8 +3945,7 @@ def list_tenants() -> list[dict[str, Any]]:
               ON tenant_onboarding_contacts.tenant_slug = tenants.tenant_slug
             WHERE tenants.is_deleted = 0
             ORDER BY tenants.tenant_slug
-            """
-        ).fetchall()
+            """).fetchall()
     return [dict(row) for row in rows]
 
 
@@ -3986,6 +3970,7 @@ def save_tenant(tenant_data: dict[str, Any]) -> dict[str, Any]:
     )
     init_db()
     with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
         existing = connection.execute(
             "SELECT is_deleted, status FROM tenants WHERE tenant_slug = ?",
             (tenant_slug,),
@@ -4077,9 +4062,11 @@ def save_tenant(tenant_data: dict[str, Any]) -> dict[str, Any]:
                 (
                     "tenant_activated"
                     if requested_status == "ACTIVE"
-                    else "tenant_deactivated"
-                    if requested_status == "INACTIVE"
-                    else "tenant_status_updated"
+                    else (
+                        "tenant_deactivated"
+                        if requested_status == "INACTIVE"
+                        else "tenant_status_updated"
+                    )
                 ),
                 f"Tenant status changed from {previous_status or 'unset'} to "
                 f"{requested_status or 'unset'} through a developer registry update.",
@@ -4093,7 +4080,9 @@ def create_tenant_onboarding(onboarding_data: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(onboarding_data, dict):
         raise TypeError("onboarding_data must be a dictionary.")
 
-    tenant_slug = _required_text(onboarding_data.get("tenant_slug"), "tenant_slug").lower()
+    tenant_slug = _required_text(
+        onboarding_data.get("tenant_slug"), "tenant_slug"
+    ).lower()
     organization_name = _required_text(
         onboarding_data.get("full_corporation_name"),
         "full_corporation_name",
@@ -4108,64 +4097,73 @@ def create_tenant_onboarding(onboarding_data: dict[str, Any]) -> dict[str, Any]:
 
     init_db()
     with get_connection() as connection:
-        connection.execute("BEGIN IMMEDIATE")
-        connection.execute(
-            """
-            INSERT INTO tenants (
-                tenant_slug, full_corporation_name, institution_category,
-                apex_title, sub_directorates_json, logo_path, status
-            ) VALUES (?, ?, ?, ?, ?, ?, 'Pending Activation')
-            """,
-            (
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """
+                INSERT INTO tenants (
+                    tenant_slug, full_corporation_name, institution_category,
+                    apex_title, sub_directorates_json, logo_path, status
+                ) VALUES (?, ?, ?, ?, ?, ?, 'Pending Activation')
+                """,
+                (
+                    tenant_slug,
+                    organization_name,
+                    institution_category,
+                    onboarding_data.get("apex_title"),
+                    sub_directorates,
+                    onboarding_data.get("logo_path", ""),
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO tenant_gateway_configs (
+                    tenant_slug, tsa_endpoint, tsa_key_ciphertext, remita_endpoint,
+                    remita_merchant_key_ciphertext, service_head, fee_amount_minor,
+                    currency, payment_mode, corporate_bank_name,
+                    corporate_account_number, corporate_account_name,
+                    payment_reference_prefix, lodgment_instructions,
+                    updated_at, updated_by
+                ) VALUES (?, '', NULL, '', NULL, ?, 0, 'NGN', ?, '', '', '', '', '', ?, ?)
+                """,
+                (
+                    tenant_slug,
+                    "Tender Fee/Bidding Document Fee",
+                    _default_tenant_payment_mode(institution_category),
+                    created_at,
+                    "system_onboarding",
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO tenant_onboarding_contacts (
+                    tenant_slug, admin_email, admin_phone, created_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (tenant_slug, admin_email, admin_phone, created_at),
+            )
+            _insert_tenant_activity(
+                connection,
                 tenant_slug,
-                organization_name,
-                institution_category,
-                onboarding_data.get("apex_title"),
-                sub_directorates,
-                onboarding_data.get("logo_path", ""),
-            ),
-        )
-        connection.execute(
-            """
-            INSERT INTO tenant_gateway_configs (
-                tenant_slug, tsa_endpoint, tsa_key_ciphertext, remita_endpoint,
-                remita_merchant_key_ciphertext, service_head, fee_amount_minor,
-                currency, payment_mode, corporate_bank_name,
-                corporate_account_number, corporate_account_name,
-                payment_reference_prefix, lodgment_instructions,
-                updated_at, updated_by
-            ) VALUES (?, '', NULL, '', NULL, ?, 0, 'NGN', ?, '', '', '', '', '', ?, ?)
-            """,
-            (
+                "tenant_onboarded_pending_activation",
+                "Institutional node submitted and is awaiting developer activation.",
+            )
+            row = connection.execute(
+                """
+                SELECT tenant_slug, full_corporation_name, institution_category,
+                       apex_title, sub_directorates_json, logo_path, status
+                FROM tenants WHERE tenant_slug = ?
+                """,
+                (tenant_slug,),
+            ).fetchone()
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            logging.exception(
+                "Tenant onboarding database transaction failed for %s.",
                 tenant_slug,
-                "Tender Fee/Bidding Document Fee",
-                _default_tenant_payment_mode(institution_category),
-                created_at,
-                "system_onboarding",
-            ),
-        )
-        connection.execute(
-            """
-            INSERT INTO tenant_onboarding_contacts (
-                tenant_slug, admin_email, admin_phone, created_at
-            ) VALUES (?, ?, ?, ?)
-            """,
-            (tenant_slug, admin_email, admin_phone, created_at),
-        )
-        _insert_tenant_activity(
-            connection,
-            tenant_slug,
-            "tenant_onboarded_pending_activation",
-            "Institutional node submitted and is awaiting developer activation.",
-        )
-        row = connection.execute(
-            """
-            SELECT tenant_slug, full_corporation_name, institution_category,
-                   apex_title, sub_directorates_json, logo_path, status
-            FROM tenants WHERE tenant_slug = ?
-            """,
-            (tenant_slug,),
-        ).fetchone()
+            )
+            raise
     return dict(row)
 
 
@@ -4310,8 +4308,7 @@ def list_recycle_bin_tenants() -> list[dict[str, Any]]:
     """Return soft-deleted tenants and their onboarding contact details."""
     init_db()
     with get_connection() as connection:
-        rows = connection.execute(
-            """
+        rows = connection.execute("""
             SELECT tenants.tenant_slug, tenants.full_corporation_name,
                    tenants.institution_category, tenants.apex_title,
                    tenants.status, tenants.deleted_at,
@@ -4322,8 +4319,7 @@ def list_recycle_bin_tenants() -> list[dict[str, Any]]:
               ON tenant_onboarding_contacts.tenant_slug = tenants.tenant_slug
             WHERE tenants.is_deleted = 1
             ORDER BY tenants.deleted_at DESC, tenants.tenant_slug
-            """
-        ).fetchall()
+            """).fetchall()
     return [dict(row) for row in rows]
 
 
@@ -4404,10 +4400,13 @@ def _require_existing_tenant(
     connection: sqlite3.Connection,
     tenant_slug: str,
 ) -> None:
-    if connection.execute(
-        "SELECT 1 FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
-        (tenant_slug,),
-    ).fetchone() is None:
+    if (
+        connection.execute(
+            "SELECT 1 FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
+            (tenant_slug,),
+        ).fetchone()
+        is None
+    ):
         raise ValueError("The tenant is unavailable.")
 
 
@@ -4887,12 +4886,11 @@ if __name__ == "__main__":
 
 import pandas as pd
 
+
 def get_all_tenants():
     """Retrieve all onboarded tenant records from the persistent database."""
     try:
-        conn = sqlite3.connect("database.db")
-        df = pd.read_sql("SELECT * FROM tenants", conn)
-        conn.close()
-        return df
+        return pd.DataFrame(list_tenants())
     except Exception:
+        logging.exception("Could not load tenants from %s.", DB_FILE)
         return pd.DataFrame()
