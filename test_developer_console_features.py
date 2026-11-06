@@ -110,6 +110,88 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
                 True,
             )
 
+    def test_terminal_lockouts_are_persistent_and_role_scoped(self):
+        self.assertEqual(
+            database.get_tenant_role_lockout("example_tenant", "front_desk")[
+                "failed_attempts"
+            ],
+            0,
+        )
+        for expected_attempts in (1, 2):
+            state = database.record_tenant_role_login_failure(
+                "example_tenant",
+                "admin",
+            )
+            self.assertEqual(state["failed_attempts"], expected_attempts)
+            self.assertFalse(state["is_locked_out"])
+
+        self.assertFalse(
+            database.get_tenant_role_lockout("example_tenant", "front_desk")[
+                "is_locked_out"
+            ]
+        )
+        locked_state = database.record_tenant_role_login_failure(
+            "example_tenant",
+            "admin",
+        )
+        self.assertEqual(locked_state["failed_attempts"], 3)
+        self.assertTrue(locked_state["is_locked_out"])
+        self.assertIsNotNone(locked_state["locked_out_at"])
+
+        repeated_failure = database.record_tenant_role_login_failure(
+            "example_tenant",
+            "admin",
+        )
+        self.assertEqual(repeated_failure["failed_attempts"], 3)
+        self.assertTrue(
+            database.get_tenant_role_lockout("example_tenant", "admin")[
+                "is_locked_out"
+            ]
+        )
+        self.assertFalse(
+            database.get_tenant_role_lockout("example_tenant", "front_desk")[
+                "is_locked_out"
+            ]
+        )
+
+    def test_terminal_lockout_clears_after_success_or_audited_admin_reset(self):
+        database.record_tenant_role_login_failure("example_tenant", "front_desk")
+        database.record_tenant_role_login_failure("example_tenant", "front_desk")
+        self.assertTrue(
+            database.record_tenant_role_login_success(
+                "example_tenant",
+                "front_desk",
+            )
+        )
+        self.assertEqual(
+            database.get_tenant_role_lockout("example_tenant", "front_desk")[
+                "failed_attempts"
+            ],
+            0,
+        )
+
+        for _ in range(3):
+            state = database.record_tenant_role_login_failure(
+                "example_tenant",
+                "front_desk",
+            )
+        self.assertTrue(state["is_locked_out"])
+
+        database.reset_tenant_role_login_lockout(
+            "example_tenant",
+            "front_desk",
+            "master_admin_recovery_key",
+        )
+        reset_state = database.get_tenant_role_lockout(
+            "example_tenant",
+            "front_desk",
+        )
+        self.assertEqual(reset_state["failed_attempts"], 0)
+        self.assertFalse(reset_state["is_locked_out"])
+        self.assertIsNone(reset_state["locked_out_at"])
+        audit_logs = database.get_tenant_activities("example_tenant")
+        self.assertEqual(audit_logs[0]["action_type"], "terminal_auth_lockout_reset")
+
     def test_onboarding_persists_tenant_logo_path(self):
         tenant = database.create_tenant_onboarding(
             {

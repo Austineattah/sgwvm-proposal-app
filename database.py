@@ -37,6 +37,14 @@ _TABLE_COLUMNS = {
         ("deactivated_at", "TEXT", 0, None),
         ("deactivated_by", "TEXT", 0, None),
     ),
+    "tenant_auth_lockouts": (
+        ("tenant_slug", "TEXT", 1, None),
+        ("role", "TEXT", 2, None),
+        ("failed_attempts", "INTEGER", 0, "0"),
+        ("is_locked_out", "INTEGER", 0, "0"),
+        ("locked_out_at", "TEXT", 0, None),
+        ("updated_at", "TEXT", 0, None),
+    ),
     "tenant_onboarding_contacts": (
         ("tenant_slug", "TEXT", 1, None),
         ("admin_email", "TEXT", 0, None),
@@ -267,6 +275,19 @@ _CREATE_TABLES = (
         activated_by TEXT,
         deactivated_at TEXT,
         deactivated_by TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS tenant_auth_lockouts (
+        tenant_slug TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('front_desk', 'admin')),
+        failed_attempts INTEGER NOT NULL DEFAULT 0 CHECK (failed_attempts >= 0),
+        is_locked_out INTEGER NOT NULL DEFAULT 0 CHECK (is_locked_out IN (0, 1)),
+        locked_out_at TEXT,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (tenant_slug, role),
+        FOREIGN KEY (tenant_slug) REFERENCES tenants (tenant_slug)
+            ON DELETE CASCADE
     )
     """,
     """
@@ -3569,6 +3590,243 @@ def log_tenant_access_attempt(
         f"{normalized_tier}_access_key_{outcome}",
         "tenant_access_key",
     )
+
+
+_TERMINAL_LOGIN_ROLES = frozenset({"front_desk", "admin"})
+_TERMINAL_LOGIN_LOCKOUT_THRESHOLD = 3
+
+
+def _normalize_terminal_login_identity(
+    tenant_slug: str,
+    role: str,
+) -> tuple[str, str]:
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    normalized_role = _required_text(role, "role").lower()
+    if normalized_role not in _TERMINAL_LOGIN_ROLES:
+        raise ValueError("role must be 'front_desk' or 'admin'.")
+    return normalized_slug, normalized_role
+
+
+def _require_existing_tenant(
+    connection: sqlite3.Connection,
+    tenant_slug: str,
+) -> None:
+    if connection.execute(
+        "SELECT 1 FROM tenants WHERE tenant_slug = ? AND is_deleted = 0",
+        (tenant_slug,),
+    ).fetchone() is None:
+        raise ValueError("The tenant is unavailable.")
+
+
+def get_tenant_role_lockout(
+    tenant_slug: str,
+    role: str,
+) -> dict[str, Any]:
+    """Return persistent authentication lockout state for one tenant role."""
+    normalized_slug, normalized_role = _normalize_terminal_login_identity(
+        tenant_slug,
+        role,
+    )
+    init_db()
+    with get_connection() as connection:
+        _require_existing_tenant(connection, normalized_slug)
+        row = connection.execute(
+            """
+            SELECT failed_attempts, is_locked_out, locked_out_at, updated_at
+            FROM tenant_auth_lockouts
+            WHERE tenant_slug = ? AND role = ?
+            """,
+            (normalized_slug, normalized_role),
+        ).fetchone()
+    if row is None:
+        return {
+            "tenant_slug": normalized_slug,
+            "role": normalized_role,
+            "failed_attempts": 0,
+            "is_locked_out": False,
+            "locked_out_at": None,
+            "updated_at": None,
+        }
+    return {
+        "tenant_slug": normalized_slug,
+        "role": normalized_role,
+        "failed_attempts": int(row["failed_attempts"]),
+        "is_locked_out": bool(row["is_locked_out"]),
+        "locked_out_at": row["locked_out_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def record_tenant_role_login_failure(
+    tenant_slug: str,
+    role: str,
+) -> dict[str, Any]:
+    """Atomically count a failed login and lock its role on the third failure."""
+    normalized_slug, normalized_role = _normalize_terminal_login_identity(
+        tenant_slug,
+        role,
+    )
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    init_db()
+    with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        _require_existing_tenant(connection, normalized_slug)
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO tenant_auth_lockouts (
+                tenant_slug, role, failed_attempts, is_locked_out, updated_at
+            ) VALUES (?, ?, 0, 0, ?)
+            """,
+            (normalized_slug, normalized_role, timestamp),
+        )
+        connection.execute(
+            """
+            UPDATE tenant_auth_lockouts
+            SET failed_attempts = failed_attempts + 1,
+                is_locked_out = CASE
+                    WHEN failed_attempts + 1 >= ? THEN 1
+                    ELSE 0
+                END,
+                locked_out_at = CASE
+                    WHEN failed_attempts + 1 >= ?
+                    THEN COALESCE(locked_out_at, ?)
+                    ELSE locked_out_at
+                END,
+                updated_at = ?
+            WHERE tenant_slug = ? AND role = ? AND is_locked_out = 0
+            """,
+            (
+                _TERMINAL_LOGIN_LOCKOUT_THRESHOLD,
+                _TERMINAL_LOGIN_LOCKOUT_THRESHOLD,
+                timestamp,
+                timestamp,
+                normalized_slug,
+                normalized_role,
+            ),
+        )
+        row = connection.execute(
+            """
+            SELECT failed_attempts, is_locked_out, locked_out_at, updated_at
+            FROM tenant_auth_lockouts
+            WHERE tenant_slug = ? AND role = ?
+            """,
+            (normalized_slug, normalized_role),
+        ).fetchone()
+        connection.execute(
+            "INSERT INTO admin_access_logs (tenant_slug, action, actor) "
+            "VALUES (?, ?, ?)",
+            (
+                normalized_slug,
+                f"{normalized_role}_login_rejected",
+                f"{normalized_role}_authentication",
+            ),
+        )
+    return {
+        "tenant_slug": normalized_slug,
+        "role": normalized_role,
+        "failed_attempts": int(row["failed_attempts"]),
+        "is_locked_out": bool(row["is_locked_out"]),
+        "locked_out_at": row["locked_out_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def record_tenant_role_login_success(
+    tenant_slug: str,
+    role: str,
+) -> bool:
+    """Clear consecutive failures after successful login unless already locked."""
+    normalized_slug, normalized_role = _normalize_terminal_login_identity(
+        tenant_slug,
+        role,
+    )
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    init_db()
+    with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        _require_existing_tenant(connection, normalized_slug)
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO tenant_auth_lockouts (
+                tenant_slug, role, failed_attempts, is_locked_out, updated_at
+            ) VALUES (?, ?, 0, 0, ?)
+            """,
+            (normalized_slug, normalized_role, timestamp),
+        )
+        connection.execute(
+            """
+            UPDATE tenant_auth_lockouts
+            SET failed_attempts = 0, locked_out_at = NULL, updated_at = ?
+            WHERE tenant_slug = ? AND role = ? AND is_locked_out = 0
+            """,
+            (timestamp, normalized_slug, normalized_role),
+        )
+        row = connection.execute(
+            """
+            SELECT is_locked_out FROM tenant_auth_lockouts
+            WHERE tenant_slug = ? AND role = ?
+            """,
+            (normalized_slug, normalized_role),
+        ).fetchone()
+        if not bool(row["is_locked_out"]):
+            connection.execute(
+                "INSERT INTO admin_access_logs (tenant_slug, action, actor) "
+                "VALUES (?, ?, ?)",
+                (
+                    normalized_slug,
+                    f"{normalized_role}_login_accepted",
+                    f"{normalized_role}_authentication",
+                ),
+            )
+    return not bool(row["is_locked_out"])
+
+
+def reset_tenant_role_login_lockout(
+    tenant_slug: str,
+    role: str,
+    reset_by: str,
+) -> None:
+    """Clear one role lockout and audit the verified administrative reset."""
+    normalized_slug, normalized_role = _normalize_terminal_login_identity(
+        tenant_slug,
+        role,
+    )
+    normalized_actor = _required_text(reset_by, "reset_by")
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    init_db()
+    with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        _require_existing_tenant(connection, normalized_slug)
+        connection.execute(
+            """
+            INSERT INTO tenant_auth_lockouts (
+                tenant_slug, role, failed_attempts, is_locked_out,
+                locked_out_at, updated_at
+            ) VALUES (?, ?, 0, 0, NULL, ?)
+            ON CONFLICT(tenant_slug, role) DO UPDATE SET
+                failed_attempts = 0,
+                is_locked_out = 0,
+                locked_out_at = NULL,
+                updated_at = excluded.updated_at
+            """,
+            (normalized_slug, normalized_role, timestamp),
+        )
+        _insert_tenant_activity(
+            connection,
+            normalized_slug,
+            "terminal_auth_lockout_reset",
+            f"The {normalized_role} terminal lockout was reset.",
+            normalized_actor,
+        )
+        connection.execute(
+            "INSERT INTO admin_access_logs (tenant_slug, action, actor) "
+            "VALUES (?, ?, ?)",
+            (
+                normalized_slug,
+                f"{normalized_role}_lockout_reset",
+                normalized_actor,
+            ),
+        )
 
 
 def list_admin_access_logs(

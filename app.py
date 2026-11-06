@@ -73,6 +73,7 @@ _ALLOWED_INTERNAL_ROLES = {
     "tenant_admin",
     "directorate_staff",
     "committee_member",
+    "front_desk",
 }
 _TENANT_SESSION_PREFIX = "tenant:"
 _TENANT_ACCESS_KEY_NAMES = {
@@ -134,13 +135,15 @@ def _parse_route() -> tuple[str, str | None, str | None]:
             intake_type = intake_type.lower()
             if intake_type not in {"solicited", "unsolicited"}:
                 raise ValueError("Vendor type must be solicited or unsolicited.")
-    elif portal == "internal":
+    elif portal in {"internal", "frontdesk", "admin"}:
         if tenant_slug is None:
-            raise ValueError("Internal staff links must include a tenant.")
+            raise ValueError("Tenant portal links must include a tenant.")
         if intake_type is not None:
-            raise ValueError("The internal portal does not accept a vendor type.")
+            raise ValueError("Tenant portals do not accept a vendor type.")
     else:
-        raise ValueError("Unsupported portal. Use portal=vendor or portal=internal.")
+        raise ValueError(
+            "Unsupported portal. Use portal=vendor, internal, frontdesk, or admin."
+        )
 
     tenant_slug = tenant_slug.lower()
     if not _TENANT_SLUG_PATTERN.fullmatch(tenant_slug):
@@ -153,10 +156,18 @@ def _tenant_key(tenant_slug: str, surface: str, name: str) -> str:
     return f"{_TENANT_SESSION_PREFIX}{tenant_slug}:{surface}:{name}"
 
 
-def _sync_tenant_session(tenant_slug: str | None) -> None:
+def _sync_tenant_session(
+    tenant_slug: str | None,
+    portal: str | None,
+) -> None:
     previous_slug = st.session_state.get("_active_tenant_slug")
+    previous_portal = st.session_state.get("_active_tenant_portal")
     has_active_tenant = "_active_tenant_slug" in st.session_state
-    if has_active_tenant and previous_slug == tenant_slug:
+    if (
+        has_active_tenant
+        and previous_slug == tenant_slug
+        and previous_portal == portal
+    ):
         for key in _LEGACY_TENANT_SESSION_KEYS:
             st.session_state.pop(key, None)
         return
@@ -169,6 +180,7 @@ def _sync_tenant_session(tenant_slug: str | None) -> None:
             del st.session_state[key]
 
     st.session_state["_active_tenant_slug"] = tenant_slug
+    st.session_state["_active_tenant_portal"] = portal
 
 
 def _configured_staff_users() -> dict[str, Any]:
@@ -402,6 +414,286 @@ def _handle_internal_login(tenant_slug: str) -> None:
 
     st.session_state[failed_key] = False
     st.session_state[identity_key] = identity
+
+
+_TERMINAL_LOCKOUT_MESSAGE = (
+    "⚠️ TERMINAL LOCKED: 3 consecutive failed authentication attempts detected. "
+    "Access is suspended until credentials are reset by the Master Administrator "
+    "or IT Officer."
+)
+
+
+def _handle_terminal_role_login(tenant_slug: str, role: str) -> None:
+    username_key = _tenant_key(tenant_slug, role, "username")
+    passkey_key = _tenant_key(tenant_slug, role, "passkey")
+    identity_key = _tenant_key(tenant_slug, role, "identity")
+    error_key = _tenant_key(tenant_slug, role, "login_error")
+    supplied_username = str(st.session_state.get(username_key, ""))
+    supplied_passkey = str(st.session_state.get(passkey_key, ""))
+    st.session_state[passkey_key] = ""
+
+    try:
+        lockout = db.get_tenant_role_lockout(tenant_slug, role)
+        if lockout["is_locked_out"]:
+            st.session_state.pop(identity_key, None)
+            st.session_state[error_key] = _TERMINAL_LOCKOUT_MESSAGE
+            return
+
+        identity = _authenticate_internal_user(
+            tenant_slug,
+            supplied_username,
+            supplied_passkey,
+        )
+        if identity is None or identity["role"] != role:
+            lockout = db.record_tenant_role_login_failure(tenant_slug, role)
+            st.session_state.pop(identity_key, None)
+            st.session_state[error_key] = (
+                _TERMINAL_LOCKOUT_MESSAGE
+                if lockout["is_locked_out"]
+                else "The username or passkey is incorrect for this access role."
+            )
+            return
+
+        if not db.record_tenant_role_login_success(tenant_slug, role):
+            st.session_state.pop(identity_key, None)
+            st.session_state[error_key] = _TERMINAL_LOCKOUT_MESSAGE
+            return
+    except (sqlite3.Error, RuntimeError, TypeError, ValueError):
+        logging.exception(
+            "Could not verify %s credentials for tenant %s.",
+            role,
+            tenant_slug,
+        )
+        st.session_state.pop(identity_key, None)
+        st.session_state[error_key] = (
+            "Authentication could not be verified securely. Please try again."
+        )
+        return
+
+    identity["user_role"] = role
+    st.session_state[identity_key] = identity
+    st.session_state.pop(error_key, None)
+
+
+def _handle_terminal_lockout_reset(tenant_slug: str, role: str) -> None:
+    import sector_logic
+
+    reset_key_name = _tenant_key(tenant_slug, role, "reset_key")
+    result_key = _tenant_key(tenant_slug, role, "reset_result")
+    supplied_key = st.session_state.get(reset_key_name, "")
+    st.session_state[reset_key_name] = ""
+
+    if not sector_logic.terminal_reset_key_is_configured():
+        st.session_state[result_key] = "unconfigured"
+        return
+    if not sector_logic.verify_terminal_reset_key(supplied_key):
+        st.session_state[result_key] = "rejected"
+        return
+
+    try:
+        db.reset_tenant_role_login_lockout(
+            tenant_slug,
+            role,
+            "master_admin_recovery_key",
+        )
+    except (sqlite3.Error, RuntimeError, TypeError, ValueError):
+        logging.exception(
+            "Could not reset the %s terminal lockout for tenant %s.",
+            role,
+            tenant_slug,
+        )
+        st.session_state[result_key] = "error"
+        return
+
+    st.session_state.pop(_tenant_key(tenant_slug, role, "identity"), None)
+    st.session_state.pop(_tenant_key(tenant_slug, role, "login_error"), None)
+    st.session_state[result_key] = "accepted"
+
+
+def _render_terminal_lockout_alert(tenant_slug: str, role: str) -> None:
+    import sector_logic
+
+    st.markdown(
+        """
+        <div style="background:#3b0a0a;border:2px solid #ef4444;border-left:8px solid #facc15;
+                    border-radius:12px;color:#fff;padding:1.1rem 1.25rem;
+                    font-weight:800;line-height:1.55;margin:1rem 0;">
+            ⚠️ TERMINAL LOCKED: 3 consecutive failed authentication attempts detected.
+            Access is suspended until credentials are reset by the Master Administrator
+            or IT Officer.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown("**Request IT / Admin Reset**")
+    st.caption(
+        "Enter the configured master recovery key. The reset is tenant- and "
+        "role-scoped and written to the security audit trail."
+    )
+    configured = sector_logic.terminal_reset_key_is_configured()
+    if not configured:
+        st.error(
+            "Lockout recovery is not configured. Set "
+            "NEXUSVAULT_TERMINAL_RESET_KEY in the deployment environment or "
+            "Streamlit secrets, then retry."
+        )
+    with st.form(key=_tenant_key(tenant_slug, role, "reset_form")):
+        st.text_input(
+            "Master recovery key",
+            type="password",
+            key=_tenant_key(tenant_slug, role, "reset_key"),
+            disabled=not configured,
+        )
+        st.form_submit_button(
+            "Request IT / Admin Reset",
+            key=_tenant_key(tenant_slug, role, "reset_submit"),
+            on_click=_handle_terminal_lockout_reset,
+            args=(tenant_slug, role),
+            disabled=not configured,
+            type="primary",
+        )
+
+    result_key = _tenant_key(tenant_slug, role, "reset_result")
+    result = st.session_state.pop(result_key, None)
+    if result == "accepted":
+        st.success("The terminal lockout was reset. Sign in with your role account.")
+        st.rerun()
+    if result == "rejected":
+        st.error("The recovery key was not accepted.")
+    elif result == "error":
+        st.error("The lockout could not be reset. Please contact IT.")
+    elif result == "unconfigured":
+        st.error("The master recovery key is not configured.")
+
+
+def _render_terminal_role_login(
+    tenant_slug: str,
+    role: str,
+) -> dict[str, str] | None:
+    identity_key = _tenant_key(tenant_slug, role, "identity")
+    error_key = _tenant_key(tenant_slug, role, "login_error")
+    try:
+        lockout = db.get_tenant_role_lockout(tenant_slug, role)
+    except (sqlite3.Error, RuntimeError, ValueError):
+        logging.exception(
+            "Could not load %s lockout state for tenant %s.",
+            role,
+            tenant_slug,
+        )
+        st.error("Authentication is unavailable because security state could not load.")
+        return None
+
+    if lockout["is_locked_out"]:
+        st.session_state.pop(identity_key, None)
+        _render_terminal_lockout_alert(tenant_slug, role)
+        return None
+
+    reset_result_key = _tenant_key(tenant_slug, role, "reset_result")
+    if st.session_state.pop(reset_result_key, None) == "accepted":
+        st.success("The terminal lockout was reset. Sign in with your role account.")
+
+    identity = st.session_state.get(identity_key)
+    if (
+        isinstance(identity, Mapping)
+        and identity.get("tenant_slug") == tenant_slug
+        and identity.get("role") == role
+        and identity.get("user_role") == role
+    ):
+        return dict(identity)
+
+    users = _configured_staff_users()
+    account_is_configured = any(
+        isinstance(account, Mapping)
+        and str(account.get("tenant_slug") or "").strip().lower() == tenant_slug
+        and str(account.get("role") or "").strip().lower() == role
+        for account in users.values()
+    )
+    if not account_is_configured:
+        st.error(
+            f"No {role.replace('_', ' ')} accounts are configured for this tenant."
+        )
+        return None
+
+    labels = {
+        "front_desk": "Front Desk Authentication",
+        "admin": "Master Admin Authentication",
+    }
+    st.subheader(labels[role])
+    st.caption("Sign in with the account assigned exclusively to this role.")
+    with st.form(key=_tenant_key(tenant_slug, role, "login_form")):
+        st.text_input(
+            "Username",
+            key=_tenant_key(tenant_slug, role, "username"),
+        )
+        st.text_input(
+            "Passkey",
+            type="password",
+            key=_tenant_key(tenant_slug, role, "passkey"),
+        )
+        st.form_submit_button(
+            "Authenticate",
+            key=_tenant_key(tenant_slug, role, "login_submit"),
+            on_click=_handle_terminal_role_login,
+            args=(tenant_slug, role),
+            type="primary",
+        )
+
+    error = st.session_state.pop(error_key, None)
+    if isinstance(error, str) and error:
+        if error == _TERMINAL_LOCKOUT_MESSAGE:
+            _render_terminal_lockout_alert(tenant_slug, role)
+        else:
+            st.error(error)
+
+    identity = st.session_state.get(identity_key)
+    if (
+        isinstance(identity, Mapping)
+        and identity.get("tenant_slug") == tenant_slug
+        and identity.get("role") == role
+        and identity.get("user_role") == role
+    ):
+        return dict(identity)
+    return None
+
+
+def _render_frontdesk_portal(
+    tenant: Mapping[str, Any],
+    tenant_slug: str,
+) -> None:
+    identity = _render_terminal_role_login(tenant_slug, "front_desk")
+    if identity is None:
+        return
+
+    st.success(f"Authenticated as {identity['username']} (Front Desk).")
+    _render_physical_proposal_intake(
+        tenant,
+        tenant_slug,
+        identity["username"],
+    )
+    if st.button(
+        "Sign out of Front Desk",
+        key=_tenant_key(tenant_slug, "front_desk", "logout"),
+    ):
+        st.session_state.pop(_tenant_key(tenant_slug, "front_desk", "identity"), None)
+        st.rerun()
+
+
+def _render_master_admin_portal(
+    tenant: Mapping[str, Any],
+    tenant_slug: str,
+) -> None:
+    identity = _render_terminal_role_login(tenant_slug, "admin")
+    if identity is None:
+        return
+
+    st.success(f"Authenticated as {identity['username']} (Master Admin).")
+    _render_internal_portal(tenant, tenant_slug)
+    if st.button(
+        "Sign out of Master Admin",
+        key=_tenant_key(tenant_slug, "admin", "logout"),
+    ):
+        st.session_state.pop(_tenant_key(tenant_slug, "admin", "identity"), None)
+        st.rerun()
 
 
 def _persist_general_broadcast() -> None:
@@ -4192,7 +4484,7 @@ def render_developer_console() -> None:
                 use_container_width=True,
             )
 
-if st.query_params.get("mode") == "dev":
+if st.query_params.get("mode") == "dev" and _raw_portal is None:
     configured_password = _configured_developer_password()
     if not configured_password:
         st.error(
@@ -4232,10 +4524,10 @@ else:
     try:
         _portal, _tenant_slug, _intake_type = _parse_route()
     except ValueError as exc:
-        _sync_tenant_session(None)
+        _sync_tenant_session(None, None)
         _render_route_error(str(exc))
     else:
-        _sync_tenant_session(_tenant_slug)
+        _sync_tenant_session(_tenant_slug, _portal)
         if _portal == "home":
             _render_home()
         else:
@@ -4253,7 +4545,7 @@ else:
                     or str(_tenant.get("status", "")).strip().upper() != "ACTIVE"
                     or bool(_tenant.get("is_deleted"))
                 ):
-                    _sync_tenant_session(None)
+                    _sync_tenant_session(None, None)
                     _render_route_error(
                         "The requested tenant was not found or is inactive."
                     )
@@ -4263,3 +4555,7 @@ else:
                         _render_vendor_portal(_tenant_slug, _intake_type)
                     elif _portal == "internal":
                         _render_internal_portal(_tenant, _tenant_slug)
+                    elif _portal == "frontdesk":
+                        _render_frontdesk_portal(_tenant, _tenant_slug)
+                    elif _portal == "admin":
+                        _render_master_admin_portal(_tenant, _tenant_slug)

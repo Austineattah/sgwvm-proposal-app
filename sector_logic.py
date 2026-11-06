@@ -1,6 +1,7 @@
 import base64
 import binascii
 import hashlib
+import hmac
 import html
 import io
 import json
@@ -35,6 +36,32 @@ _CLEARANCE_ACTIVE_STATUS = "PAYMENT_VERIFIED"
 _CLEARANCE_SUBMITTED_STATUS = "DOSSIER_SUBMITTED"
 PRODUCTION_BASE_URL = "https://nexusvault-proposal-enterprise-connect.streamlit.app"
 _EXECUTIVE_SCORE_OUTLIER_THRESHOLD = 20
+
+
+def _get_terminal_reset_key() -> str | None:
+    value = os.environ.get("NEXUSVAULT_TERMINAL_RESET_KEY", "").strip()
+    if value:
+        return value
+    try:
+        value = st.secrets.get("NEXUSVAULT_TERMINAL_RESET_KEY", "")
+    except (KeyError, StreamlitSecretNotFoundError):
+        return None
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def terminal_reset_key_is_configured() -> bool:
+    return _get_terminal_reset_key() is not None
+
+
+def verify_terminal_reset_key(candidate: str) -> bool:
+    """Verify a terminal reset key without logging or persisting either value."""
+    expected = _get_terminal_reset_key()
+    return bool(
+        expected
+        and isinstance(candidate, str)
+        and candidate
+        and hmac.compare_digest(candidate, expected)
+    )
 
 
 def _get_gemini_api_key() -> str | None:
