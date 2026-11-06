@@ -3132,7 +3132,7 @@ def _render_home() -> None:
     if "custom_portal_heading" not in st.session_state:
         st.session_state["custom_portal_heading"] = (
             'NEXUSVAULT TECHNOLOGIES "SUPER INTELLIGENCE - '
-            'AGENTIC AI PROPOSAL INTAKE PORTAL"'
+            'AGENTIC AI PROPOSAL INTAKE PORTAL".'
         )
 
     if st.session_state.get("onboarding_submitted", False):
@@ -3456,7 +3456,7 @@ def _render_home() -> None:
         """
         <div class="marquee-container">
             <div class="marquee-text">
-                🌟 ADVANCING THE DIGITAL ECONOMIC DRIVE OF THE FEDERAL GOVERNMENT THROUGH TECHNOLOGY. 🌟
+                CONSOLIDATING THE DIGITAL ECONOMIC VISION OF THE GOVERNMENT THROUGH INNOVATIVE TECHNOLOGIES
             </div>
         </div>
         """,
