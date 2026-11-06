@@ -2,28 +2,25 @@
 import os
 import sqlite3
 import time
-from pathlib import Path
 import streamlit as st
+import database as db
 
-DB_PATH = Path(__file__).resolve().parent / "security_logs.db"
+DB_PATH = db.DB_FILE
 
 
 def init_security_db():
     """Initializes SQLite database tables for access logs and reset tokens."""
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS admin_access_logs (
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS admin_security_access_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp INTEGER,
                 ip_address TEXT,
                 status TEXT
             )
-        """
-        )
-        cursor.execute(
-            """
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS reset_tokens (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 email TEXT,
@@ -31,8 +28,7 @@ def init_security_db():
                 created_at INTEGER,
                 used INTEGER DEFAULT 0
             )
-        """
-        )
+        """)
         conn.commit()
 
 
@@ -57,7 +53,7 @@ def log_access_attempt(status: str):
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO admin_access_logs (timestamp, ip_address, status)
+            INSERT INTO admin_security_access_logs (timestamp, ip_address, status)
             VALUES (?, ?, ?)
         """,
             (current_time, ip_addr, status),
@@ -75,7 +71,7 @@ def check_ip_lockout(window_seconds: int = 60, max_attempts: int = 3):
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT COUNT(*) FROM admin_access_logs
+            SELECT COUNT(*) FROM admin_security_access_logs
             WHERE ip_address = ? AND status LIKE 'FAILED%' AND timestamp >= ?
         """,
             (ip_addr, cutoff),

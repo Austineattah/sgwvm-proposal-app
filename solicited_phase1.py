@@ -12,7 +12,7 @@ import datetime
 PRODUCTION_BASE_URL = "https://NexusVault-Proposal-Enterprise-Connect.streamlit.app"
 
 
-def render_solicited_phase1(client_slug, db_connection_path="database.db"):
+def render_solicited_phase1(client_slug):
     st.markdown(
         "### 📌 Solicited Vendor Pathway: Phase 1 - Pre-Qualification & Payment"
     )
