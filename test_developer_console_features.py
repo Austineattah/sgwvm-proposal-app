@@ -63,6 +63,120 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
         self.assertIsNone(tenant["deleted_at"])
         self.assertIsNone(tenant["activated_at"])
 
+    def test_legacy_tenant_audit_rows_migrate_to_activity_log(self):
+        legacy_path = Path(self.temporary_directory.name) / "legacy_audit.db"
+        connection = sqlite3.connect(legacy_path)
+        try:
+            connection.execute(
+                """
+                CREATE TABLE tenant_audit_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_slug TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    actor TEXT NOT NULL,
+                    action_type TEXT NOT NULL,
+                    details TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO tenant_audit_logs (
+                    tenant_slug, timestamp, actor, action_type, details
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    "legacy_tenant",
+                    "2026-03-15T12:00:00+00:00",
+                    "legacy_actor",
+                    "legacy_action",
+                    "preserved activity",
+                ),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        with patch.object(database, "DB_FILE", legacy_path):
+            database.init_db()
+            activities = database.get_tenant_activities("legacy_tenant")
+            with database.get_connection() as migrated:
+                security_columns = {
+                    row["name"]
+                    for row in migrated.execute(
+                        'PRAGMA table_info("tenant_audit_logs")'
+                    ).fetchall()
+                }
+
+        self.assertEqual(len(activities), 1)
+        self.assertEqual(activities[0]["details"], "preserved activity")
+        self.assertEqual(activities[0]["action_type"], "legacy_action")
+        self.assertEqual(
+            security_columns,
+            {
+                "log_id",
+                "tenant_slug",
+                "actor_role",
+                "action_type",
+                "ip_or_session",
+                "timestamp",
+                "details_json",
+            },
+        )
+
+    def test_security_audit_log_is_immutable_and_survives_tenant_purge(self):
+        log_id = database.log_security_audit_event(
+            "example_tenant",
+            "front_desk",
+            "PROPOSAL_LOGGED",
+            {"tracking_id": "NV-PHY-TEST"},
+            "session:test-session",
+        )
+        with database.get_connection() as connection:
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "immutable"):
+                connection.execute(
+                    "UPDATE tenant_audit_logs SET action_type = ? WHERE log_id = ?",
+                    ("ALTERED", log_id),
+                )
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "immutable"):
+                connection.execute(
+                    "DELETE FROM tenant_audit_logs WHERE log_id = ?",
+                    (log_id,),
+                )
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "immutable"):
+                connection.execute(
+                    """
+                    INSERT OR REPLACE INTO tenant_audit_logs (
+                        log_id, tenant_slug, actor_role, action_type,
+                        ip_or_session, timestamp, details_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        log_id,
+                        "example_tenant",
+                        "attacker",
+                        "ALTERED",
+                        "session:replacement",
+                        "2026-03-15T12:00:00+00:00",
+                        "{}",
+                    ),
+                )
+            database._purge_tenant_records(connection, "example_tenant")
+            row = connection.execute(
+                "SELECT tenant_slug, actor_role, action_type, ip_or_session, "
+                "details_json FROM tenant_audit_logs WHERE log_id = ?",
+                (log_id,),
+            ).fetchone()
+
+        self.assertEqual(row["tenant_slug"], "example_tenant")
+        self.assertEqual(row["actor_role"], "front_desk")
+        self.assertEqual(row["action_type"], "PROPOSAL_LOGGED")
+        self.assertEqual(row["ip_or_session"], "session:test-session")
+        self.assertEqual(
+            row["details_json"],
+            '{"tracking_id":"NV-PHY-TEST"}',
+        )
+
     def test_vendor_activation_does_not_change_clearance_status(self):
         database.create_clearance_pass(
             {
@@ -153,6 +267,17 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
                 "is_locked_out"
             ]
         )
+        with database.get_connection() as connection:
+            action_counts = {
+                row["action_type"]: row["event_count"]
+                for row in connection.execute(
+                    "SELECT action_type, COUNT(*) AS event_count "
+                    "FROM tenant_audit_logs WHERE tenant_slug = 'example_tenant' "
+                    "AND actor_role = 'admin' GROUP BY action_type"
+                ).fetchall()
+            }
+        self.assertEqual(action_counts["LOGIN_FAILED"], 4)
+        self.assertEqual(action_counts["TERMINAL_LOCKOUT"], 1)
 
     def test_terminal_lockout_clears_after_success_or_audited_admin_reset(self):
         database.record_tenant_role_login_failure("example_tenant", "front_desk")
@@ -191,6 +316,16 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
         self.assertIsNone(reset_state["locked_out_at"])
         audit_logs = database.get_tenant_activities("example_tenant")
         self.assertEqual(audit_logs[0]["action_type"], "terminal_auth_lockout_reset")
+        with database.get_connection() as connection:
+            security_actions = [
+                row["action_type"]
+                for row in connection.execute(
+                    "SELECT action_type FROM tenant_audit_logs "
+                    "WHERE tenant_slug = 'example_tenant'"
+                ).fetchall()
+            ]
+        self.assertIn("LOGIN_SUCCESS", security_actions)
+        self.assertIn("TERMINAL_RESET", security_actions)
 
     def test_onboarding_persists_tenant_logo_path(self):
         tenant = database.create_tenant_onboarding(
@@ -878,12 +1013,29 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
             proposal_title="Example proposal",
             amount_minor=125_000,
         )
+        expired_pass_id = sector_logic._create_payment_verified_pass(
+            tenant_slug="example_tenant",
+            rfq_code=tender["tender_id"],
+            vendor_name="Example Vendor",
+            vendor_email="vendor@example.test",
+            payment_reference="RRR-10",
+            proposal_title="Second proposal",
+            amount_minor=125_000,
+        )
+        self.assertTrue(
+            sector_logic._mark_dossier_submitted("example_tenant", pass_id)
+        )
 
         ledger = database.get_tenant_financial_ledger("example_tenant")
-        self.assertEqual(len(ledger), 1)
-        self.assertEqual(ledger[0]["amount_minor"], 125_000)
-        self.assertEqual(ledger[0]["provider"], "Paystack")
-        self.assertEqual(ledger[0]["qr_pass_id"], pass_id)
+        self.assertEqual(len(ledger), 2)
+        self.assertTrue(
+            all(item["amount_minor"] == 125_000 for item in ledger)
+        )
+        self.assertTrue(all(item["provider"] == "Paystack" for item in ledger))
+        self.assertEqual(
+            {item["qr_pass_id"] for item in ledger},
+            {pass_id, expired_pass_id},
+        )
         self.assertEqual(database.get_tenant_financial_ledger("other_tenant"), [])
         with database.get_connection() as connection:
             connection.execute(
@@ -896,7 +1048,7 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
         self.assertFalse(
             sector_logic._mark_dossier_submitted(
                 "example_tenant",
-                pass_id,
+                expired_pass_id,
             )
         )
         with self.assertRaisesRegex(ValueError, "no clearance pass"):
@@ -915,6 +1067,16 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
                 for activity in database.get_tenant_activities("example_tenant")
             )
         )
+        with database.get_connection() as connection:
+            security_actions = [
+                row["action_type"]
+                for row in connection.execute(
+                    "SELECT action_type FROM tenant_audit_logs "
+                    "WHERE tenant_slug = 'example_tenant'"
+                ).fetchall()
+            ]
+        self.assertEqual(security_actions.count("PAYMENT_VERIFIED"), 2)
+        self.assertEqual(security_actions.count("DOSSIER_SUBMITTED"), 1)
 
     def test_committee_roster_coi_and_proposal_override_are_scoped(self):
         database.save_tenant(
@@ -1044,6 +1206,18 @@ class DeveloperConsoleDatabaseTests(unittest.TestCase):
         self.assertEqual(proposal_statuses[proposal["tracking_id"]], "STOPPED")
         self.assertEqual(proposal_statuses[unsolicited["submission_id"]], "RECEIVED")
         self.assertEqual(database.get_tenant_governance_proposals("other_tenant"), [])
+        with database.get_connection() as connection:
+            security_actions = {
+                row["action_type"]: row["details_json"]
+                for row in connection.execute(
+                    "SELECT action_type, details_json FROM tenant_audit_logs "
+                    "WHERE tenant_slug = 'example_tenant'"
+                ).fetchall()
+            }
+        self.assertIn("PROPOSAL_LOGGED", security_actions)
+        self.assertIn("STATUS_UPDATED", security_actions)
+        self.assertIn(proposal["tracking_id"], security_actions["PROPOSAL_LOGGED"])
+        self.assertIn(proposal["tracking_id"], security_actions["STATUS_UPDATED"])
 
     def test_departmental_screening_appraisal_and_apex_handoff_are_scoped(self):
         database.save_tenant(

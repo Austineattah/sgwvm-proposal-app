@@ -97,6 +97,112 @@ _TENANT_SCOPED_AUTH_KEYS = {
     "tenant_exec_auth",
     "tenant_exec_auth_slug",
 }
+_IDLE_SESSION_TIMEOUT_SECONDS = 15 * 60
+_SESSION_ACTIVITY_KEY = "last_activity_timestamp"
+_SECURITY_SESSION_ID_KEY = "security_session_id"
+_SESSION_EXPIRY_NOTICE = (
+    "⚠️ Session expired due to inactivity to protect constituent data."
+)
+
+
+def _security_session_identifier() -> str:
+    session_id = st.session_state.get(_SECURITY_SESSION_ID_KEY)
+    if not isinstance(session_id, str) or not session_id:
+        session_id = uuid.uuid4().hex
+        st.session_state[_SECURITY_SESSION_ID_KEY] = session_id
+    return f"session:{session_id}"
+
+
+def _authenticated_actor_context() -> tuple[str, str] | None:
+    if st.session_state.get("dev_authenticated") is True:
+        return "platform", "platform_admin"
+
+    for key in list(st.session_state.keys()):
+        if not isinstance(key, str) or not key.endswith(":identity"):
+            continue
+        identity = st.session_state.get(key)
+        if not isinstance(identity, Mapping):
+            continue
+        tenant_slug = identity.get("tenant_slug")
+        role = identity.get("user_role") or identity.get("role")
+        if not isinstance(role, str):
+            surface = key.split(":")[-2] if ":" in key else ""
+            role = {
+                "committee": "committee_member",
+                "front_desk": "front_desk",
+                "admin": "admin",
+            }.get(surface)
+        if isinstance(tenant_slug, str) and isinstance(role, str):
+            return tenant_slug, role
+
+    tenant_slug = st.session_state.get("tenant_exec_auth_slug")
+    if (
+        st.session_state.get("tenant_exec_auth") is True
+        and isinstance(tenant_slug, str)
+    ):
+        return tenant_slug, "executive"
+    tenant_slug = st.session_state.get("tenant_staff_auth_slug")
+    if (
+        st.session_state.get("tenant_staff_auth") is True
+        and isinstance(tenant_slug, str)
+    ):
+        return tenant_slug, "staff"
+    return None
+
+
+def _expire_idle_session(now: float | None = None) -> bool:
+    current_time = datetime.now().timestamp() if now is None else now
+    last_activity = st.session_state.get(_SESSION_ACTIVITY_KEY)
+    if not isinstance(last_activity, (int, float)):
+        return False
+    if current_time - float(last_activity) < _IDLE_SESSION_TIMEOUT_SECONDS:
+        return False
+
+    actor = _authenticated_actor_context()
+    session_id = _security_session_identifier()
+    if actor is not None:
+        tenant_slug, role = actor
+        try:
+            db.log_security_audit_event(
+                tenant_slug,
+                role,
+                "SESSION_EXPIRED",
+                {"reason": "idle_timeout"},
+                session_id,
+            )
+        except (sqlite3.Error, RuntimeError, TypeError, ValueError):
+            logging.exception("Could not record an idle session expiration.")
+
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.session_state[_SESSION_ACTIVITY_KEY] = current_time
+    st.session_state[_SECURITY_SESSION_ID_KEY] = uuid.uuid4().hex
+    st.session_state["session_expired_notice"] = _SESSION_EXPIRY_NOTICE
+    return True
+
+
+def _guard_session_interaction() -> bool:
+    return not _expire_idle_session()
+
+
+def _touch_session_activity() -> bool:
+    now = datetime.now().timestamp()
+    expired = _expire_idle_session(now)
+    st.session_state[_SESSION_ACTIVITY_KEY] = now
+    _security_session_identifier()
+    return expired
+
+
+def _session_idle_timeout_monitor() -> None:
+    if _expire_idle_session():
+        st.rerun()
+
+
+_SESSION_EXPIRED_THIS_RUN = _touch_session_activity()
+if _SESSION_EXPIRED_THIS_RUN:
+    st.rerun()
+if hasattr(st, "fragment"):
+    st.fragment(run_every="30s")(_session_idle_timeout_monitor)()
 
 
 def _single_query_value(value: Any, name: str) -> str | None:
@@ -240,6 +346,8 @@ def _tenant_access_is_authenticated(tier: str, tenant_slug: str) -> bool:
 
 
 def _handle_tenant_access_login(tenant_slug: str, tier: str) -> None:
+    if not _guard_session_interaction():
+        return
     flag_key = "tenant_staff_auth" if tier == "staff" else "tenant_exec_auth"
     scope_key = f"{flag_key}_slug"
     password_key = _tenant_key(tenant_slug, "internal", f"{tier}_access_key")
@@ -268,6 +376,13 @@ def _handle_tenant_access_login(tenant_slug: str, tier: str) -> None:
             "tenant_access_key",
             f"{tier}_access_key_{'accepted' if authenticated else 'rejected'}",
             f"{tier.title()} access-key authentication attempt.",
+        )
+        db.log_security_audit_event(
+            tenant_slug,
+            f"{tier}_access",
+            "LOGIN_SUCCESS" if authenticated else "LOGIN_FAILED",
+            {"access_tier": tier},
+            _security_session_identifier(),
         )
     except (sqlite3.Error, RuntimeError, ValueError):
         logging.exception(
@@ -396,6 +511,8 @@ def _authenticate_internal_user(
 
 
 def _handle_internal_login(tenant_slug: str) -> None:
+    if not _guard_session_interaction():
+        return
     username_key = _tenant_key(tenant_slug, "internal", "username")
     password_key = _tenant_key(tenant_slug, "internal", "password")
     identity_key = _tenant_key(tenant_slug, "internal", "identity")
@@ -407,6 +524,19 @@ def _handle_internal_login(tenant_slug: str) -> None:
         str(st.session_state.get(password_key, "")).strip(),
     )
     st.session_state[password_key] = ""
+    try:
+        db.log_security_audit_event(
+            tenant_slug,
+            identity["role"] if identity is not None else "internal",
+            "LOGIN_SUCCESS" if identity is not None else "LOGIN_FAILED",
+            {"authentication_method": "staff_account"},
+            _security_session_identifier(),
+        )
+    except (sqlite3.Error, RuntimeError, TypeError, ValueError):
+        logging.exception("Could not record an internal login attempt.")
+        st.session_state[failed_key] = True
+        st.session_state.pop(identity_key, None)
+        return
     if identity is None:
         st.session_state[failed_key] = True
         st.session_state.pop(identity_key, None)
@@ -424,6 +554,8 @@ _TERMINAL_LOCKOUT_MESSAGE = (
 
 
 def _handle_terminal_role_login(tenant_slug: str, role: str) -> None:
+    if not _guard_session_interaction():
+        return
     username_key = _tenant_key(tenant_slug, role, "username")
     passkey_key = _tenant_key(tenant_slug, role, "passkey")
     identity_key = _tenant_key(tenant_slug, role, "identity")
@@ -445,7 +577,11 @@ def _handle_terminal_role_login(tenant_slug: str, role: str) -> None:
             supplied_passkey,
         )
         if identity is None or identity["role"] != role:
-            lockout = db.record_tenant_role_login_failure(tenant_slug, role)
+            lockout = db.record_tenant_role_login_failure(
+                tenant_slug,
+                role,
+                _security_session_identifier(),
+            )
             st.session_state.pop(identity_key, None)
             st.session_state[error_key] = (
                 _TERMINAL_LOCKOUT_MESSAGE
@@ -454,7 +590,11 @@ def _handle_terminal_role_login(tenant_slug: str, role: str) -> None:
             )
             return
 
-        if not db.record_tenant_role_login_success(tenant_slug, role):
+        if not db.record_tenant_role_login_success(
+            tenant_slug,
+            role,
+            _security_session_identifier(),
+        ):
             st.session_state.pop(identity_key, None)
             st.session_state[error_key] = _TERMINAL_LOCKOUT_MESSAGE
             return
@@ -476,6 +616,8 @@ def _handle_terminal_role_login(tenant_slug: str, role: str) -> None:
 
 
 def _handle_terminal_lockout_reset(tenant_slug: str, role: str) -> None:
+    if not _guard_session_interaction():
+        return
     import sector_logic
 
     reset_key_name = _tenant_key(tenant_slug, role, "reset_key")
@@ -487,6 +629,19 @@ def _handle_terminal_lockout_reset(tenant_slug: str, role: str) -> None:
         st.session_state[result_key] = "unconfigured"
         return
     if not sector_logic.verify_terminal_reset_key(supplied_key):
+        try:
+            db.log_security_audit_event(
+                tenant_slug,
+                "master_admin",
+                "TERMINAL_RESET_REJECTED",
+                {"role": role},
+                _security_session_identifier(),
+            )
+        except (sqlite3.Error, RuntimeError, TypeError, ValueError):
+            logging.exception(
+                "Could not record a rejected %s terminal reset request.",
+                role,
+            )
         st.session_state[result_key] = "rejected"
         return
 
@@ -495,6 +650,7 @@ def _handle_terminal_lockout_reset(tenant_slug: str, role: str) -> None:
             tenant_slug,
             role,
             "master_admin_recovery_key",
+            _security_session_identifier(),
         )
     except (sqlite3.Error, RuntimeError, TypeError, ValueError):
         logging.exception(
@@ -1698,6 +1854,8 @@ def _render_physical_proposal_intake(
                     routed_directorate=route,
                     routing_basis=routing_basis,
                     submitted_by=actor,
+                    actor_role="front_desk",
+                    ip_or_session=_security_session_identifier(),
                 )
             except (OSError, sqlite3.Error, RuntimeError, TypeError, ValueError) as exc:
                 logging.exception(
@@ -2432,6 +2590,8 @@ def _render_committee_leaderboard(tenant_slug: str) -> None:
 
 
 def _handle_committee_login(tenant_slug: str) -> None:
+    if not _guard_session_interaction():
+        return
     identity_key = _tenant_key(tenant_slug, "committee", "identity")
     token_key = _tenant_key(tenant_slug, "committee", "access_token")
     error_key = _tenant_key(tenant_slug, "committee", "login_error")
@@ -2449,6 +2609,13 @@ def _handle_committee_login(tenant_slug: str) -> None:
             tenant_slug,
             token,
             encryption_key,
+        )
+        db.log_security_audit_event(
+            tenant_slug,
+            "committee_member",
+            "LOGIN_SUCCESS" if identity is not None else "LOGIN_FAILED",
+            {"authentication_method": "committee_token"},
+            _security_session_identifier(),
         )
         if identity is not None:
             db.log_tenant_activity(
@@ -3048,6 +3215,8 @@ def _render_executive_apex_tab(tenant_slug: str, actor: str) -> None:
                             proposal["tracking_id"],
                             next_status,
                             actor,
+                            actor_role="executive",
+                            ip_or_session=_security_session_identifier(),
                         )
                     except (sqlite3.Error, RuntimeError, TypeError, ValueError):
                         logging.exception(
@@ -4484,6 +4653,10 @@ def render_developer_console() -> None:
                 use_container_width=True,
             )
 
+session_expired_notice = st.session_state.pop("session_expired_notice", None)
+if isinstance(session_expired_notice, str) and session_expired_notice:
+    st.warning(session_expired_notice)
+
 if st.query_params.get("mode") == "dev" and _raw_portal is None:
     configured_password = _configured_developer_password()
     if not configured_password:
@@ -4508,10 +4681,22 @@ if st.query_params.get("mode") == "dev" and _raw_portal is None:
             submitted_password,
             configured_password,
         )
+        try:
+            db.log_security_audit_event(
+                "platform",
+                "platform_admin",
+                "LOGIN_SUCCESS" if authenticated else "LOGIN_FAILED",
+                {"authentication_method": "developer_password"},
+                _security_session_identifier(),
+            )
+        except (sqlite3.Error, RuntimeError, TypeError, ValueError):
+            logging.exception("Could not record a developer login attempt.")
+            authenticated = False
+            st.error("Developer access could not be verified and recorded.")
         st.session_state["dev_authenticated"] = authenticated
         if authenticated:
             st.success("Developer access granted.")
-        else:
+        elif not st.session_state.get("session_expired_notice"):
             st.error("Invalid developer credentials.")
 
     if st.session_state.get("dev_authenticated", False):

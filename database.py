@@ -6,6 +6,7 @@ import os
 import re
 import sqlite3
 import uuid
+from collections.abc import Mapping
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -70,13 +71,22 @@ _TABLE_COLUMNS = {
         ("year", "TEXT", 0, None),
         ("created_at", "TIMESTAMP", 0, None),
     ),
-    "tenant_audit_logs": (
+    "tenant_legacy_audit_logs": (
         ("id", "INTEGER", 1, None),
         ("tenant_slug", "TEXT", 0, None),
         ("timestamp", "TEXT", 0, None),
         ("actor", "TEXT", 0, None),
         ("action_type", "TEXT", 0, None),
         ("details", "TEXT", 0, None),
+    ),
+    "tenant_audit_logs": (
+        ("log_id", "INTEGER", 1, None),
+        ("tenant_slug", "TEXT", 0, None),
+        ("actor_role", "TEXT", 0, None),
+        ("action_type", "TEXT", 0, None),
+        ("ip_or_session", "TEXT", 0, None),
+        ("timestamp", "TEXT", 0, None),
+        ("details_json", "TEXT", 0, None),
     ),
     "physical_proposals": (
         ("tracking_id", "TEXT", 1, None),
@@ -323,12 +333,13 @@ _CREATE_TABLES = (
     """,
     """
     CREATE TABLE IF NOT EXISTS tenant_audit_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        log_id INTEGER PRIMARY KEY AUTOINCREMENT,
         tenant_slug TEXT NOT NULL,
-        timestamp TEXT NOT NULL,
-        actor TEXT NOT NULL,
+        actor_role TEXT NOT NULL,
         action_type TEXT NOT NULL,
-        details TEXT NOT NULL
+        ip_or_session TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        details_json TEXT NOT NULL
     )
     """,
     """
@@ -558,10 +569,6 @@ _CREATE_TABLES = (
     )
     """,
     """
-    CREATE INDEX IF NOT EXISTS idx_tenant_audit_logs_tenant_timestamp
-    ON tenant_audit_logs (tenant_slug, timestamp DESC, id DESC)
-    """,
-    """
     CREATE TABLE IF NOT EXISTS clearance_passes (
         qr_pass_id TEXT PRIMARY KEY,
         tenant_slug TEXT,
@@ -660,6 +667,20 @@ def _verify_schema(connection: sqlite3.Connection) -> None:
                 f"Expected {expected_columns!r}, found {actual_columns!r}."
             )
 
+    immutable_triggers = {
+        row["name"]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+            "AND tbl_name = 'tenant_audit_logs'"
+        ).fetchall()
+    }
+    if not {
+        "tenant_audit_logs_block_update",
+        "tenant_audit_logs_block_delete",
+        "tenant_audit_logs_block_replace",
+    }.issubset(immutable_triggers):
+        raise RuntimeError("The security audit log immutability triggers are missing.")
+
     table_sql = connection.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' "
         "AND name = 'admin_access_logs'"
@@ -740,6 +761,92 @@ def _migrate_database_schema(connection: sqlite3.Connection) -> None:
             """
         )
 
+    audit_columns = {
+        row["name"]
+        for row in connection.execute(
+            'PRAGMA table_info("tenant_audit_logs")'
+        ).fetchall()
+    }
+    if "log_id" not in audit_columns:
+        legacy_table_exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'tenant_legacy_audit_logs'"
+        ).fetchone()
+        if legacy_table_exists is not None:
+            raise RuntimeError(
+                "Both legacy and unmigrated tenant audit tables exist; "
+                "manual database recovery is required."
+            )
+        connection.execute("DROP INDEX IF EXISTS idx_tenant_audit_logs_tenant_timestamp")
+        connection.execute(
+            "ALTER TABLE tenant_audit_logs RENAME TO tenant_legacy_audit_logs"
+        )
+        connection.execute(
+            """
+            CREATE TABLE tenant_audit_logs (
+                log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_slug TEXT NOT NULL,
+                actor_role TEXT NOT NULL,
+                action_type TEXT NOT NULL,
+                ip_or_session TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                details_json TEXT NOT NULL
+            )
+            """
+        )
+
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tenant_legacy_audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_slug TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            action_type TEXT NOT NULL,
+            details TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tenant_security_audit_timestamp "
+        "ON tenant_audit_logs (tenant_slug, timestamp DESC, log_id DESC)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tenant_legacy_audit_timestamp "
+        "ON tenant_legacy_audit_logs (tenant_slug, timestamp DESC, id DESC)"
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS tenant_audit_logs_block_update
+        BEFORE UPDATE ON tenant_audit_logs
+        BEGIN
+            SELECT RAISE(ABORT, 'security audit records are immutable');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS tenant_audit_logs_block_delete
+        BEFORE DELETE ON tenant_audit_logs
+        BEGIN
+            SELECT RAISE(ABORT, 'security audit records are immutable');
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS tenant_audit_logs_block_replace
+        BEFORE INSERT ON tenant_audit_logs
+        WHEN NEW.log_id IS NOT NULL
+          AND EXISTS (
+              SELECT 1 FROM tenant_audit_logs WHERE log_id = NEW.log_id
+          )
+        BEGIN
+            SELECT RAISE(ABORT, 'security audit records are immutable');
+        END
+        """
+    )
+
 
 def init_db() -> None:
     """Create the required tables and fail clearly if an existing schema conflicts."""
@@ -760,6 +867,90 @@ def _required_text(value: Any, field_name: str) -> str:
     if not normalized:
         raise ValueError(f"{field_name} is required.")
     return normalized
+
+
+def _insert_security_audit_event(
+    connection: sqlite3.Connection,
+    tenant_slug: str,
+    actor_role: str,
+    action_type: str,
+    details: Mapping[str, Any],
+    ip_or_session: str,
+) -> int:
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    normalized_role = _required_text(actor_role, "actor_role").lower()
+    normalized_action = _required_text(action_type, "action_type").upper()
+    normalized_session = _required_text(ip_or_session, "ip_or_session")
+    if len(normalized_session) > 256:
+        raise ValueError("ip_or_session must be at most 256 characters.")
+    if not isinstance(details, Mapping):
+        raise TypeError("details must be a mapping.")
+    details_json = json.dumps(
+        dict(details),
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    if len(details_json) > 16_384:
+        raise ValueError("details must serialize to at most 16384 characters.")
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    cursor = connection.execute(
+        """
+        INSERT INTO tenant_audit_logs (
+            tenant_slug, actor_role, action_type, ip_or_session,
+            timestamp, details_json
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            normalized_slug,
+            normalized_role,
+            normalized_action,
+            normalized_session,
+            timestamp,
+            details_json,
+        ),
+    )
+    return int(cursor.lastrowid)
+
+
+def log_security_audit_event_in_connection(
+    connection: sqlite3.Connection,
+    tenant_slug: str,
+    role: str,
+    action: str,
+    details: Mapping[str, Any],
+    ip_or_session: str = "unknown",
+) -> int:
+    """Append a security event using the caller's existing transaction."""
+    return _insert_security_audit_event(
+        connection,
+        tenant_slug,
+        role,
+        action,
+        details,
+        ip_or_session,
+    )
+
+
+def log_security_audit_event(
+    tenant_slug: str,
+    role: str,
+    action: str,
+    details: Mapping[str, Any],
+    ip_or_session: str = "unknown",
+) -> int:
+    """Append a security event to the immutable audit log."""
+    init_db()
+    with get_connection() as connection:
+        return log_security_audit_event_in_connection(
+            connection,
+            tenant_slug,
+            role,
+            action,
+            details,
+            ip_or_session,
+        )
 
 
 def _insert_tenant_activity(
@@ -796,7 +987,7 @@ def _insert_tenant_activity(
     )
     connection.execute(
         """
-        INSERT INTO tenant_audit_logs (
+        INSERT INTO tenant_legacy_audit_logs (
             tenant_slug, timestamp, actor, action_type, details
         ) VALUES (?, ?, ?, ?, ?)
         """,
@@ -833,7 +1024,7 @@ def log_tenant_activity(
         timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
         cursor = connection.execute(
             """
-            INSERT INTO tenant_audit_logs (
+            INSERT INTO tenant_legacy_audit_logs (
                 tenant_slug, timestamp, actor, action_type, details
             ) VALUES (?, ?, ?, ?, ?)
             """,
@@ -874,7 +1065,7 @@ def get_tenant_activities(tenant_slug: str) -> list[dict[str, Any]]:
         rows = connection.execute(
             """
             SELECT id, tenant_slug, timestamp, actor, action_type, details
-            FROM tenant_audit_logs
+            FROM tenant_legacy_audit_logs
             WHERE tenant_slug = ?
             ORDER BY timestamp DESC, id DESC
             """,
@@ -899,14 +1090,14 @@ def delete_tenant_activity(
     with get_connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         row = connection.execute(
-            "SELECT action_type FROM tenant_audit_logs "
+            "SELECT action_type FROM tenant_legacy_audit_logs "
             "WHERE id = ? AND tenant_slug = ?",
             (activity_id, normalized_slug),
         ).fetchone()
         if row is None:
             return False
         cursor = connection.execute(
-            "DELETE FROM tenant_audit_logs WHERE id = ? AND tenant_slug = ?",
+            "DELETE FROM tenant_legacy_audit_logs WHERE id = ? AND tenant_slug = ?",
             (activity_id, normalized_slug),
         )
         if cursor.rowcount != 1:
@@ -915,7 +1106,7 @@ def delete_tenant_activity(
         timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
         connection.execute(
             """
-            INSERT INTO tenant_audit_logs (
+            INSERT INTO tenant_legacy_audit_logs (
                 tenant_slug, timestamp, actor, action_type, details
             ) VALUES (?, ?, ?, ?, ?)
             """,
@@ -963,6 +1154,8 @@ def create_physical_proposal(
     routed_directorate: str,
     routing_basis: str,
     submitted_by: str,
+    actor_role: str = "front_desk",
+    ip_or_session: str = "unknown",
 ) -> dict[str, Any]:
     """Persist a tenant-scoped physical intake, receipt, audit, and outbox."""
     normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
@@ -1086,6 +1279,18 @@ def create_physical_proposal(
                 f"routed to {directorate}."
             ),
             actor,
+        )
+        _insert_security_audit_event(
+            connection,
+            normalized_slug,
+            actor_role,
+            "PROPOSAL_LOGGED",
+            {
+                "tracking_id": tracking_id,
+                "receipt_hash": receipt_hash,
+                "routed_directorate": directorate,
+            },
+            ip_or_session,
         )
     return {
         "tracking_id": tracking_id,
@@ -2630,6 +2835,8 @@ def set_tenant_proposal_governance_status(
     tracking_id: str,
     status: str,
     updated_by: str,
+    actor_role: str = "executive",
+    ip_or_session: str = "unknown",
 ) -> bool:
     """Apply a tenant-owned executive recall/stop/resume decision."""
     normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
@@ -2689,6 +2896,17 @@ def set_tenant_proposal_governance_status(
             "proposal_governance_override",
             f"Proposal {normalized_tracking_id} status changed to {normalized_status}.",
             normalized_actor,
+        )
+        _insert_security_audit_event(
+            connection,
+            normalized_slug,
+            actor_role,
+            "STATUS_UPDATED",
+            {
+                "tracking_id": normalized_tracking_id,
+                "status": normalized_status,
+            },
+            ip_or_session,
         )
     return True
 
@@ -3027,7 +3245,8 @@ def purge_archived_tenant(tenant_slug: str) -> bool:
             "DELETE FROM admin_access_logs WHERE tenant_slug = ?", (normalized_slug,)
         )
         connection.execute(
-            "DELETE FROM tenant_audit_logs WHERE tenant_slug = ?", (normalized_slug,)
+            "DELETE FROM tenant_legacy_audit_logs WHERE tenant_slug = ?",
+            (normalized_slug,),
         )
         connection.execute(
             "DELETE FROM physical_proposals WHERE tenant_slug = ?", (normalized_slug,)
@@ -3106,6 +3325,8 @@ def _purge_tenant_records(
     ).fetchall()
     for row in tables:
         table_name = str(row["name"])
+        if table_name == "tenant_audit_logs":
+            continue
         escaped_table_name = table_name.replace('"', '""')
         columns = connection.execute(
             f'PRAGMA table_info("{escaped_table_name}")'
@@ -3660,6 +3881,7 @@ def get_tenant_role_lockout(
 def record_tenant_role_login_failure(
     tenant_slug: str,
     role: str,
+    ip_or_session: str = "unknown",
 ) -> dict[str, Any]:
     """Atomically count a failed login and lock its role on the third failure."""
     normalized_slug, normalized_role = _normalize_terminal_login_identity(
@@ -3671,6 +3893,12 @@ def record_tenant_role_login_failure(
     with get_connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         _require_existing_tenant(connection, normalized_slug)
+        previous = connection.execute(
+            "SELECT is_locked_out FROM tenant_auth_lockouts "
+            "WHERE tenant_slug = ? AND role = ?",
+            (normalized_slug, normalized_role),
+        ).fetchone()
+        was_locked_out = previous is not None and bool(previous["is_locked_out"])
         connection.execute(
             """
             INSERT OR IGNORE INTO tenant_auth_lockouts (
@@ -3721,6 +3949,32 @@ def record_tenant_role_login_failure(
                 f"{normalized_role}_authentication",
             ),
         )
+        failed_attempts = int(row["failed_attempts"])
+        is_locked_out = bool(row["is_locked_out"])
+        _insert_security_audit_event(
+            connection,
+            normalized_slug,
+            normalized_role,
+            "LOGIN_FAILED",
+            {
+                "failed_attempts": failed_attempts,
+                "locked_out": is_locked_out,
+            },
+            ip_or_session,
+        )
+        if (
+            is_locked_out
+            and not was_locked_out
+            and failed_attempts >= _TERMINAL_LOGIN_LOCKOUT_THRESHOLD
+        ):
+            _insert_security_audit_event(
+                connection,
+                normalized_slug,
+                normalized_role,
+                "TERMINAL_LOCKOUT",
+                {"role": normalized_role, "failed_attempts": failed_attempts},
+                ip_or_session,
+            )
     return {
         "tenant_slug": normalized_slug,
         "role": normalized_role,
@@ -3734,6 +3988,7 @@ def record_tenant_role_login_failure(
 def record_tenant_role_login_success(
     tenant_slug: str,
     role: str,
+    ip_or_session: str = "unknown",
 ) -> bool:
     """Clear consecutive failures after successful login unless already locked."""
     normalized_slug, normalized_role = _normalize_terminal_login_identity(
@@ -3778,6 +4033,14 @@ def record_tenant_role_login_success(
                     f"{normalized_role}_authentication",
                 ),
             )
+            _insert_security_audit_event(
+                connection,
+                normalized_slug,
+                normalized_role,
+                "LOGIN_SUCCESS",
+                {"role": normalized_role},
+                ip_or_session,
+            )
     return not bool(row["is_locked_out"])
 
 
@@ -3785,6 +4048,7 @@ def reset_tenant_role_login_lockout(
     tenant_slug: str,
     role: str,
     reset_by: str,
+    ip_or_session: str = "unknown",
 ) -> None:
     """Clear one role lockout and audit the verified administrative reset."""
     normalized_slug, normalized_role = _normalize_terminal_login_identity(
@@ -3826,6 +4090,14 @@ def reset_tenant_role_login_lockout(
                 f"{normalized_role}_lockout_reset",
                 normalized_actor,
             ),
+        )
+        _insert_security_audit_event(
+            connection,
+            normalized_slug,
+            "master_admin",
+            "TERMINAL_RESET",
+            {"role": normalized_role, "reset_by": normalized_actor},
+            ip_or_session,
         )
 
 

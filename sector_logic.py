@@ -38,6 +38,13 @@ PRODUCTION_BASE_URL = "https://nexusvault-proposal-enterprise-connect.streamlit.
 _EXECUTIVE_SCORE_OUTLIER_THRESHOLD = 20
 
 
+def _security_audit_session_id() -> str:
+    session_id = st.session_state.get("security_session_id")
+    if isinstance(session_id, str) and session_id:
+        return f"session:{session_id}"
+    return "unknown"
+
+
 def _get_terminal_reset_key() -> str | None:
     value = os.environ.get("NEXUSVAULT_TERMINAL_RESET_KEY", "").strip()
     if value:
@@ -402,6 +409,7 @@ def _create_payment_verified_pass(
     payment_reference: str,
     proposal_title: str,
     amount_minor: int,
+    ip_or_session: str = "unknown",
 ) -> str:
     pass_id = f"NV-QRPASS-{secrets.token_urlsafe(32)}"
     db.init_db()
@@ -472,6 +480,19 @@ def _create_payment_verified_pass(
             currency="NGN",
             provider="Paystack",
             vendor_email=vendor_email,
+        )
+        db.log_security_audit_event_in_connection(
+            connection,
+            tenant_slug,
+            "vendor",
+            "PAYMENT_VERIFIED",
+            {
+                "pass_id": pass_id,
+                "rfq_code": rfq_code,
+                "amount_minor": amount_minor,
+                "currency": "NGN",
+            },
+            ip_or_session,
         )
     return pass_id
 
@@ -745,6 +766,7 @@ def _write_encrypted_dossier(
 def _mark_dossier_submitted(
     tenant_slug: str,
     pass_id: str,
+    ip_or_session: str = "unknown",
 ) -> bool:
     db.init_db()
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -773,6 +795,15 @@ def _mark_dossier_submitted(
                 now,
             ),
         )
+        if cursor.rowcount == 1:
+            db.log_security_audit_event_in_connection(
+                connection,
+                tenant_slug,
+                "vendor",
+                "DOSSIER_SUBMITTED",
+                {"pass_id": pass_id, "status": _CLEARANCE_SUBMITTED_STATUS},
+                ip_or_session,
+            )
     return cursor.rowcount == 1
 
 
@@ -934,6 +965,7 @@ def _render_solicited_vendor_portal(
                         payment_reference=normalized_ref,
                         proposal_title=normalized_title,
                         amount_minor=verified_amount,
+                        ip_or_session=_security_audit_session_id(),
                     )
                 except ValueError as exc:
                     st.error(str(exc))
@@ -1094,6 +1126,7 @@ def _render_solicited_vendor_portal(
                             if not _mark_dossier_submitted(
                                 tenant_slug,
                                 candidate_pass_id,
+                                _security_audit_session_id(),
                             ):
                                 encrypted_path.unlink(missing_ok=True)
                                 raise ValueError(
