@@ -3452,7 +3452,7 @@ def _render_home() -> None:
                                 background: rgba(56, 189, 248, 0.12);
                                 border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 8px;
                                 padding: 6px 14px; gap: 8px;">
-                        <span style="color: #38bdf8; font-size: 13px; font-weight: 800;">
+                        <span style="color: #00FF66; font-size: inherit; font-weight: bold; text-align: center;">
                             🔒 NEXUSVAULT_TECH Sovereign Enterprise Engine • NITDA / NDPA Compliant
                         </span>
                     </div>
