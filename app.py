@@ -8,6 +8,7 @@ import re
 import secrets
 import sqlite3
 import tempfile
+import time
 import uuid
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta
@@ -26,6 +27,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from streamlit.errors import StreamlitSecretNotFoundError
 
 import database as db
+from src.committee_auth import CommitteeTokenManager
 
 PRODUCTION_BASE_URL = "https://nexusvault-proposal-enterprise-connect.streamlit.app"
 
@@ -2817,6 +2819,138 @@ def _render_committee_leaderboard(tenant_slug: str) -> None:
             )
 
 
+def _configured_committee_token_manager() -> CommitteeTokenManager | None:
+    """Load the signing key without treating a missing key as valid."""
+    key = os.environ.get("DOSSIER_ENCRYPTION_KEY", "").strip()
+    if not key:
+        try:
+            secret = st.secrets.get("DOSSIER_ENCRYPTION_KEY", "")
+        except (KeyError, StreamlitSecretNotFoundError):
+            secret = ""
+        if isinstance(secret, str):
+            key = secret.strip()
+    return CommitteeTokenManager(key) if key else None
+
+
+def _verified_committee_token(
+    manager: CommitteeTokenManager, token: str, tenant_slug: str
+) -> dict[str, str] | None:
+    """Validate signed claims and bind the token to the current tenant."""
+    valid, payload, _ = manager.verify_token(token)
+    if not valid or not isinstance(payload, dict):
+        return None
+    email = payload.get("email")
+    tenant_id = payload.get("tenant_id")
+    tender_id = payload.get("tender_id")
+    expires = payload.get("exp")
+    if (
+        not isinstance(email, str)
+        or not email.strip()
+        or not isinstance(tenant_id, str)
+        or tenant_id != tenant_slug
+        or not isinstance(tender_id, str)
+        or not tender_id.strip()
+        or type(expires) is not int
+        or expires <= time.time()
+    ):
+        return None
+    return {"email": email, "tenant_id": tenant_id, "tender_id": tender_id}
+
+
+def _handle_signed_committee_login(tenant_slug: str) -> None:
+    if not _guard_session_interaction():
+        return
+    input_key = _tenant_key(tenant_slug, "committee_signed", "input")
+    token_key = _tenant_key(tenant_slug, "committee_signed", "token")
+    error_key = _tenant_key(tenant_slug, "committee_signed", "login_error")
+    token = str(st.session_state.get(input_key, "")).strip()
+    st.session_state[input_key] = ""
+    st.session_state.pop(token_key, None)
+    manager = _configured_committee_token_manager()
+    identity = (
+        _verified_committee_token(manager, token, tenant_slug)
+        if manager is not None
+        else None
+    )
+    try:
+        db.log_security_audit_event(
+            tenant_slug,
+            "committee_member",
+            "LOGIN_SUCCESS" if identity is not None else "LOGIN_FAILED",
+            {"authentication_method": "signed_committee_token"},
+            _security_session_identifier(),
+        )
+    except (sqlite3.Error, RuntimeError, TypeError, ValueError):
+        logging.exception("Could not audit signed committee login for %s.", tenant_slug)
+        st.session_state[error_key] = "Committee access could not be verified and recorded."
+        return
+    if identity is None:
+        st.session_state[error_key] = "The committee token is invalid, expired, or for another tenant."
+        return
+    st.session_state[token_key] = token
+    st.session_state.pop(error_key, None)
+
+
+def _render_signed_committee_sandbox(tenant_slug: str) -> None:
+    """Display only the claims from a valid, tenant-bound signed token."""
+    st.subheader("Signed-token evaluation sandbox")
+    st.caption(
+        "Use a signed token issued by your administrator for this tenant slug "
+        "and tender."
+    )
+    manager = _configured_committee_token_manager()
+    token_key = _tenant_key(tenant_slug, "committee_signed", "token")
+    if manager is None:
+        st.session_state.pop(token_key, None)
+        st.error(
+            "Committee access requires DOSSIER_ENCRYPTION_KEY in the environment "
+            "or Streamlit secrets."
+        )
+        return
+    token = st.session_state.get(token_key)
+    identity = (
+        _verified_committee_token(manager, token, tenant_slug)
+        if isinstance(token, str)
+        else None
+    )
+    if identity is None:
+        if token is not None:
+            st.session_state.pop(token_key, None)
+            st.warning("Your committee token has expired or is no longer valid.")
+        with st.form(key=_tenant_key(tenant_slug, "committee_signed", "form")):
+            st.text_input(
+                "Signed committee token",
+                type="password",
+                key=_tenant_key(tenant_slug, "committee_signed", "input"),
+            )
+            st.form_submit_button(
+                "Unlock signed-token sandbox",
+                on_click=_handle_signed_committee_login,
+                args=(tenant_slug,),
+            )
+        error = st.session_state.pop(
+            _tenant_key(tenant_slug, "committee_signed", "login_error"), None
+        )
+        if isinstance(error, str) and error:
+            st.error(error)
+        return
+
+    st.success("Signed committee token verified.")
+    st.write("Committee member email:", identity["email"])
+    st.write("Tenant ID:", identity["tenant_id"])
+    st.write("Tender ID:", identity["tender_id"])
+    st.caption(
+        "Sandbox only: proposal dossiers and evaluations remain protected by "
+        "the separate roster-backed workspace."
+    )
+    if st.button(
+        "Lock signed-token sandbox",
+        key=_tenant_key(tenant_slug, "committee_signed", "logout"),
+    ):
+        st.session_state.pop(token_key, None)
+        st.rerun()
+
+
 def _handle_committee_login(tenant_slug: str) -> None:
     if not _guard_session_interaction():
         return
@@ -3615,7 +3749,13 @@ def _render_internal_portal(tenant: Mapping[str, Any], tenant_slug: str) -> None
                 st.rerun()
 
     with committee_tab:
-        _render_committee_workspace(tenant_slug)
+        signed_tab, roster_tab = st.tabs(
+            ["Signed-token sandbox", "Roster-backed evaluations"]
+        )
+        with signed_tab:
+            _render_signed_committee_sandbox(tenant_slug)
+        with roster_tab:
+            _render_committee_workspace(tenant_slug)
 
 
 def _render_vendor_portal(
