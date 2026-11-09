@@ -132,6 +132,8 @@ _TENANT_SCOPED_AUTH_KEYS = {
     "tenant_staff_auth_slug",
     "tenant_exec_auth",
     "tenant_exec_auth_slug",
+    "committee_authenticated",
+    "committee_payload",
 }
 _IDLE_SESSION_TIMEOUT_SECONDS = 15 * 60
 _SESSION_ACTIVITY_KEY = "last_activity_timestamp"
@@ -2557,7 +2559,8 @@ def _render_executive_committee_tab(tenant_slug: str, actor: str) -> None:
     st.subheader("Committee Slot Provisioning")
     st.caption(
         "Provisioning replaces the existing roster and resets all COI state. "
-        "Access credentials are encrypted at rest and shown only after creation."
+        "Legacy roster credentials are encrypted at rest; issue signed tender "
+        "tokens below for the evaluation workspace."
     )
     encryption_key = _physical_document_encryption_key()
     roster_count = st.selectbox(
@@ -2646,7 +2649,7 @@ def _render_executive_committee_tab(tenant_slug: str, actor: str) -> None:
         _tenant_key(tenant_slug, "executive", "committee_credentials")
     )
     if isinstance(credentials, list) and credentials:
-        with st.expander("New committee credentials — copy and distribute securely"):
+        with st.expander("Legacy roster credentials — copy and distribute securely"):
             st.warning(
                 "These plaintext tokens are retained only in this Streamlit session. "
                 "They cannot be retrieved from the database later."
@@ -2681,6 +2684,88 @@ def _render_executive_committee_tab(tenant_slug: str, actor: str) -> None:
                 )
                 st.rerun()
 
+    st.subheader("Issue signed committee access")
+    try:
+        members = db.get_tenant_committee_members(tenant_slug)
+        tenders = db.get_active_solicited_tenders(tenant_slug)
+    except (sqlite3.Error, RuntimeError, TypeError, ValueError):
+        logging.exception(
+            "Could not load committee token issuance options for %s.", tenant_slug
+        )
+        st.error("Committee token issuance is temporarily unavailable.")
+        _render_executive_committee_roster(tenant_slug, actor)
+        return
+    manager = _configured_committee_token_manager()
+    if manager is None:
+        st.warning(
+            "Signed token issuance requires DOSSIER_ENCRYPTION_KEY configuration."
+        )
+        _render_executive_committee_roster(tenant_slug, actor)
+        return
+    if not members or not tenders:
+        st.info(
+            "A committee roster and an active tender are required to issue signed access."
+        )
+        _render_executive_committee_roster(tenant_slug, actor)
+        return
+    member_options = {member["member_id"]: member for member in members}
+    tender_options = {tender["tender_id"]: tender for tender in tenders}
+    with st.form(key=_tenant_key(tenant_slug, "executive", "signed_token_form")):
+        member_id = st.selectbox(
+            "Evaluator",
+            options=list(member_options),
+            format_func=lambda value: f"{member_options[value]['name']} ({member_options[value]['email']})",
+        )
+        tender_id = st.selectbox(
+            "Tender batch",
+            options=list(tender_options),
+            format_func=lambda value: f"{tender_options[value]['title']} ({value})",
+        )
+        issue = st.form_submit_button("Issue signed access token")
+    issued_key = _tenant_key(tenant_slug, "executive", "issued_signed_token")
+    if issue:
+        st.session_state.pop(issued_key, None)
+        try:
+            active_ids = {
+                tender["tender_id"]
+                for tender in db.get_active_solicited_tenders(tenant_slug)
+            }
+            current_members = db.get_tenant_committee_members(tenant_slug)
+            member = next(
+                (entry for entry in current_members if entry["member_id"] == member_id),
+                None,
+            )
+            if tender_id not in active_ids or member is None:
+                st.error("The evaluator or active tender is no longer available.")
+            else:
+                token = manager.generate_token(member["email"], tenant_slug, tender_id)
+                db.log_security_audit_event(
+                    tenant_slug,
+                    actor,
+                    "COMMITTEE_TOKEN_ISSUED",
+                    {"member_id": member_id, "tender_id": tender_id},
+                    _security_session_identifier(),
+                )
+                st.session_state[issued_key] = token
+        except (sqlite3.Error, RuntimeError, TypeError, ValueError, KeyError):
+            logging.exception(
+                "Could not issue signed committee token for %s.", tenant_slug
+            )
+            st.error("The signed committee token could not be issued and recorded.")
+    issued_token = st.session_state.get(issued_key)
+    if isinstance(issued_token, str):
+        st.code(issued_token)
+        if st.button(
+            "Hide signed token",
+            key=_tenant_key(tenant_slug, "executive", "hide_signed_token"),
+        ):
+            st.session_state.pop(issued_key, None)
+            st.rerun()
+
+    _render_executive_committee_roster(tenant_slug, actor)
+
+
+def _render_executive_committee_roster(tenant_slug: str, actor: str) -> None:
     try:
         members = db.get_tenant_committee_members(tenant_slug)
     except (sqlite3.Error, RuntimeError, ValueError):
@@ -2857,6 +2942,32 @@ def _verified_committee_token(
     return {"email": email, "tenant_id": tenant_id, "tender_id": tender_id}
 
 
+def enforce_committee_access(
+    token: str, target_tenant_id: str, target_tender_id: str
+) -> tuple[dict[str, Any] | None, str]:
+    manager = _configured_committee_token_manager()
+    if manager is None:
+        return None, "Committee access requires DOSSIER_ENCRYPTION_KEY configuration."
+    valid, payload, _ = manager.verify_token(token)
+    if not valid or not isinstance(payload, dict):
+        return None, "Compliance error: the committee token is invalid or expired."
+    expires = payload.get("exp")
+    email = payload.get("email")
+    if type(expires) is not int or expires <= time.time():
+        return None, "Compliance error: the committee token is expired or invalid."
+    if not isinstance(email, str) or not email.strip():
+        return None, "Compliance error: the committee token has an invalid evaluator."
+    if (
+        payload.get("tenant_id") != target_tenant_id
+        or payload.get("tender_id") != target_tender_id
+    ):
+        return (
+            None,
+            "Compliance error: the token does not match this tenant and tender.",
+        )
+    return payload, ""
+
+
 def _handle_signed_committee_login(tenant_slug: str) -> None:
     if not _guard_session_interaction():
         return
@@ -2882,10 +2993,14 @@ def _handle_signed_committee_login(tenant_slug: str) -> None:
         )
     except (sqlite3.Error, RuntimeError, TypeError, ValueError):
         logging.exception("Could not audit signed committee login for %s.", tenant_slug)
-        st.session_state[error_key] = "Committee access could not be verified and recorded."
+        st.session_state[error_key] = (
+            "Committee access could not be verified and recorded."
+        )
         return
     if identity is None:
-        st.session_state[error_key] = "The committee token is invalid, expired, or for another tenant."
+        st.session_state[error_key] = (
+            "The committee token is invalid, expired, or for another tenant."
+        )
         return
     st.session_state[token_key] = token
     st.session_state.pop(error_key, None)
@@ -3005,34 +3120,162 @@ def _handle_committee_login(tenant_slug: str) -> None:
     st.session_state.pop(error_key, None)
 
 
+def _clear_committee_access(tenant_slug: str) -> None:
+    st.session_state["committee_authenticated"] = False
+    st.session_state["committee_payload"] = None
+    st.session_state.pop(_tenant_key(tenant_slug, "committee", "signed_token"), None)
+    st.session_state.pop(_tenant_key(tenant_slug, "committee", "identity"), None)
+
+
+def _handle_committee_access(tenant_slug: str) -> None:
+    if not _guard_session_interaction():
+        return
+    input_key = _tenant_key(tenant_slug, "committee", "signed_input")
+    tender_key = _tenant_key(tenant_slug, "committee", "tender")
+    error_key = _tenant_key(tenant_slug, "committee", "login_error")
+    token = str(st.session_state.get(input_key, "")).strip()
+    st.session_state[input_key] = ""
+    _clear_committee_access(tenant_slug)
+    tender_id = st.session_state.get(tender_key, "")
+    payload, error = enforce_committee_access(token, tenant_slug, tender_id)
+    try:
+        tenders = db.get_active_solicited_tenders(tenant_slug)
+        members = db.get_tenant_committee_members(tenant_slug) if payload else []
+        if payload and tender_id not in {tender["tender_id"] for tender in tenders}:
+            payload = None
+            error = "Compliance error: the selected tender is no longer active."
+        member = (
+            next(
+                (
+                    member
+                    for member in members
+                    if str(member.get("email", "")).strip().casefold()
+                    == str(payload["email"]).strip().casefold()
+                ),
+                None,
+            )
+            if payload
+            else None
+        )
+        if payload and member is None:
+            payload = None
+            error = "Compliance error: the evaluator is not on this tenant's committee roster."
+        db.log_security_audit_event(
+            tenant_slug,
+            "committee_member",
+            "LOGIN_SUCCESS" if payload else "LOGIN_FAILED",
+            {"authentication_method": "signed_committee_token"},
+            _security_session_identifier(),
+        )
+    except (sqlite3.Error, RuntimeError, TypeError, ValueError, KeyError):
+        logging.exception(
+            "Could not verify committee access for tenant %s.", tenant_slug
+        )
+        st.session_state[error_key] = (
+            "Committee access could not be verified and recorded."
+        )
+        return
+    if payload is None or member is None:
+        st.session_state[error_key] = error
+        return
+    st.session_state[_tenant_key(tenant_slug, "committee", "signed_token")] = token
+    st.session_state[_tenant_key(tenant_slug, "committee", "identity")] = {
+        "member_id": str(member["member_id"]),
+        "name": str(member["name"]),
+        "tenant_slug": tenant_slug,
+    }
+    st.session_state["committee_payload"] = payload
+    st.session_state["committee_authenticated"] = True
+    st.session_state.pop(error_key, None)
+
+
 def _render_committee_workspace(tenant_slug: str) -> None:
     st.header("Committee Evaluation Workspace")
+    st.session_state.setdefault("committee_authenticated", False)
+    st.session_state.setdefault("committee_payload", None)
     identity_key = _tenant_key(tenant_slug, "committee", "identity")
     identity = st.session_state.get(identity_key)
-    if (
-        not isinstance(identity, Mapping)
-        or identity.get("tenant_slug") != tenant_slug
-        or not identity.get("member_id")
-    ):
-        st.caption(
-            "Use the secure access token issued to your committee member account."
+    token = st.session_state.get(_tenant_key(tenant_slug, "committee", "signed_token"))
+    saved_payload = st.session_state.get("committee_payload")
+    try:
+        tenders = db.get_active_solicited_tenders(tenant_slug)
+    except (sqlite3.Error, RuntimeError, TypeError, ValueError):
+        _clear_committee_access(tenant_slug)
+        logging.exception("Could not load active tenders for tenant %s.", tenant_slug)
+        st.error(
+            "Committee access is unavailable: active tenders could not be verified."
         )
-        token_key = _tenant_key(tenant_slug, "committee", "access_token")
-        encryption_key = _physical_document_encryption_key()
-        if encryption_key is None:
+        return
+    tender_options = {
+        str(tender["tender_id"]): str(tender["title"]) for tender in tenders
+    }
+    payload = None
+    if st.session_state.committee_authenticated is True and isinstance(
+        saved_payload, dict
+    ):
+        tender_id = saved_payload.get("tender_id")
+        if (
+            isinstance(token, str)
+            and isinstance(tender_id, str)
+            and tender_id in tender_options
+        ):
+            payload, _ = enforce_committee_access(token, tenant_slug, tender_id)
+        if (
+            payload != saved_payload
+            or not isinstance(identity, Mapping)
+            or identity.get("tenant_slug") != tenant_slug
+        ):
+            payload = None
+        if payload is not None:
+            try:
+                members = db.get_tenant_committee_members(tenant_slug)
+                if not any(
+                    member.get("member_id") == identity.get("member_id")
+                    and str(member.get("email", "")).strip().casefold()
+                    == payload["email"].strip().casefold()
+                    for member in members
+                ):
+                    payload = None
+            except (sqlite3.Error, RuntimeError, TypeError, ValueError):
+                logging.exception(
+                    "Could not verify committee roster for tenant %s.", tenant_slug
+                )
+                payload = None
+        if payload is None:
+            _clear_committee_access(tenant_slug)
+            st.warning(
+                "Compliance error: committee access has expired or is no longer valid."
+            )
+    if payload is None:
+        _clear_committee_access(tenant_slug)
+        if _configured_committee_token_manager() is None:
             st.error(
-                "Committee access is unavailable because the dossier encryption "
-                "key is not configured."
+                "Committee access requires DOSSIER_ENCRYPTION_KEY in the environment or Streamlit secrets."
             )
             return
+        if not tender_options:
+            st.info("No active tender batches are available for committee evaluation.")
+            return
         with st.form(key=_tenant_key(tenant_slug, "committee", "login_form")):
-            st.text_input("Committee access token", type="password", key=token_key)
-            st.form_submit_button(
-                "Open committee workspace",
+            st.text_input(
+                "Cryptographic access token",
+                type="password",
+                key=_tenant_key(tenant_slug, "committee", "signed_input"),
+            )
+            st.selectbox(
+                "Active tender batch",
+                options=list(tender_options),
+                format_func=lambda tender_id: f"{tender_options[tender_id]} ({tender_id})",
+                key=_tenant_key(tenant_slug, "committee", "tender"),
+            )
+            submitted = st.form_submit_button(
+                "Authenticate & Unlock Workspace",
                 type="primary",
-                on_click=_handle_committee_login,
+                on_click=_handle_committee_access,
                 args=(tenant_slug,),
             )
+        if submitted and st.session_state.committee_authenticated:
+            st.rerun()
         login_error = st.session_state.pop(
             _tenant_key(tenant_slug, "committee", "login_error"),
             None,
@@ -3041,9 +3284,31 @@ def _render_committee_workspace(tenant_slug: str) -> None:
             st.error(login_error)
         return
 
-    st.success(f"Authenticated committee member: {identity['name']}")
+    st.success(
+        f"Evaluator: {payload['email']} | Tenant: {payload['tenant_id']} | "
+        f"Tender: {payload['tender_id']}"
+    )
+    if st.button(
+        "Lock Workspace / Logout",
+        key=_tenant_key(tenant_slug, "committee", "logout"),
+    ):
+        _clear_committee_access(tenant_slug)
+        st.rerun()
     try:
         proposals = db.get_tenant_governance_proposals(tenant_slug)
+        passes = db.get_tenant_financial_ledger(tenant_slug)
+        tender_passes = {
+            str(entry["qr_pass_id"])
+            for entry in passes
+            if entry.get("rfq_code") == payload["tender_id"]
+            and entry.get("clearance_status") == "DOSSIER_SUBMITTED"
+        }
+        proposals = [
+            proposal
+            for proposal in proposals
+            if proposal.get("source_type") == "solicited"
+            and str(proposal["tracking_id"]) in tender_passes
+        ]
     except (sqlite3.Error, RuntimeError, ValueError):
         logging.exception("Could not load committee proposals for %s.", tenant_slug)
         st.error("Proposal assignments could not be loaded.")
@@ -3236,13 +3501,6 @@ def _render_committee_workspace(tenant_slug: str) -> None:
         else:
             st.session_state[feedback_key] = "Your evaluation has been saved."
             st.rerun()
-
-    if st.button(
-        "Sign out of committee workspace",
-        key=_tenant_key(tenant_slug, "committee", "logout"),
-    ):
-        st.session_state.pop(identity_key, None)
-        st.rerun()
 
 
 def _proposal_compliance_matrix(proposal: Mapping[str, Any]) -> list[dict[str, str]]:
@@ -3749,13 +4007,7 @@ def _render_internal_portal(tenant: Mapping[str, Any], tenant_slug: str) -> None
                 st.rerun()
 
     with committee_tab:
-        signed_tab, roster_tab = st.tabs(
-            ["Signed-token sandbox", "Roster-backed evaluations"]
-        )
-        with signed_tab:
-            _render_signed_committee_sandbox(tenant_slug)
-        with roster_tab:
-            _render_committee_workspace(tenant_slug)
+        _render_committee_workspace(tenant_slug)
 
 
 def _render_vendor_portal(
