@@ -1,16 +1,28 @@
 ﻿"""
 NexusVault Developer Console & Seminar Training Portal (src/developer_console.py)
-Empowers the Lead Architect & CEO with master admin controls and simulated client tenant UI slide decks.
+Empowers Lead Architect & CEO with master admin controls, blinking alert notifications, and tenant support controls.
 """
 
 import streamlit as st
 from src.developer_kb import NEXUSVAULT_EXECUTIVE_KB
+from src.nexus_db_adapter import get_all_support_tickets, respond_to_support_ticket
 
 def render_developer_console():
     st.markdown("## 🛡️ NexusVault Sovereign Developer Console")
     st.markdown("Master Administrative Oversight & Executive Seminar Training Environment")
     
-    tab_admin, tab_seminar = st.tabs(["⚙️ Master Administration & Database Controls", "🎓 Executive Seminar Training & UI Simulation"])
+    tickets = get_all_support_tickets()
+    unanswered_count = sum(1 for t in tickets if t["status"] == "OPEN")
+    
+    feedback_label = "📩 Client Tenant Feedback & Complaints"
+    if unanswered_count > 0:
+        feedback_label = f"🔴 📩 Feedback & Complaints ({unanswered_count} PENDING)"
+
+    tab_admin, tab_feedback, tab_seminar = st.tabs([
+        "⚙️ Master Administration & Database Controls", 
+        feedback_label,
+        "🎓 Executive Seminar Training & UI Simulation"
+    ])
     
     with tab_admin:
         st.markdown("### Master Administrative Operations")
@@ -22,15 +34,87 @@ def render_developer_console():
         with col2:
             st.metric("Secured Cryptographic Tokens", "142", "0 revoked")
         with col3:
-            st.metric("Cron Watchdog Status", "ONLINE", "Healthy")
+            st.metric("Pending Inquiries (Action Required)", f"{unanswered_count}", "Needs CEO Response" if unanswered_count > 0 else "All Resolved")
             
         st.markdown("---")
         st.markdown("#### Tenant Activation Override & Registry Management")
         st.text_input("Search Tenant Slug or Admin Email:", placeholder="e.g. wiseventuresltd_7c6c24ae")
         st.button("🔄 Refresh Sovereign Database State", use_container_width=True)
 
+    with tab_feedback:
+        render_tenant_feedback_tab(tickets, unanswered_count)
+
     with tab_seminar:
         render_seminar_training_suite()
+
+
+def render_tenant_feedback_tab(tickets, unanswered_count):
+    st.markdown("### 📩 Client Tenant Inquiries & Escalation Gateway")
+    
+    # Blinking Pulsing CSS Notification Banner for Unanswered Tickets
+    if unanswered_count > 0:
+        st.markdown(
+            f"""
+            <style>
+            @keyframes pulse-red {{
+                0% {{ box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); background-color: rgba(239, 68, 68, 0.15); }}
+                70% {{ box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); background-color: rgba(239, 68, 68, 0.35); }}
+                100% {{ box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); background-color: rgba(239, 68, 68, 0.15); }}
+            }}
+            .blinking-alert-box {{
+                animation: pulse-red 1.5s infinite;
+                border: 2px solid #ef4444;
+                border-radius: 10px;
+                padding: 16px;
+                color: #fca5a5;
+                font-weight: bold;
+                margin-bottom: 20px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }}
+            </style>
+            <div class="blinking-alert-box">
+                <span style="font-size: 24px;">🚨</span>
+                <div>
+                    <span style="font-size: 16px; color: #ffffff;">URGENT ATTENTION REQUIRED ({unanswered_count} OUT-OF-SCOPE INQUIRY)</span><br>
+                    <span style="font-size: 13px; color: #f87171;">Client tenant submitted a inquiry outside standard AI Knowledge Base logic. Visual alert will pulse until resolved.</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    else:
+        st.success("🟢 All client tenant inquiries have been answered or resolved by AI Auto-Reply!")
+        
+    if not tickets:
+        st.info("No active inquiries or complaints recorded from client tenants.")
+        return
+        
+    for t in tickets:
+        is_open = (t["status"] == "OPEN")
+        status_label = "🚨 ATTENTION REQUIRED (UNANSWERED)" if is_open else f"🟢 {t['status']}"
+        
+        with st.expander(f"[{status_label}] {t['org_name']} (Ref: {t['tenant_slug']}) — {t['created_at']}", expanded=is_open):
+            st.markdown(f"**Tenant Reference Slug:** `{t['tenant_slug']}`")
+            st.markdown(f"**Sender Email:** `{t['sender_email']}`")
+            st.markdown(f"**Submitted Inquiry:**\n> {t['message']}")
+            
+            if t["response"]:
+                st.info(f"**Dispatched Response ({t['responded_at']}):**\n\n{t['response']}")
+            else:
+                st.markdown("---")
+                st.warning("This inquiry requires a direct manual response from Lead Architect / CEO Augustine Attah.")
+                reply_text = st.text_area(f"Type response to {t['org_name']}:", key=f"reply_{t['ticket_id']}")
+                if st.button("📤 SEND EXECUTIVE RESPONSE", key=f"btn_{t['ticket_id']}", type="primary"):
+                    if reply_text.strip():
+                        if respond_to_support_ticket(t["ticket_id"], reply_text.strip()):
+                            st.success("Executive response sent! Visual blinking alert cleared.")
+                            st.rerun()
+                        else:
+                            st.error("Failed to record response. Check database logs.")
+                    else:
+                        st.warning("Please type a response before sending.")
 
 
 def render_seminar_training_suite():
