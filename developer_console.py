@@ -1,17 +1,83 @@
 import hmac
 import os
+import time
 
 import streamlit as st
 import database as db
+from streamlit.errors import StreamlitSecretNotFoundError
 
 PRODUCTION_BASE_URL = "https://nexusvault-proposal-enterprise-connect.streamlit.app"
 
+
+def _developer_password():
+    value = os.environ.get("NEXUSVAULT_DEVELOPER_GRANT_PASSWORD", "")
+    if value.strip():
+        return value.strip()
+    try:
+        value = st.secrets.get("NEXUSVAULT_DEVELOPER_GRANT_PASSWORD", "")
+    except (KeyError, StreamlitSecretNotFoundError):
+        return ""
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _expire_developer_session():
+    now = time.time()
+    last_activity = st.session_state.get(
+        "last_activity", st.session_state.get("last_activity_timestamp")
+    )
+    if not isinstance(last_activity, (int, float)) or now - last_activity <= 900:
+        return False
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.session_state["last_activity"] = now
+    st.session_state["session_expired_msg"] = (
+        "Session expired due to 15 minutes of inactivity. Re-authentication required."
+    )
+    return True
+
+
+def _monitor_developer_session():
+    if _expire_developer_session():
+        st.rerun()
+
+
+def _authenticate_developer():
+    if _expire_developer_session():
+        return
+    password = str(st.session_state.get("dev_master_password_input", "")).strip()
+    st.session_state["dev_master_password_input"] = ""
+    expected = _developer_password()
+    if (
+        password
+        and expected
+        and hmac.compare_digest(password.encode("utf-8"), expected.encode("utf-8"))
+    ):
+        st.session_state["dev_master_logged_in"] = True
+        st.session_state["dev_master_feedback"] = "success"
+    else:
+        st.session_state.pop("dev_master_logged_in", None)
+        st.session_state["dev_master_feedback"] = "invalid"
+
+
 def render_developer_master_console():
-    st.markdown("<div class='section-hdr'>🔑 Master Developer & SaaS Platform Administrator Console</div>", unsafe_allow_html=True)
-    st.info("Central Multi-Tenant Management Hub: Monitor tenant subscriptions, identify locked-out nodes, reassign passwords, or manage the purge archive.")
-    configured_password = os.environ.get(
-        "NEXUSVAULT_DEVELOPER_GRANT_PASSWORD", ""
-    ).strip()
+    if _expire_developer_session():
+        st.rerun()
+    st.session_state["last_activity"] = time.time()
+    if not hasattr(st, "fragment"):
+        st.error("Session security requires Streamlit 1.37 or newer.")
+        return
+    st.fragment(run_every="1s")(_monitor_developer_session)()
+    expired_message = st.session_state.pop("session_expired_msg", None)
+    if expired_message:
+        st.warning(expired_message)
+    st.markdown(
+        "<div class='section-hdr'>🔑 Master Developer & SaaS Platform Administrator Console</div>",
+        unsafe_allow_html=True,
+    )
+    st.info(
+        "Central Multi-Tenant Management Hub: Monitor tenant subscriptions, identify locked-out nodes, reassign passwords, or manage the purge archive."
+    )
+    configured_password = _developer_password()
     if not configured_password:
         st.error(
             "Developer access is unavailable: configure "
@@ -25,27 +91,39 @@ def render_developer_master_console():
     if not st.session_state["dev_master_logged_in"]:
         with st.form("dev_master_login_form"):
             st.markdown("#### 🔒 Developer Credentials Verification")
-            dev_pass = st.text_input("Enter Master Developer Key", type="password", placeholder="Enter key...")
-            btn_login = st.form_submit_button("Authenticate Developer Session", use_container_width=True)
-
-            if btn_login:
-                if hmac.compare_digest(dev_pass, configured_password):
-                    st.session_state["dev_master_logged_in"] = True
-                    st.success("✅ Developer Session Authenticated!")
-                    st.rerun()
-                else:
-                    st.error("❌ Invalid Developer Credentials.")
+            st.text_input(
+                "Enter Master Developer Key",
+                type="password",
+                placeholder="Enter key...",
+                key="dev_master_password_input",
+            )
+            st.form_submit_button(
+                "Authenticate Developer Session",
+                use_container_width=True,
+                on_click=_authenticate_developer,
+            )
+        feedback = st.session_state.pop("dev_master_feedback", None)
+        if feedback == "invalid":
+            st.error("❌ Invalid Developer Credentials.")
         return
+
+    if st.session_state.pop("dev_master_feedback", None) == "success":
+        st.success("✅ Developer Session Authenticated!")
 
     purged_count = db.purge_expired_pending_clients()
     if purged_count > 0:
-        st.warning(f"🧹 **Automated Retention Notice:** Moved {purged_count} unactivated client registration(s) exceeding the 7-day threshold to the Purge Archive.")
+        st.warning(
+            f"🧹 **Automated Retention Notice:** Moved {purged_count} unactivated client registration(s) exceeding the 7-day threshold to the Purge Archive."
+        )
 
     st.markdown("---")
-    
+
     col_nav1, col_nav2 = st.columns(2)
     with col_nav1:
-        if st.button("➕ Register New Client / Launch Onboarding Wizard", use_container_width=True):
+        if st.button(
+            "➕ Register New Client / Launch Onboarding Wizard",
+            use_container_width=True,
+        ):
             st.session_state["portal_initialized"] = False
             st.session_state["onboarding_submitted"] = False
             st.session_state["portal_mode"] = "onboarding_wizard"
@@ -60,21 +138,52 @@ def render_developer_master_console():
     # ================================================================
     # SOVEREIGN CLIENT BULLETIN & E-NEWSLETTER BROADCAST ENGINE
     # ================================================================
-    with st.expander("📢 Sovereign Client Bulletin & E-Newsletter Broadcast Engine", expanded=False):
-        st.markdown("##### ✉️ Dispatch Statutory Alerts, Compliance Notices & Platform Updates")
+    with st.expander(
+        "📢 Sovereign Client Bulletin & E-Newsletter Broadcast Engine", expanded=False
+    ):
+        st.markdown(
+            "##### ✉️ Dispatch Statutory Alerts, Compliance Notices & Platform Updates"
+        )
         all_clients_for_broadcast = db.get_all_clients()
-        
+
         with st.form("broadcast_e_newsletter_form"):
             col_b1, col_b2 = st.columns(2)
             with col_b1:
-                target_audience = st.selectbox("Target Recipient Audience*", ["All Registered Clients (Active & Pending)", "Active Clients Only", "Pending Activation Only"])
-                bulletin_category = st.selectbox("Bulletin Category*", ["Statutory Compliance Notice (PPA 2007 / NITDA)", "Security & System Upgrade Bulletin", "Platform E-Newsletter / Feature Announcement", "Urgent Administrative Notice"])
+                target_audience = st.selectbox(
+                    "Target Recipient Audience*",
+                    [
+                        "All Registered Clients (Active & Pending)",
+                        "Active Clients Only",
+                        "Pending Activation Only",
+                    ],
+                )
+                bulletin_category = st.selectbox(
+                    "Bulletin Category*",
+                    [
+                        "Statutory Compliance Notice (PPA 2007 / NITDA)",
+                        "Security & System Upgrade Bulletin",
+                        "Platform E-Newsletter / Feature Announcement",
+                        "Urgent Administrative Notice",
+                    ],
+                )
             with col_b2:
-                bulletin_subject = st.text_input("Bulletin Subject Line*", placeholder="e.g., MANDATORY: NITDA Data Audit & Fiscal Year PPA Clearance Notice")
-                sender_display_name = st.text_input("Dispatch Node Sender Name", value="NEXUSVAULT Sovereign Executive Console")
+                bulletin_subject = st.text_input(
+                    "Bulletin Subject Line*",
+                    placeholder="e.g., MANDATORY: NITDA Data Audit & Fiscal Year PPA Clearance Notice",
+                )
+                sender_display_name = st.text_input(
+                    "Dispatch Node Sender Name",
+                    value="NEXUSVAULT Sovereign Executive Console",
+                )
 
-            bulletin_body = st.text_area("Bulletin Body Content*", height=150, placeholder="Dear Institutional Admin,\n\nPlease be advised...")
-            btn_send_broadcast = st.form_submit_button("🚀 Dispatch Bulletin to Client Directory", use_container_width=True)
+            bulletin_body = st.text_area(
+                "Bulletin Body Content*",
+                height=150,
+                placeholder="Dear Institutional Admin,\n\nPlease be advised...",
+            )
+            btn_send_broadcast = st.form_submit_button(
+                "🚀 Dispatch Bulletin to Client Directory", use_container_width=True
+            )
 
             if btn_send_broadcast:
                 if not bulletin_subject or not bulletin_body:
@@ -83,27 +192,40 @@ def render_developer_master_console():
                     st.success("✅ Bulletin dispatched successfully to client nodes!")
 
     st.markdown("---")
-    st.markdown("### 🏢 Multi-Tenant Subscribed Client Directory & Security Lockout Monitor")
+    st.markdown(
+        "### 🏢 Multi-Tenant Subscribed Client Directory & Security Lockout Monitor"
+    )
 
     # QUICK REFERENCE PERMANENT DELETE SEARCH BOX
     with st.form("quick_ref_delete_form"):
         st.markdown("##### ⚡ Quick Reference Permanent Deletion Gate")
         col_q1, col_q2 = st.columns([3, 1])
         with col_q1:
-            target_slug_input = st.text_input("Client Slug / Keyword Reference*", placeholder="e.g. sgwvm")
+            target_slug_input = st.text_input(
+                "Client Slug / Keyword Reference*", placeholder="e.g. sgwvm"
+            )
         with col_q2:
             st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-            btn_quick_del = st.form_submit_button("💥 Wipe Permanently", use_container_width=True)
+            btn_quick_del = st.form_submit_button(
+                "💥 Wipe Permanently", use_container_width=True
+            )
 
         if btn_quick_del:
             clean_keyword = target_slug_input.strip().lower()
             if clean_keyword:
                 all_db_clients = db.get_all_clients()
-                matched = [c for c in all_db_clients if clean_keyword in c['client_slug'].lower() or clean_keyword in c['corp_name'].lower()]
+                matched = [
+                    c
+                    for c in all_db_clients
+                    if clean_keyword in c["client_slug"].lower()
+                    or clean_keyword in c["corp_name"].lower()
+                ]
                 if matched:
                     for mc in matched:
-                        db.delete_client_permanently(mc['client_id'])
-                    st.success(f"💥 Successfully purged {len(matched)} matching client record(s)!")
+                        db.delete_client_permanently(mc["client_id"])
+                    st.success(
+                        f"💥 Successfully purged {len(matched)} matching client record(s)!"
+                    )
                     st.rerun()
                 else:
                     st.error("❌ No matching client found.")
@@ -126,7 +248,8 @@ def render_developer_master_console():
                 status_badge = "🚨 LOCKED OUT (3/3 ATTEMPTS)"
                 badge_color = "#dc2626"
 
-            st.markdown(f"""
+            st.markdown(
+                f"""
                 <div style="background: rgba(15, 23, 42, 0.85); border: 2px solid {badge_color}; border-radius: 12px; padding: 18px; margin-bottom: 10px;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <h3 style="color: #ffffff; margin: 0; font-size: 17px;">{idx}. 🏢 {client['corp_name']}</h3>
@@ -139,10 +262,15 @@ def render_developer_master_console():
                     <p style="color: #38bdf8; font-size: 12px; margin: 4px 0;">📄 <b>Vendor Portal Link:</b> <a href="https://nexusvault-proposal-enterprise-connect.streamlit.app/?portal=vendor&tenant={client['client_slug']}" target="_blank">https://nexusvault-proposal-enterprise-connect.streamlit.app/?portal=vendor&tenant={client['client_slug']}</a></p>
                     <p style="color: #cbd5e1; font-size: 13px; margin: 2px 0;"><b>Admin Email:</b> {client['admin_email']}</p>
                 </div>
-            """, unsafe_allow_html=True)
+            """,
+                unsafe_allow_html=True,
+            )
 
             # GUARANTEED CLIENT MANAGEMENT EXPANDER
-            with st.expander(f"⚙️ [{idx}] Manage Portal, Security & Credentials: {client['corp_name']}", expanded=False):
+            with st.expander(
+                f"⚙️ [{idx}] Manage Portal, Security & Credentials: {client['corp_name']}",
+                expanded=False,
+            ):
                 with st.form(f"reset_client_form_{client['client_id']}"):
                     st.markdown("##### 🔐 Password Reassignment & Lockout Controls")
                     new_c_pass = st.text_input(
@@ -151,56 +279,75 @@ def render_developer_master_console():
                         placeholder="Set a new password",
                         key=f"pass_{client['client_id']}",
                     )
-                    btn_reset = st.form_submit_button("🔄 Save New Password & Lift Lockout", use_container_width=True)
+                    btn_reset = st.form_submit_button(
+                        "🔄 Save New Password & Lift Lockout", use_container_width=True
+                    )
 
                     if btn_reset:
                         if not new_c_pass:
                             st.error("Enter a new executive password before saving.")
                         else:
-                            db.reset_client_password(client['client_id'], new_c_pass)
-                            db.update_client_lockout(client['client_id'], "False")
-                            st.success(f"✅ Password updated and lockout lifted for '{client['corp_name']}'!")
+                            db.reset_client_password(client["client_id"], new_c_pass)
+                            db.update_client_lockout(client["client_id"], "False")
+                            st.success(
+                                f"✅ Password updated and lockout lifted for '{client['corp_name']}'!"
+                            )
                             st.rerun()
 
                 st.markdown("##### 🚀 Direct Portal Navigation")
-                if st.button(f"🔗 Launch Portal for [{client['client_slug']}]", key=f"launch_{client['client_id']}", use_container_width=True):
-                    st.query_params["client"] = client['client_slug']
+                if st.button(
+                    f"🔗 Launch Portal for [{client['client_slug']}]",
+                    key=f"launch_{client['client_id']}",
+                    use_container_width=True,
+                ):
+                    st.query_params["client"] = client["client_slug"]
                     st.session_state["portal_mode"] = "vendor_portal"
                     st.rerun()
 
             col_c1, col_c2, col_c3 = st.columns(3)
             with col_c1:
                 if not is_active:
-                    if st.button(f"🟢 Activate [{idx}]", key=f"act_{client['client_id']}"):
-                        db.update_client_approval(client['client_id'], "True")
+                    if st.button(
+                        f"🟢 Activate [{idx}]", key=f"act_{client['client_id']}"
+                    ):
+                        db.update_client_approval(client["client_id"], "True")
                         st.success(f"✅ Client activated!")
                         st.rerun()
                 else:
-                    if st.button(f"🔴 Suspend [{idx}]", key=f"susp_{client['client_id']}"):
-                        db.update_client_approval(client['client_id'], "False")
+                    if st.button(
+                        f"🔴 Suspend [{idx}]", key=f"susp_{client['client_id']}"
+                    ):
+                        db.update_client_approval(client["client_id"], "False")
                         st.warning(f"⚠️ Client suspended.")
                         st.rerun()
             with col_c2:
                 if is_locked_out:
-                    if st.button(f"🔓 Clear Lockout [{idx}]", key=f"unlock_{client['client_id']}"):
-                        db.update_client_lockout(client['client_id'], "False")
+                    if st.button(
+                        f"🔓 Clear Lockout [{idx}]", key=f"unlock_{client['client_id']}"
+                    ):
+                        db.update_client_lockout(client["client_id"], "False")
                         st.success(f"✅ Lockout cleared.")
                         st.rerun()
             with col_c3:
-                if st.button(f"🗑️ Archive [{idx}]", key=f"del_client_{client['client_id']}"):
-                    db.purge_client(client['client_id'])
+                if st.button(
+                    f"🗑️ Archive [{idx}]", key=f"del_client_{client['client_id']}"
+                ):
+                    db.purge_client(client["client_id"])
                     st.toast(f"🗑️ Moved to Purge Archive.", icon="🧹")
                     st.rerun()
 
     st.markdown("---")
     if st.button("🔒 Logout Developer Admin Session"):
-        st.session_state["dev_master_logged_in"] = False
+        st.session_state.pop("dev_master_logged_in", None)
+        st.session_state.pop("dev_master_password_input", None)
+        st.session_state.pop("dev_master_feedback", None)
         st.rerun()
 
+
 def render_developer_console():
-    if 'main' in globals() and callable(main):
+    if "main" in globals() and callable(main):
         main()
-    elif 'run' in globals() and callable(run):
+    elif "run" in globals() and callable(run):
         run()
     else:
         # Execute module body directly if standalone

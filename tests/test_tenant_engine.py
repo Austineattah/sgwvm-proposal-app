@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import sqlite3
 
 import pytest
 
+import src.nexus_db_adapter as nexus_db_adapter
 from src.cron_expiry_notifier import DemoExpiryNotifier
 from src.nexus_db_adapter import NexusDatabaseAdapter
 from src.nexus_tenant_engine import (
@@ -20,9 +22,7 @@ def tenant_system(tmp_path, monkeypatch):
         database,
         lead_architect_email="augustine@example.gov",
     )
-    suffixes = iter(
-        ["7c6c24ae", "00000002", "00000003", "00000004", "00000005"]
-    )
+    suffixes = iter(["7c6c24ae", "00000002", "00000003", "00000004", "00000005"])
     monkeypatch.setattr(
         "src.nexus_db_adapter.secrets.token_hex", lambda _: next(suffixes)
     )
@@ -37,7 +37,10 @@ def test_registration_generates_unique_tenant_slug(tenant_system):
     assert tenant["slug"] == "wiseventuresltd_7c6c24ae"
     assert tenant["status"] == TenantStatus.PENDING_ACTIVATION.value
     assert tenant["is_activated"] in (False, 0)
-    assert database.lookup_tenant_by_slug(tenant["slug"])["tenant_id"] == tenant["tenant_id"]
+    assert (
+        database.lookup_tenant_by_slug(tenant["slug"])["tenant_id"]
+        == tenant["tenant_id"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -127,9 +130,7 @@ def test_expiry_scan_sends_notifications_within_five_days(tenant_system):
     database, engine = tenant_system
     tenant = engine.register_tenant("Reminder Org", "reminder@example.gov")
     now = datetime(2026, 11, 7, 12, tzinfo=timezone.utc)
-    engine.choose_subscription(
-        tenant["tenant_id"], commence_now=False, now=now
-    )
+    engine.choose_subscription(tenant["tenant_id"], commence_now=False, now=now)
     messages = []
     notifier = DemoExpiryNotifier(
         database,
@@ -156,11 +157,14 @@ def test_five_calendar_day_boundary_and_same_day_expiration(tenant_system):
     engine.choose_subscription(tenant["tenant_id"], commence_now=False, now=start)
     messages = []
     notifier = DemoExpiryNotifier(
-        database, engine,
+        database,
+        engine,
         email_dispatcher=lambda recipient, subject, body: messages.append(body),
     )
 
-    results = notifier.run_expiry_scan(now=datetime(2026, 11, 10, 1, tzinfo=timezone.utc))
+    results = notifier.run_expiry_scan(
+        now=datetime(2026, 11, 10, 1, tzinfo=timezone.utc)
+    )
     assert len(results) == 1
     assert results[0].days_remaining == 5
 
@@ -194,10 +198,157 @@ def test_ambiguous_email_requires_slug(tenant_system):
     with pytest.raises(ValueError, match="multiple tenants"):
         engine.resume_login("shared@example.gov")
     assert engine.resume_login(first["slug"]).tenant["tenant_id"] == first["tenant_id"]
-    assert engine.resume_login(second["slug"]).tenant["tenant_id"] == second["tenant_id"]
+    assert (
+        engine.resume_login(second["slug"]).tenant["tenant_id"] == second["tenant_id"]
+    )
 
 
 def test_generated_slug_fits_existing_portal_route(tenant_system):
     _, engine = tenant_system
     tenant = engine.register_tenant("A" * 100, "long-name@example.gov")
     assert len(tenant["slug"]) <= 62
+
+
+def test_support_tickets_reject_missing_and_mismatched_tenants(tenant_system):
+    database, engine = tenant_system
+    first = engine.register_tenant("First", "first@example.gov")
+    second = engine.register_tenant("Second", "second@example.gov")
+
+    assert not database.create_support_ticket(
+        "missing", first["slug"], "Forged", "sender@example.gov", "Unmatched inquiry"
+    )
+    assert not database.create_support_ticket(
+        first["tenant_id"],
+        second["slug"],
+        "Forged",
+        "sender@example.gov",
+        "Unmatched inquiry",
+    )
+    assert database.create_support_ticket(
+        first["tenant_id"],
+        first["slug"],
+        "Forged",
+        "sender@example.gov",
+        "Unmatched inquiry",
+    )
+    tickets = database.get_tenant_support_tickets(first["slug"])
+    assert len(tickets) == 1
+    assert database.get_tenant_support_tickets(second["slug"]) == []
+    assert database.get_all_support_tickets()[0]["org_name"] == "First"
+
+    with pytest.raises(sqlite3.IntegrityError, match="tenant mismatch"):
+        with database._cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO nv_support_tickets (tenant_id, tenant_slug, org_name, sender_email, message) VALUES (?, ?, ?, ?, ?)",
+                (
+                    first["tenant_id"],
+                    second["slug"],
+                    "Forged",
+                    "sender@example.gov",
+                    "Test",
+                ),
+            )
+
+
+def test_existing_mismatched_tickets_are_not_visible_to_tenants(tenant_system):
+    database, engine = tenant_system
+    first = engine.register_tenant("First", "first@example.gov")
+    second = engine.register_tenant("Second", "second@example.gov")
+    with database.get_connection() as connection:
+        connection.execute("DROP TRIGGER nv_support_tenant_insert")
+        connection.execute(
+            "INSERT INTO nv_support_tickets (tenant_id, tenant_slug, org_name, sender_email, message) VALUES (?, ?, ?, ?, ?)",
+            (
+                first["tenant_id"],
+                second["slug"],
+                "First",
+                "sender@example.gov",
+                "Legacy mismatch",
+            ),
+        )
+    database.initialize()
+    assert database.get_tenant_support_tickets(first["slug"]) == []
+    assert database.get_tenant_support_tickets(second["slug"]) == []
+    assert database.get_all_support_tickets()[0]["message"] == "Legacy mismatch"
+
+
+def test_support_response_only_updates_existing_open_ticket(tenant_system):
+    database, engine = tenant_system
+    tenant = engine.register_tenant("First", "first@example.gov")
+    assert database.create_support_ticket(
+        tenant["tenant_id"],
+        tenant["slug"],
+        "First",
+        "sender@example.gov",
+        "Unmatched inquiry",
+    )
+    ticket_id = database.get_tenant_support_tickets(tenant["slug"])[0]["ticket_id"]
+    assert not database.respond_to_support_ticket(ticket_id + 100, "Missing")
+    assert database.respond_to_support_ticket(ticket_id, "First response")
+    assert not database.respond_to_support_ticket(ticket_id, "Overwritten")
+    assert (
+        database.get_tenant_support_tickets(tenant["slug"])[0]["response"]
+        == "First response"
+    )
+
+
+def test_expiry_alert_is_tenant_scoped_and_deduplicated(tenant_system):
+    database, engine = tenant_system
+    tenant = engine.register_tenant("First", "first@example.gov")
+    assert database.add_expiry_alert(
+        tenant["tenant_id"], alert_key="5-days", message="Expiry warning"
+    )
+    assert not database.add_expiry_alert(
+        tenant["tenant_id"], alert_key="5-days", message="Expiry warning"
+    )
+    tickets = database.get_tenant_support_tickets(tenant["slug"])
+    assert len(tickets) == 1
+    assert tickets[0]["message"] == "Expiry warning"
+
+
+def test_adapter_connection_enforces_foreign_keys(tenant_system):
+    database, _ = tenant_system
+    with database.get_connection() as connection:
+        assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO nv_expiry_alerts (tenant_id, alert_key, message) VALUES (?, ?, ?)",
+                ("missing", "test", "Invalid tenant"),
+            )
+    with pytest.raises(sqlite3.ProgrammingError):
+        connection.execute("SELECT 1")
+
+
+def test_transaction_rolls_back_and_closes_connection(tmp_path, monkeypatch):
+    monkeypatch.setattr(nexus_db_adapter, "DB_PATH", tmp_path / "isolated.db")
+    with nexus_db_adapter.get_db_connection() as connection:
+        assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        connection.execute("CREATE TABLE sample (value TEXT)")
+    with pytest.raises(sqlite3.ProgrammingError):
+        connection.execute("SELECT 1")
+
+    with pytest.raises(RuntimeError):
+        with nexus_db_adapter.get_db_connection() as connection:
+            connection.execute("CREATE TABLE rolled_back_table (value TEXT)")
+            connection.execute(
+                "INSERT INTO sample (value) VALUES (?)", ("rolled back",)
+            )
+            raise RuntimeError("failure")
+    with nexus_db_adapter.get_db_connection() as connection:
+        assert connection.execute("SELECT count(*) FROM sample").fetchone()[0] == 0
+        assert (
+            connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = ? AND name = ?",
+                ("table", "rolled_back_table"),
+            ).fetchone()
+            is None
+        )
+
+
+def test_knowledge_matching_requires_close_whole_word_match():
+    assert nexus_db_adapter.match_knowledge_base("") is None
+    assert nexus_db_adapter.match_knowledge_base("weather committee access") is None
+    assert nexus_db_adapter.match_knowledge_base("committees accessibility") is None
+    assert nexus_db_adapter.match_knowledge_base(
+        "WHO GENERATES AND ASSIGNS COMMITTEE ACCESS TOKENS!"
+    )

@@ -136,10 +136,10 @@ _TENANT_SCOPED_AUTH_KEYS = {
     "committee_payload",
 }
 _IDLE_SESSION_TIMEOUT_SECONDS = 15 * 60
-_SESSION_ACTIVITY_KEY = "last_activity_timestamp"
+_SESSION_ACTIVITY_KEY = "last_activity"
 _SECURITY_SESSION_ID_KEY = "security_session_id"
 _SESSION_EXPIRY_NOTICE = (
-    "⚠️ Session expired due to inactivity to protect constituent data."
+    "Session expired due to 15 minutes of inactivity. Re-authentication required."
 )
 
 
@@ -187,11 +187,13 @@ def _authenticated_actor_context() -> tuple[str, str] | None:
 
 
 def _expire_idle_session(now: float | None = None) -> bool:
-    current_time = datetime.now().timestamp() if now is None else now
-    last_activity = st.session_state.get(_SESSION_ACTIVITY_KEY)
+    current_time = time.time() if now is None else now
+    last_activity = st.session_state.get(
+        _SESSION_ACTIVITY_KEY, st.session_state.get("last_activity_timestamp")
+    )
     if not isinstance(last_activity, (int, float)):
         return False
-    if current_time - float(last_activity) < _IDLE_SESSION_TIMEOUT_SECONDS:
+    if current_time - float(last_activity) <= _IDLE_SESSION_TIMEOUT_SECONDS:
         return False
 
     actor = _authenticated_actor_context()
@@ -206,14 +208,14 @@ def _expire_idle_session(now: float | None = None) -> bool:
                 {"reason": "idle_timeout"},
                 session_id,
             )
-        except (sqlite3.Error, RuntimeError, TypeError, ValueError):
+        except Exception:
             logging.exception("Could not record an idle session expiration.")
 
     for key in list(st.session_state.keys()):
         del st.session_state[key]
     st.session_state[_SESSION_ACTIVITY_KEY] = current_time
     st.session_state[_SECURITY_SESSION_ID_KEY] = uuid.uuid4().hex
-    st.session_state["session_expired_notice"] = _SESSION_EXPIRY_NOTICE
+    st.session_state["session_expired_msg"] = _SESSION_EXPIRY_NOTICE
     return True
 
 
@@ -222,7 +224,7 @@ def _guard_session_interaction() -> bool:
 
 
 def _touch_session_activity() -> bool:
-    now = datetime.now().timestamp()
+    now = time.time()
     expired = _expire_idle_session(now)
     st.session_state[_SESSION_ACTIVITY_KEY] = now
     _security_session_identifier()
@@ -237,8 +239,10 @@ def _session_idle_timeout_monitor() -> None:
 _SESSION_EXPIRED_THIS_RUN = _touch_session_activity()
 if _SESSION_EXPIRED_THIS_RUN:
     st.rerun()
-if hasattr(st, "fragment"):
-    st.fragment(run_every="30s")(_session_idle_timeout_monitor)()
+if not hasattr(st, "fragment"):
+    st.error("Session security requires Streamlit 1.37 or newer.")
+    st.stop()
+st.fragment(run_every="1s")(_session_idle_timeout_monitor)()
 
 
 def _single_query_value(value: Any, name: str) -> str | None:
@@ -349,6 +353,38 @@ def _configured_developer_password() -> str | None:
     except (KeyError, StreamlitSecretNotFoundError):
         return ""
     return password.strip() if isinstance(password, str) and password.strip() else ""
+
+
+def _handle_developer_login() -> None:
+    if not _guard_session_interaction():
+        return
+    submitted_password = str(st.session_state.get("dev_password_input", "")).strip()
+    st.session_state["dev_password_input"] = ""
+    configured_password = _configured_developer_password()
+    authenticated = bool(
+        submitted_password and configured_password
+    ) and hmac.compare_digest(
+        submitted_password.encode("utf-8"), configured_password.encode("utf-8")
+    )
+    try:
+        db.log_security_audit_event(
+            "platform",
+            "platform_admin",
+            "LOGIN_SUCCESS" if authenticated else "LOGIN_FAILED",
+            {"authentication_method": "developer_password"},
+            _security_session_identifier(),
+        )
+    except Exception:
+        logging.exception("Could not record a developer login attempt.")
+        st.session_state.pop("dev_authenticated", None)
+        st.session_state["dev_login_feedback"] = "audit_error"
+        return
+    if authenticated:
+        st.session_state["dev_authenticated"] = True
+        st.session_state["dev_login_feedback"] = "success"
+    else:
+        st.session_state.pop("dev_authenticated", None)
+        st.session_state["dev_login_feedback"] = "invalid"
 
 
 def _configured_tenant_access_key(tier: str) -> str | None:
@@ -5252,11 +5288,13 @@ def render_developer_console() -> None:
             )
 
 
-session_expired_notice = st.session_state.pop("session_expired_notice", None)
+session_expired_notice = st.session_state.pop("session_expired_msg", None)
 if isinstance(session_expired_notice, str) and session_expired_notice:
     st.warning(session_expired_notice)
 
 if st.query_params.get("mode") == "dev" and _raw_portal is None:
+    _sync_tenant_session(None, "dev")
+    st.session_state.pop("dev_grant_input", None)
     configured_password = _configured_developer_password()
     if not configured_password:
         st.error(
@@ -5267,36 +5305,20 @@ if st.query_params.get("mode") == "dev" and _raw_portal is None:
 
     st.markdown("## NexusVault Developer Authentication")
     with st.form(key="developer_authentication_form"):
-        dev_pass = st.text_input(
+        st.text_input(
             "Enter Developer Grant Password",
             type="password",
-            key="dev_grant_input",
+            key="dev_password_input",
         )
-        submitted = st.form_submit_button("Authenticate")
+        st.form_submit_button("Authenticate", on_click=_handle_developer_login)
 
-    if submitted:
-        submitted_password = dev_pass.strip()
-        authenticated = bool(submitted_password) and hmac.compare_digest(
-            submitted_password,
-            configured_password,
-        )
-        try:
-            db.log_security_audit_event(
-                "platform",
-                "platform_admin",
-                "LOGIN_SUCCESS" if authenticated else "LOGIN_FAILED",
-                {"authentication_method": "developer_password"},
-                _security_session_identifier(),
-            )
-        except (sqlite3.Error, RuntimeError, TypeError, ValueError):
-            logging.exception("Could not record a developer login attempt.")
-            authenticated = False
-            st.error("Developer access could not be verified and recorded.")
-        st.session_state["dev_authenticated"] = authenticated
-        if authenticated:
-            st.success("Developer access granted.")
-        elif not st.session_state.get("session_expired_notice"):
-            st.error("Invalid developer credentials.")
+    feedback = st.session_state.pop("dev_login_feedback", None)
+    if feedback == "success":
+        st.success("Developer access granted.")
+    elif feedback == "audit_error":
+        st.error("Developer access could not be verified and recorded.")
+    elif feedback == "invalid":
+        st.error("Invalid developer credentials.")
 
     if st.session_state.get("dev_authenticated", False):
         render_developer_console()
@@ -5305,6 +5327,13 @@ if st.query_params.get("mode") == "dev" and _raw_portal is None:
         st.warning("Restricted Developer Console. Please authenticate to continue.")
         st.stop()
 else:
+    for key in (
+        "dev_authenticated",
+        "dev_password_input",
+        "dev_grant_input",
+        "dev_login_feedback",
+    ):
+        st.session_state.pop(key, None)
     try:
         _portal, _tenant_slug, _intake_type = _parse_route()
     except ValueError as exc:

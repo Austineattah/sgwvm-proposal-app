@@ -3,42 +3,92 @@ NexusVault Developer Console & Seminar Training Portal (src/developer_console.py
 Empowers Lead Architect & CEO with master admin controls, blinking alert notifications, and tenant support controls.
 """
 
+import time
+
 import streamlit as st
 from src.developer_kb import NEXUSVAULT_EXECUTIVE_KB
 from src.nexus_db_adapter import get_all_support_tickets, respond_to_support_ticket
 
+
+def _expire_developer_session():
+    now = time.time()
+    last_activity = st.session_state.get(
+        "last_activity", st.session_state.get("last_activity_timestamp")
+    )
+    if not isinstance(last_activity, (int, float)) or now - last_activity <= 900:
+        return False
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.session_state["last_activity"] = now
+    st.session_state["session_expired_msg"] = (
+        "Session expired due to 15 minutes of inactivity. Re-authentication required."
+    )
+    return True
+
+
+def _monitor_developer_session():
+    if _expire_developer_session():
+        st.rerun()
+
+
 def render_developer_console():
+    if _expire_developer_session():
+        st.rerun()
+    st.session_state["last_activity"] = time.time()
+    if not hasattr(st, "fragment"):
+        st.error("Session security requires Streamlit 1.37 or newer.")
+        return
+    st.fragment(run_every="1s")(_monitor_developer_session)()
+    expired_message = st.session_state.pop("session_expired_msg", None)
+    if expired_message:
+        st.warning(expired_message)
+    if st.session_state.get("dev_authenticated") is not True:
+        st.error("Developer authentication is required.")
+        return
     st.markdown("## 🛡️ NexusVault Sovereign Developer Console")
-    st.markdown("Master Administrative Oversight & Executive Seminar Training Environment")
-    
+    st.markdown(
+        "Master Administrative Oversight & Executive Seminar Training Environment"
+    )
+
     tickets = get_all_support_tickets()
     unanswered_count = sum(1 for t in tickets if t["status"] == "OPEN")
-    
+
     feedback_label = "📩 Client Tenant Feedback & Complaints"
     if unanswered_count > 0:
         feedback_label = f"🔴 📩 Feedback & Complaints ({unanswered_count} PENDING)"
 
-    tab_admin, tab_feedback, tab_seminar = st.tabs([
-        "⚙️ Master Administration & Database Controls", 
-        feedback_label,
-        "🎓 Executive Seminar Training & UI Simulation"
-    ])
-    
+    tab_admin, tab_feedback, tab_seminar = st.tabs(
+        [
+            "⚙️ Master Administration & Database Controls",
+            feedback_label,
+            "🎓 Executive Seminar Training & UI Simulation",
+        ]
+    )
+
     with tab_admin:
         st.markdown("### Master Administrative Operations")
-        st.info("Operating under Sovereign Master Credentials — Lead Architect / CEO: Augustine Attah.")
-        
+        st.info(
+            "Operating under Sovereign Master Credentials — Lead Architect / CEO: Augustine Attah."
+        )
+
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Active Tenant Nodes", "24", "+3 this week")
         with col2:
             st.metric("Secured Cryptographic Tokens", "142", "0 revoked")
         with col3:
-            st.metric("Pending Inquiries (Action Required)", f"{unanswered_count}", "Needs CEO Response" if unanswered_count > 0 else "All Resolved")
-            
+            st.metric(
+                "Pending Inquiries (Action Required)",
+                f"{unanswered_count}",
+                "Needs CEO Response" if unanswered_count > 0 else "All Resolved",
+            )
+
         st.markdown("---")
         st.markdown("#### Tenant Activation Override & Registry Management")
-        st.text_input("Search Tenant Slug or Admin Email:", placeholder="e.g. wiseventuresltd_7c6c24ae")
+        st.text_input(
+            "Search Tenant Slug or Admin Email:",
+            placeholder="e.g. wiseventuresltd_7c6c24ae",
+        )
         st.button("🔄 Refresh Sovereign Database State", use_container_width=True)
 
     with tab_feedback:
@@ -50,7 +100,7 @@ def render_developer_console():
 
 def render_tenant_feedback_tab(tickets, unanswered_count):
     st.markdown("### 📩 Client Tenant Inquiries & Escalation Gateway")
-    
+
     # Blinking Pulsing CSS Notification Banner for Unanswered Tickets
     if unanswered_count > 0:
         st.markdown(
@@ -82,34 +132,55 @@ def render_tenant_feedback_tab(tickets, unanswered_count):
                 </div>
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
     else:
-        st.success("🟢 All client tenant inquiries have been answered or resolved by AI Auto-Reply!")
-        
+        st.success(
+            "🟢 All client tenant inquiries have been answered or resolved by AI Auto-Reply!"
+        )
+
     if not tickets:
         st.info("No active inquiries or complaints recorded from client tenants.")
         return
-        
+
     for t in tickets:
-        is_open = (t["status"] == "OPEN")
-        status_label = "🚨 ATTENTION REQUIRED (UNANSWERED)" if is_open else f"🟢 {t['status']}"
-        
-        with st.expander(f"[{status_label}] {t['org_name']} (Ref: {t['tenant_slug']}) — {t['created_at']}", expanded=is_open):
+        is_open = t["status"] == "OPEN"
+        status_label = (
+            "🚨 ATTENTION REQUIRED (UNANSWERED)" if is_open else f"🟢 {t['status']}"
+        )
+
+        with st.expander(
+            f"[{status_label}] {t['org_name']} (Ref: {t['tenant_slug']}) — {t['created_at']}",
+            expanded=is_open,
+        ):
             st.markdown(f"**Tenant Reference Slug:** `{t['tenant_slug']}`")
             st.markdown(f"**Sender Email:** `{t['sender_email']}`")
             st.markdown(f"**Submitted Inquiry:**\n> {t['message']}")
-            
+
             if t["response"]:
-                st.info(f"**Dispatched Response ({t['responded_at']}):**\n\n{t['response']}")
+                st.info(
+                    f"**Dispatched Response ({t['responded_at']}):**\n\n{t['response']}"
+                )
             else:
                 st.markdown("---")
-                st.warning("This inquiry requires a direct manual response from Lead Architect / CEO Augustine Attah.")
-                reply_text = st.text_area(f"Type response to {t['org_name']}:", key=f"reply_{t['ticket_id']}")
-                if st.button("📤 SEND EXECUTIVE RESPONSE", key=f"btn_{t['ticket_id']}", type="primary"):
+                st.warning(
+                    "This inquiry requires a direct manual response from Lead Architect / CEO Augustine Attah."
+                )
+                reply_text = st.text_area(
+                    f"Type response to {t['org_name']}:", key=f"reply_{t['ticket_id']}"
+                )
+                if st.button(
+                    "📤 SEND EXECUTIVE RESPONSE",
+                    key=f"btn_{t['ticket_id']}",
+                    type="primary",
+                ):
                     if reply_text.strip():
-                        if respond_to_support_ticket(t["ticket_id"], reply_text.strip()):
-                            st.success("Executive response sent! Visual blinking alert cleared.")
+                        if respond_to_support_ticket(
+                            t["ticket_id"], reply_text.strip()
+                        ):
+                            st.success(
+                                "Executive response sent! Visual blinking alert cleared."
+                            )
                             st.rerun()
                         else:
                             st.error("Failed to record response. Check database logs.")
@@ -123,47 +194,57 @@ def render_seminar_training_suite():
         "Project this interactive training suite during live executive briefings to walk through "
         "system components inside a simulated client tenant UI environment."
     )
-    
+
     mode = st.radio(
         "Select Training Mode:",
         ["🖥️ Vivid Tenant UI Simulation Deck", "🔍 Interactive Knowledge Base Lookup"],
-        horizontal=True
+        horizontal=True,
     )
-    
+
     slides = []
     for topic_name, topic_data in NEXUSVAULT_EXECUTIVE_KB.items():
         for qa in topic_data["qa_pairs"]:
-            slides.append({
-                "topic": topic_name,
-                "category": topic_data["category"],
-                "tenant_context": topic_data["tenant_context"],
-                "status_badge": topic_data["status_badge"],
-                "summary": topic_data["summary"],
-                "question": qa["question"],
-                "answer": qa["answer"]
-            })
-            
+            slides.append(
+                {
+                    "topic": topic_name,
+                    "category": topic_data["category"],
+                    "tenant_context": topic_data["tenant_context"],
+                    "status_badge": topic_data["status_badge"],
+                    "summary": topic_data["summary"],
+                    "question": qa["question"],
+                    "answer": qa["answer"],
+                }
+            )
+
     if mode == "🖥️ Vivid Tenant UI Simulation Deck":
         if "seminar_slide_idx" not in st.session_state:
             st.session_state.seminar_slide_idx = 0
-            
+
         total_slides = len(slides)
-        
+
         c_prev, c_pos, c_next = st.columns([1, 4, 1])
         with c_prev:
-            if st.button("⬅️ Previous Slide", use_container_width=True) and st.session_state.seminar_slide_idx > 0:
+            if (
+                st.button("⬅️ Previous Slide", use_container_width=True)
+                and st.session_state.seminar_slide_idx > 0
+            ):
                 st.session_state.seminar_slide_idx -= 1
                 st.rerun()
         with c_pos:
             st.progress((st.session_state.seminar_slide_idx + 1) / total_slides)
-            st.caption(f"Slide {st.session_state.seminar_slide_idx + 1} of {total_slides} — **Module:** {slides[st.session_state.seminar_slide_idx]['topic']}")
+            st.caption(
+                f"Slide {st.session_state.seminar_slide_idx + 1} of {total_slides} — **Module:** {slides[st.session_state.seminar_slide_idx]['topic']}"
+            )
         with c_next:
-            if st.button("Next Slide ➡️", use_container_width=True) and st.session_state.seminar_slide_idx < total_slides - 1:
+            if (
+                st.button("Next Slide ➡️", use_container_width=True)
+                and st.session_state.seminar_slide_idx < total_slides - 1
+            ):
                 st.session_state.seminar_slide_idx += 1
                 st.rerun()
-                
+
         current = slides[st.session_state.seminar_slide_idx]
-        
+
         st.markdown(
             f"""
             <div style="border: 2px solid #3b82f6; border-radius: 14px; background: #090d16; padding: 0px; box-shadow: 0 12px 30px rgba(0,0,0,0.5); margin-top: 15px; margin-bottom: 20px; overflow: hidden; font-family: sans-serif;">
@@ -200,25 +281,29 @@ def render_seminar_training_suite():
                 </div>
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
-        
+
         jump_idx = st.selectbox(
             "Jump to Slide:",
             options=range(total_slides),
             format_func=lambda i: f"Slide {i+1}: {slides[i]['question']}",
-            index=st.session_state.seminar_slide_idx
+            index=st.session_state.seminar_slide_idx,
         )
         if jump_idx != st.session_state.seminar_slide_idx:
             st.session_state.seminar_slide_idx = jump_idx
             st.rerun()
-            
+
     else:
         topic_names = list(NEXUSVAULT_EXECUTIVE_KB.keys())
-        selected_topic = st.selectbox("Select System Component / Module for Deep Dive:", topic_names)
+        selected_topic = st.selectbox(
+            "Select System Component / Module for Deep Dive:", topic_names
+        )
         if selected_topic:
             topic_data = NEXUSVAULT_EXECUTIVE_KB[selected_topic]
-            st.info(f"**Category:** {topic_data['category']}  \n**Summary:** {topic_data['summary']}")
+            st.info(
+                f"**Category:** {topic_data['category']}  \n**Summary:** {topic_data['summary']}"
+            )
             for idx, qa in enumerate(topic_data["qa_pairs"], start=1):
                 with st.expander(f"Q{idx}: {qa['question']}", expanded=(idx == 1)):
                     st.markdown(qa["answer"])
