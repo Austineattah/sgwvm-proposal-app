@@ -1395,7 +1395,54 @@ def render_solicited_vendor_qr_clearance_gate(
             "Solicited submissions are closed. No published tender window is active."
         )
         return
-    _render_solicited_vendor_portal(tenant_slug, key_prefix)
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .nv-solicited-panel-marker),
+        div[data-testid="stVerticalBlock"]:has(> div.element-container .nv-solicited-panel-marker) {
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            border: 1px solid #334155;
+            border-radius: 14px;
+            padding: 25px;
+            color: #f8fafc;
+        }
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .nv-solicited-panel-marker) div[data-testid="stForm"],
+        div[data-testid="stVerticalBlock"]:has(> div.element-container .nv-solicited-panel-marker) div[data-testid="stForm"] {
+            background: rgba(15, 23, 42, 0.75);
+            border-color: #334155;
+        }
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .nv-solicited-panel-marker) :is(p, label, h1, h2, h3, h4, h5, h6),
+        div[data-testid="stVerticalBlock"]:has(> div.element-container .nv-solicited-panel-marker) :is(p, label, h1, h2, h3, h4, h5, h6) {
+            color: #f8fafc;
+        }
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .nv-solicited-panel-marker) div[data-testid="stTabs"] [role="tab"],
+        div[data-testid="stVerticalBlock"]:has(> div.element-container .nv-solicited-panel-marker) div[data-testid="stTabs"] [role="tab"] {
+            color: #f8fafc;
+        }
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .nv-solicited-panel-marker) div[data-testid="stTabs"] [role="tab"][aria-selected="true"],
+        div[data-testid="stVerticalBlock"]:has(> div.element-container .nv-solicited-panel-marker) div[data-testid="stTabs"] [role="tab"][aria-selected="true"],
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .nv-solicited-panel-marker) div[data-testid="stTabs"] [role="tab"][aria-selected="true"] p,
+        div[data-testid="stVerticalBlock"]:has(> div.element-container .nv-solicited-panel-marker) div[data-testid="stTabs"] [role="tab"][aria-selected="true"] p {
+            color: #38bdf8;
+            border-bottom-color: #38bdf8;
+        }
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .nv-solicited-panel-marker) div[data-testid="stAlert"],
+        div[data-testid="stVerticalBlock"]:has(> div.element-container .nv-solicited-panel-marker) div[data-testid="stAlert"] {
+            background: #334155;
+        }
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .nv-solicited-panel-marker) div.stButton > button[kind="secondary"],
+        div[data-testid="stVerticalBlock"]:has(> div.element-container .nv-solicited-panel-marker) div.stButton > button[kind="secondary"] {
+            background: #1e293b;
+            border-color: #334155;
+            color: #f8fafc;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.container():
+        st.markdown('<span class="nv-solicited-panel-marker"></span>', unsafe_allow_html=True)
+        _render_solicited_vendor_portal(tenant_slug, key_prefix)
 
 
 def render_unsolicited_vendor_portal(

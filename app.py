@@ -4739,12 +4739,6 @@ def render_sovereign_tenant_header(tenant_data: Mapping[str, Any]) -> None:
 def _render_home() -> None:
     st.session_state["_primary_workspace"] = "Onboarding Portal"
     st.session_state["_primary_workspace_selection"] = "Onboarding Portal"
-    st.sidebar.radio(
-        "Application Workspace",
-        ["Onboarding Portal", "Developer Console"],
-        key="_primary_workspace_selection",
-        on_change=_handle_primary_workspace_change,
-    )
 
     if "custom_portal_heading" not in st.session_state:
         st.session_state["custom_portal_heading"] = (
