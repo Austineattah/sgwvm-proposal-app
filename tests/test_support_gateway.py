@@ -30,6 +30,8 @@ _render_platform_support_feedback = lambda: st.write("support feedback")
 _render_executive_knowledge_base = lambda: st.write("executive knowledge base")
 render_report_export_widget = lambda tenant_slug=None: st.write("global report exporter")
 _REPORT_EXPORTER_IMPORT_ERROR = None
+render_pdf_export_widget = lambda tenant_slug=None: st.write("global PDF exporter")
+_PDF_EXPORTER_IMPORT_ERROR = None
 _render_seminar_training_suite = lambda: st.write("tenant slide deck")
 _render_developer_master_console = lambda: st.write("SaaS master console")
 _DEVELOPER_UI_IMPORT_ERROR = None
@@ -45,6 +47,9 @@ render_developer_console()
         self.assertFalse(app.exception)
         self.assertTrue(
             any("global report exporter" in item.value for item in app.markdown)
+        )
+        self.assertTrue(
+            any("global PDF exporter" in item.value for item in app.markdown)
         )
 
         unauthorized = AppTest.from_string(

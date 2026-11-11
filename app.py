@@ -134,6 +134,14 @@ except ImportError as exc:
 else:
     _REPORT_EXPORTER_IMPORT_ERROR = None
 
+try:
+    from src.nexus_pdf_exporter import render_pdf_export_widget
+except ImportError as exc:
+    render_pdf_export_widget = None
+    _PDF_EXPORTER_IMPORT_ERROR: ImportError | None = exc
+else:
+    _PDF_EXPORTER_IMPORT_ERROR = None
+
 PRODUCTION_BASE_URL = "https://nexusvault-proposal-enterprise-connect.streamlit.app"
 
 
@@ -4346,6 +4354,16 @@ def _render_internal_portal(tenant: Mapping[str, Any], tenant_slug: str) -> None
                 tenant,
                 tenant_slug,
             )
+            with st.container():
+                if render_pdf_export_widget is None:
+                    detail = (
+                        f" {_PDF_EXPORTER_IMPORT_ERROR}"
+                        if _PDF_EXPORTER_IMPORT_ERROR is not None
+                        else ""
+                    )
+                    st.error(f"The Executive PDF Briefing exporter is unavailable.{detail}")
+                else:
+                    render_pdf_export_widget(tenant_slug=tenant_slug)
             if st.button(
                 "Sign out of executive management",
                 key=_tenant_key(tenant_slug, "internal", "executive_logout"),
@@ -5728,6 +5746,16 @@ def render_developer_console() -> None:
             st.error(f"The Executive Report Exporter is unavailable.{detail}")
         else:
             render_report_export_widget(tenant_slug=None)
+        with st.container():
+            if render_pdf_export_widget is None:
+                detail = (
+                    f" {_PDF_EXPORTER_IMPORT_ERROR}"
+                    if _PDF_EXPORTER_IMPORT_ERROR is not None
+                    else ""
+                )
+                st.error(f"The Executive PDF Briefing exporter is unavailable.{detail}")
+            else:
+                render_pdf_export_widget(tenant_slug=None)
     with support_tab:
         _render_platform_support_feedback()
     with knowledge_tab:
