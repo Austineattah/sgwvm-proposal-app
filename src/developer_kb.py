@@ -13,11 +13,10 @@ NEXUSVAULT_EXECUTIVE_KB = {
             {
                 "question": "Who generates and assigns committee access tokens?",
                 "answer": (
-                    "Tokens are generated and assigned by the **Head of Administration** "
-                    "(or designated Procurement Officer) of that specific ministry or public organization "
-                    "within the authenticated Enterprise Portal. For initial system bootstrapping or master overrides, "
-                    "the Lead Architect / CEO (Augustine Attah) can also manage these via the Developer Console "
-                    "under strict Row-Level Security (RLS) boundaries."
+                    "The authorized tenant executive provisions the committee roster and issues "
+                    "signed access tokens from the tenant's Executive Management workspace. "
+                    "The Head of Administration may perform this task when authorized for that "
+                    "workspace. The application scopes roster and tender checks to the tenant."
                 )
             },
             {
@@ -28,18 +27,77 @@ NEXUSVAULT_EXECUTIVE_KB = {
                     "and select the target procurement tender batch.\n"
                     "3. **Cryptographic Signing:** Upon clicking 'Issue Access Token', the backend programmatically generates "
                     "an HMAC-SHA256 signed token binding the member's identity to their specific `tenant_id` and `tender_id`.\n"
-                    "4. **Secure Dispatch:** The system dispatches the secure login link/token directly to the evaluator's official email."
+                    "4. **Secure Dispatch:** The executive copies the displayed token and distributes it "
+                    "securely to the evaluator; the issuance screen does not send it by email."
                 )
             },
             {
                 "question": "Are committee tokens permanent or lifecycle-long?",
                 "answer": (
-                    "**Strictly time-bound and task-specific—never lifecycle-long.** Making a committee token permanent "
-                    "would introduce severe security vulnerabilities (insider threats or leaked credentials). "
-                    "Instead, NexusVault enforces:\n"
-                    "- **Tender-Specific Duration:** Configured to expire in 7 to 14 days, matching statutory procurement windows.\n"
-                    "- **Automatic Expiration:** Invalidates automatically once the review concludes or countdown hits zero.\n"
-                    "- **Manual Revocation:** Head of Administration can instantly revoke tokens at any time."
+                    "Signed tokens are time-bound and tied to a tenant, tender and evaluator. "
+                    "Issuance currently uses a 14-day default. The evaluation workspace also "
+                    "requires an active tender and current roster membership on access and "
+                    "revalidation; closing the tender blocks workspace access even if the token "
+                    "has not expired. The signed-token sandbox does not perform those roster and "
+                    "active-tender checks. Individual signed-token revocation is not currently "
+                    "available."
+                )
+            },
+            {
+                "question": "Executive Committee Access Generation",
+                "answer": (
+                    "1. An authorized Head of Administration opens the tenant's Executive "
+                    "Management workspace and provisions the committee roster.  \n"
+                    "2. The system generates high-entropy roster credentials with "
+                    "secrets.token_urlsafe(32), exceeding 16 characters, and stores them "
+                    "encrypted for the active tenant.  \n"
+                    "3. Copy and distribute credentials securely; plaintext credentials are "
+                    "available only in the current Streamlit session. Signed tender tokens "
+                    "are issued separately from the same workspace. The Developer Console "
+                    "does not currently provide this committee-provisioning control."
+                )
+            },
+            {
+                "question": "Tender Review Committee Provisioning",
+                "answer": (
+                    "1. Select a current roster member and an active published tender in the "
+                    "tenant's committee provisioning section.  \n"
+                    "2. Issue a signed token bound to the evaluator's email, tenant and tender; "
+                    "the current issuance default is 14 days.  \n"
+                    "3. The evaluation workspace checks the active tender and roster again on "
+                    "access and reruns. Closing the tender prevents workspace use, but does not "
+                    "change the token's expiry or revoke it in the separate signed-token sandbox."
+                )
+            },
+            {
+                "question": "Mandatory Password Rotation Policy",
+                "answer": (
+                    "Before each major procurement review window, administrators should rotate "
+                    "relevant credentials and securely distribute replacements. Re-provisioning "
+                    "a roster replaces all members and resets COI state; rotating "
+                    "DOSSIER_ENCRYPTION_KEY invalidates all existing signed committee tokens "
+                    "and requires coordinated reissuance.  \n"
+                    "This is an operational policy, not an automatically enforced rotation "
+                    "schedule. The current security audit table is tenant_audit_logs, not "
+                    "security_audit_events; token issuance and login attempts are recorded "
+                    "there, but key rotation is not automatically recorded. Track rotation "
+                    "through the organization's approved audit process."
+                )
+            },
+            {
+                "question": "Immediate Token Revocation",
+                "answer": (
+                    "1. Report a suspected compromise to the authorized platform administrator "
+                    "and close the affected tender if evaluation access must be stopped.  \n"
+                    "2. For immediate invalidation of signed committee tokens, rotate "
+                    "DOSSIER_ENCRYPTION_KEY in the deployment configuration and securely "
+                    "reissue tokens. This affects every token signed with the old key, not just "
+                    "the compromised token.  \n"
+                    "3. Ask active users to lock or sign out; the evaluation workspace clears its "
+                    "cached authentication state when revalidation fails on a rerun. Streamlit "
+                    "session state is not a cache stored in nexus_sovereign.db, and there is "
+                    "currently no per-token signed-token revocation control or database-wide "
+                    "session purge."
                 )
             }
         ]
