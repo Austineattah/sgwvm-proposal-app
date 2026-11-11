@@ -28,6 +28,8 @@ _guard_session_interaction = lambda: True
 _render_platform_developer_console = lambda: st.write("platform operations")
 _render_platform_support_feedback = lambda: st.write("support feedback")
 _render_executive_knowledge_base = lambda: st.write("executive knowledge base")
+render_report_export_widget = lambda tenant_slug=None: st.write("global report exporter")
+_REPORT_EXPORTER_IMPORT_ERROR = None
 _render_seminar_training_suite = lambda: st.write("tenant slide deck")
 _render_developer_master_console = lambda: st.write("SaaS master console")
 _DEVELOPER_UI_IMPORT_ERROR = None
@@ -41,6 +43,9 @@ render_developer_console()
             default_timeout=30,
         ).run()
         self.assertFalse(app.exception)
+        self.assertTrue(
+            any("global report exporter" in item.value for item in app.markdown)
+        )
 
         unauthorized = AppTest.from_string(
             "import streamlit as st\n"

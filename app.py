@@ -125,6 +125,15 @@ except ImportError as exc:
     _MASTER_CONSOLE_IMPORT_ERROR: ImportError | None = exc
 else:
     _MASTER_CONSOLE_IMPORT_ERROR = None
+
+try:
+    from src.nexus_report_exporter import render_report_export_widget
+except ImportError as exc:
+    render_report_export_widget = None
+    _REPORT_EXPORTER_IMPORT_ERROR: ImportError | None = exc
+else:
+    _REPORT_EXPORTER_IMPORT_ERROR = None
+
 PRODUCTION_BASE_URL = "https://nexusvault-proposal-enterprise-connect.streamlit.app"
 
 
@@ -5709,6 +5718,16 @@ def render_developer_console() -> None:
     )
     with platform_tab:
         _render_platform_developer_console()
+        st.divider()
+        if render_report_export_widget is None:
+            detail = (
+                f" {_REPORT_EXPORTER_IMPORT_ERROR}"
+                if _REPORT_EXPORTER_IMPORT_ERROR is not None
+                else ""
+            )
+            st.error(f"The Executive Report Exporter is unavailable.{detail}")
+        else:
+            render_report_export_widget(tenant_slug=None)
     with support_tab:
         _render_platform_support_feedback()
     with knowledge_tab:
