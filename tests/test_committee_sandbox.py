@@ -55,9 +55,27 @@ def sandbox(monkeypatch):
     return app
 
 
-def _submit(app, token):
-    app.text_input[0].set_value(token)
-    app.button[0].click().run()
+def _find_widget_by_label(widgets, label):
+    matches = [widget for widget in widgets if widget.label == label]
+    assert len(matches) == 1, (
+        f"Expected exactly one widget labeled {label!r}, found {len(matches)}."
+    )
+    return matches[0]
+
+
+def _click_button(app, label):
+    _find_widget_by_label(app.button, label).click().run()
+
+
+def _submit(
+    app,
+    token,
+    *,
+    input_label="Signed committee token",
+    button_label="Unlock signed-token sandbox",
+):
+    _find_widget_by_label(app.text_input, input_label).set_value(token)
+    _click_button(app, button_label)
     assert not app.exception
 
 
@@ -72,7 +90,7 @@ def test_signed_token_unlocks_and_logout_locks(sandbox):
     assert "tender-123" in sandbox.markdown[2].value
     assert sandbox.session_state["tenant:example_tenant:committee_signed:input"] == ""
 
-    sandbox.button[0].click().run()
+    _click_button(sandbox, "Lock signed-token sandbox")
     assert not sandbox.success
     assert len(sandbox.text_input) == 1
 
@@ -215,13 +233,18 @@ def test_workspace_unlocks_only_selected_batch_and_logout(workspace):
     token = CommitteeTokenManager("test-signing-key").generate_token(
         "member@example.org", "example_tenant", "tender-1"
     )
-    _submit(workspace, token)
+    _submit(
+        workspace,
+        token,
+        input_label="Cryptographic access token",
+        button_label="Authenticate & Unlock Workspace",
+    )
     assert workspace.session_state["committee_authenticated"] is True
     assert workspace.session_state["committee_payload"]["tender_id"] == "tender-1"
     assert "member@example.org" in workspace.success[0].value
     assert workspace.selectbox[0].options == ["pass-1 · First dossier"]
     assert workspace.session_state["tenant:example_tenant:committee:signed_input"] == ""
-    workspace.button[0].click().run()
+    _click_button(workspace, "Lock Workspace / Logout")
     assert workspace.session_state["committee_authenticated"] is False
     assert workspace.session_state["committee_payload"] is None
     assert len(workspace.text_input) == 1
@@ -241,7 +264,12 @@ def test_workspace_rejects_invalid_claims_and_unregistered_members(
     workspace, key, tenant, tender, days, email
 ):
     token = CommitteeTokenManager(key).generate_token(email, tenant, tender, days)
-    _submit(workspace, token)
+    _submit(
+        workspace,
+        token,
+        input_label="Cryptographic access token",
+        button_label="Authenticate & Unlock Workspace",
+    )
     assert workspace.session_state["committee_authenticated"] is False
     assert workspace.error
     assert "Compliance error" in workspace.error[0].value
@@ -253,7 +281,12 @@ def test_workspace_revalidates_authenticated_sessions(workspace, monkeypatch, ch
     token = CommitteeTokenManager("test-signing-key").generate_token(
         "member@example.org", "example_tenant", "tender-1"
     )
-    _submit(workspace, token)
+    _submit(
+        workspace,
+        token,
+        input_label="Cryptographic access token",
+        button_label="Authenticate & Unlock Workspace",
+    )
     if change == "key":
         monkeypatch.setenv("DOSSIER_ENCRYPTION_KEY", "rotated-key")
     else:

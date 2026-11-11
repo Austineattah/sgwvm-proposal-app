@@ -14,8 +14,455 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from cryptography.fernet import Fernet, InvalidToken
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    create_engine,
+    event,
+    func,
+    inspect,
+    text,
+)
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 DB_FILE = Path(__file__).resolve().with_name("nexus_sovereign.db")
+SECURITY_DATABASE_PATH = DB_FILE
+
+
+def create_database_engine(database_url: str) -> Engine:
+    options: dict[str, Any] = {}
+    if database_url.startswith("sqlite:"):
+        options["connect_args"] = {"check_same_thread": False}
+    elif database_url.startswith(("postgresql:", "postgresql+")):
+        options["pool_pre_ping"] = True
+    result = create_engine(database_url, **options)
+    if result.dialect.name == "sqlite":
+
+        @event.listens_for(result, "connect")
+        def _enable_foreign_keys(connection: Any, _record: Any) -> None:
+            cursor = connection.cursor()
+            try:
+                cursor.execute("PRAGMA foreign_keys = ON")
+            finally:
+                cursor.close()
+
+    return result
+
+
+engine = create_database_engine(
+    os.getenv("DATABASE_URL", "").strip() or f"sqlite:///{DB_FILE.as_posix()}"
+)
+_DEFAULT_COMPATIBILITY_ENGINE = engine
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+
+def get_db_engine() -> Engine:
+    return engine
+
+
+class Organization(Base):
+    __tablename__ = "organizations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    org_id = Column(String(100), unique=True, nullable=True)
+    org_name = Column(String(255), nullable=False, default="", server_default="")
+    registration_no = Column(String(100), nullable=False, default="", server_default="")
+    account_status = Column(
+        String(50),
+        nullable=False,
+        default="PENDING_DEVELOPER_ACTIVATION",
+        server_default="PENDING_DEVELOPER_ACTIVATION",
+    )
+    activated_at = Column(DateTime(timezone=True), nullable=True)
+    gateway_provider = Column(
+        String(50), nullable=False, default="paystack", server_default="paystack"
+    )
+    gateway_public_key = Column(Text, nullable=True)
+    gateway_secret_key = Column(Text, nullable=True)
+    subscription_status = Column(
+        String(50),
+        nullable=False,
+        default="PENDING_DEVELOPER_ACTIVATION",
+        server_default="PENDING_DEVELOPER_ACTIVATION",
+    )
+    subscription_plan = Column(
+        String(100), nullable=False, default="Unassigned", server_default="Unassigned"
+    )
+    onboarding_completed = Column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    logo_base64 = Column(Text, nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class Proposal(Base):
+    __tablename__ = "proposals"
+
+    id = Column(Integer, primary_key=True)
+    tracking_code = Column(String(100), nullable=False, index=True)
+    vendor_name = Column(String(255), nullable=False)
+    email = Column(String(320), nullable=False)
+    phone_number = Column(String(100))
+    category = Column(String(255), nullable=False)
+    cac_number = Column(String(100), nullable=False)
+    rc_number = Column(String(100), nullable=False, default="")
+    filename = Column(String(1024), nullable=False, default="")
+    ai_summary = Column(Text)
+    budget = Column(Float)
+    feasibility_rating = Column(String(100), nullable=False, default="Not assessed")
+    risk_score = Column(Float)
+    status = Column(String(255), nullable=False, default="Draft")
+    proposal_type = Column(String(50), nullable=False, default="UNSOLICITED")
+    submission_details = Column(Text, nullable=False, default="{}")
+    timestamp = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class KYBLog(Base):
+    __tablename__ = "kyb_logs"
+
+    id = Column(Integer, primary_key=True)
+    proposal_id = Column(
+        Integer,
+        ForeignKey("proposals.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    rc_number = Column(String(100), nullable=False)
+    company_status = Column(String(100), nullable=False, default="UNKNOWN")
+    tin = Column(String(255))
+    directors_json = Column(Text, nullable=False, default="[]")
+    risk_label = Column(Text, nullable=False, default="Not assessed")
+    verified_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class AuditScore(Base):
+    __tablename__ = "audit_scores"
+
+    id = Column(Integer, primary_key=True)
+    proposal_id = Column(
+        Integer,
+        ForeignKey("proposals.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    legal_risk_flags = Column(Text, nullable=False, default="[]")
+    compliance_gaps = Column(Text, nullable=False, default="[]")
+    raw_ai_json = Column(Text, nullable=False, default="{}")
+
+
+def ensure_proposal_status_column(db_engine: Engine | None = None) -> None:
+    target = db_engine if db_engine is not None else get_db_engine()
+    columns = {column["name"] for column in inspect(target).get_columns("proposals")}
+    additions = {
+        "phone_number": "VARCHAR(100)",
+        "rc_number": "VARCHAR(100) NOT NULL DEFAULT ''",
+        "filename": "VARCHAR(1024) NOT NULL DEFAULT ''",
+        "ai_summary": "TEXT",
+        "budget": "FLOAT",
+        "feasibility_rating": "VARCHAR(100) NOT NULL DEFAULT 'Not assessed'",
+        "risk_score": "FLOAT",
+        "status": "VARCHAR(255) NOT NULL DEFAULT 'Draft'",
+        "proposal_type": "VARCHAR(50) NOT NULL DEFAULT 'UNSOLICITED'",
+        "submission_details": "TEXT NOT NULL DEFAULT '{}'",
+        "timestamp": "TIMESTAMP",
+    }
+    with target.begin() as connection:
+        for name, definition in additions.items():
+            if name not in columns:
+                connection.execute(
+                    text(f'ALTER TABLE proposals ADD COLUMN "{name}" {definition}')
+                )
+
+
+def insert_proposal(
+    tracking_code: str,
+    vendor_name: str,
+    email: str,
+    category: str,
+    cac_number: str,
+    ai_summary: str,
+    budget: float | None,
+    *,
+    phone_number: str | None = None,
+    proposal_type: str = "UNSOLICITED",
+    submission_details: dict[str, Any] | None = None,
+    filename: str = "",
+    feasibility_rating: str = "Not assessed",
+    risk_score: float | None = None,
+    kyb_data: dict[str, Any] | None = None,
+    legal_risk_flags: list[Any] | None = None,
+    compliance_gaps: list[Any] | None = None,
+    raw_ai_json: dict[str, Any] | None = None,
+) -> int:
+    if proposal_type not in {"SOLICITED", "UNSOLICITED"}:
+        raise ValueError("Proposal type must be SOLICITED or UNSOLICITED.")
+    status = (
+        "UNDER_TENDER_REVIEW"
+        if proposal_type == "SOLICITED"
+        else "UNSOLICITED_PRELIMINARY_KYB"
+    )
+    with SessionLocal.begin() as session:
+        proposal = Proposal(
+            tracking_code=tracking_code,
+            vendor_name=vendor_name,
+            email=email,
+            phone_number=phone_number,
+            category=category,
+            cac_number=cac_number,
+            rc_number=cac_number,
+            filename=filename,
+            ai_summary=ai_summary,
+            budget=budget,
+            feasibility_rating=feasibility_rating,
+            risk_score=risk_score,
+            status=status,
+            proposal_type=proposal_type,
+            submission_details=json.dumps(submission_details or {}),
+        )
+        session.add(proposal)
+        session.flush()
+        proposal_id = int(proposal.id)
+        if kyb_data is not None:
+            session.add(
+                KYBLog(
+                    proposal_id=proposal_id,
+                    rc_number=str(kyb_data.get("rc_number") or cac_number),
+                    company_status=str(kyb_data.get("company_status") or "UNKNOWN"),
+                    tin=kyb_data.get("tin"),
+                    directors_json=json.dumps(kyb_data.get("directors") or []),
+                    risk_label=str(kyb_data.get("risk_label") or "Not assessed"),
+                )
+            )
+        if (
+            legal_risk_flags is not None
+            or compliance_gaps is not None
+            or raw_ai_json is not None
+        ):
+            session.add(
+                AuditScore(
+                    proposal_id=proposal_id,
+                    legal_risk_flags=json.dumps(legal_risk_flags or []),
+                    compliance_gaps=json.dumps(compliance_gaps or []),
+                    raw_ai_json=json.dumps(raw_ai_json or {}),
+                )
+            )
+    return proposal_id
+
+
+@contextmanager
+def _security_connection() -> Iterator[sqlite3.Connection]:
+    path = Path(SECURITY_DATABASE_PATH)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path, timeout=30)
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute("PRAGMA foreign_keys = ON")
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def init_security_tables() -> None:
+    with _security_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS onboarding_tokens (
+                id INTEGER PRIMARY KEY,
+                token_hash TEXT UNIQUE NOT NULL,
+                assigned_client TEXT NOT NULL,
+                is_used INTEGER NOT NULL DEFAULT 0,
+                failed_attempts INTEGER NOT NULL DEFAULT 0,
+                is_locked INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                used_at TEXT
+            )
+        """)
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(onboarding_tokens)")
+        }
+        if "token_hash" not in columns:
+            if "token" not in columns:
+                raise RuntimeError("The onboarding token schema is incompatible.")
+            connection.execute(
+                "ALTER TABLE onboarding_tokens ADD COLUMN token_hash TEXT"
+            )
+            rows = connection.execute(
+                "SELECT id, token FROM onboarding_tokens"
+            ).fetchall()
+            for row in rows:
+                connection.execute(
+                    "UPDATE onboarding_tokens SET token_hash = ? WHERE id = ?",
+                    (_onboarding_token_hash(str(row["token"])), row["id"]),
+                )
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_onboarding_token_hash ON onboarding_tokens (token_hash)"
+        )
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS subscribed_clients (
+                id INTEGER PRIMARY KEY,
+                client_name TEXT UNIQUE NOT NULL,
+                contact_email TEXT NOT NULL,
+                subscription_status TEXT NOT NULL DEFAULT 'Active',
+                last_login TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+
+
+def _onboarding_token_hash(token: str) -> str:
+    return hashlib.sha256(token.strip().upper().encode("utf-8")).hexdigest()
+
+
+def create_onboarding_token(assigned_client: str) -> str:
+    name = _required_text(assigned_client, "assigned_client")
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    with _security_connection() as connection:
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(onboarding_tokens)")
+        }
+        for _ in range(10):
+            token = "-".join(
+                "".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(4)
+            )
+            try:
+                token_hash = _onboarding_token_hash(token)
+                timestamp = datetime.now(timezone.utc).isoformat()
+                if "token" in columns:
+                    connection.execute(
+                        "INSERT INTO onboarding_tokens (token, token_hash, assigned_client, created_at) VALUES (?, ?, ?, ?)",
+                        (token_hash, token_hash, name, timestamp),
+                    )
+                else:
+                    connection.execute(
+                        "INSERT INTO onboarding_tokens (token_hash, assigned_client, created_at) VALUES (?, ?, ?)",
+                        (token_hash, name, timestamp),
+                    )
+                return token
+            except sqlite3.IntegrityError:
+                continue
+    raise RuntimeError("Could not generate a unique onboarding token.")
+
+
+def record_failed_attempt(token_input: str) -> tuple[int, bool]:
+    if not isinstance(token_input, str) or not token_input.strip():
+        return 0, False
+    with _security_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            "SELECT id, failed_attempts, is_locked FROM onboarding_tokens WHERE token_hash = ?",
+            (_onboarding_token_hash(token_input),),
+        ).fetchone()
+        if row is None:
+            return 0, False
+        attempts = int(row["failed_attempts"]) + 1
+        locked = bool(row["is_locked"]) or attempts >= 2
+        connection.execute(
+            "UPDATE onboarding_tokens SET failed_attempts = ?, is_locked = ? WHERE id = ?",
+            (attempts, int(locked), row["id"]),
+        )
+        return attempts, locked
+
+
+def verify_and_consume_token(token_input: str, contact_email: str) -> tuple[bool, str]:
+    if not isinstance(token_input, str) or not token_input.strip():
+        return False, "Enter an onboarding token."
+    email = contact_email.strip() if isinstance(contact_email, str) else ""
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        return False, "Enter a valid contact email address."
+    with _security_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            "SELECT id, assigned_client, is_used, is_locked FROM onboarding_tokens WHERE token_hash = ?",
+            (_onboarding_token_hash(token_input),),
+        ).fetchone()
+        if row is None:
+            return False, "Invalid onboarding token."
+        if row["is_used"]:
+            return False, "This onboarding token has already been used."
+        if row["is_locked"]:
+            return False, "This onboarding token is locked. Contact an administrator."
+        timestamp = datetime.now(timezone.utc).isoformat()
+        updated = connection.execute(
+            "UPDATE onboarding_tokens SET is_used = 1, used_at = ? WHERE id = ? AND is_used = 0 AND is_locked = 0",
+            (timestamp, row["id"]),
+        )
+        if updated.rowcount != 1:
+            return False, "This onboarding token is no longer available."
+        connection.execute(
+            """INSERT INTO subscribed_clients (client_name, contact_email, subscription_status, last_login, created_at)
+               VALUES (?, ?, 'Active', ?, ?)
+               ON CONFLICT(client_name) DO UPDATE SET contact_email = excluded.contact_email,
+                   subscription_status = 'Active', last_login = excluded.last_login""",
+            (row["assigned_client"], email, timestamp, timestamp),
+        )
+        return True, f"Onboarding completed for {row['assigned_client']}."
+
+
+def get_all_tokens() -> list[dict[str, Any]]:
+    with _security_connection() as connection:
+        rows = connection.execute(
+            "SELECT id, assigned_client, is_used, failed_attempts, is_locked, created_at, used_at FROM onboarding_tokens ORDER BY id DESC"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_subscribed_clients() -> list[dict[str, Any]]:
+    with _security_connection() as connection:
+        rows = connection.execute(
+            "SELECT id, client_name, contact_email, subscription_status, last_login, created_at FROM subscribed_clients WHERE subscription_status = ? ORDER BY client_name COLLATE NOCASE",
+            ("Active",),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def revoke_or_reset_token(token: str, action: str) -> bool:
+    if (
+        not isinstance(token, str)
+        or not token.strip()
+        or action not in {"unlock", "reset", "revoke"}
+    ):
+        return False
+    with _security_connection() as connection:
+        if action == "unlock":
+            cursor = connection.execute(
+                "UPDATE onboarding_tokens SET failed_attempts = 0, is_locked = 0 WHERE token_hash = ? AND is_used = 0",
+                (_onboarding_token_hash(token),),
+            )
+        elif action == "reset":
+            cursor = connection.execute(
+                "UPDATE onboarding_tokens SET failed_attempts = 0, is_locked = 0, is_used = 0, used_at = NULL WHERE token_hash = ?",
+                (_onboarding_token_hash(token),),
+            )
+        else:
+            cursor = connection.execute(
+                "UPDATE onboarding_tokens SET is_used = 1, used_at = COALESCE(used_at, ?) WHERE token_hash = ?",
+                (datetime.now(timezone.utc).isoformat(), _onboarding_token_hash(token)),
+            )
+        return cursor.rowcount == 1
+
 
 _TABLE_COLUMNS = {
     "tenants": (
@@ -320,6 +767,27 @@ _CREATE_TABLES = (
         admin_phone TEXT NOT NULL,
         created_at TEXT NOT NULL
     )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS tenant_support_tickets (
+        ticket_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_slug TEXT NOT NULL,
+        org_name TEXT NOT NULL,
+        sender_email TEXT NOT NULL,
+        message TEXT NOT NULL,
+        response TEXT,
+        status TEXT NOT NULL DEFAULT 'OPEN',
+        is_auto_responded INTEGER NOT NULL DEFAULT 0
+            CHECK (is_auto_responded IN (0, 1)),
+        created_at TEXT NOT NULL,
+        responded_at TEXT,
+        FOREIGN KEY (tenant_slug) REFERENCES tenants (tenant_slug)
+            ON DELETE CASCADE
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tenant_support_tickets_tenant_created
+    ON tenant_support_tickets (tenant_slug, created_at DESC, ticket_id DESC)
     """,
     """
     CREATE TABLE IF NOT EXISTS admin_access_logs (
@@ -1000,6 +1468,18 @@ def init_db() -> None:
         _verify_schema(connection)
         if not vendors_table_exists:
             _backfill_solicited_vendors(connection)
+    target = get_db_engine()
+    if target is _DEFAULT_COMPATIBILITY_ENGINE and (
+        target.dialect.name != "sqlite"
+        or Path(str(target.url.database)).resolve() != DB_FILE.resolve()
+    ):
+        local_engine = create_database_engine(f"sqlite:///{DB_FILE.as_posix()}")
+        try:
+            Base.metadata.create_all(local_engine)
+        finally:
+            local_engine.dispose()
+    else:
+        Base.metadata.create_all(target)
 
 
 def _required_text(value: Any, field_name: str) -> str:
@@ -1007,6 +1487,118 @@ def _required_text(value: Any, field_name: str) -> str:
     if not normalized:
         raise ValueError(f"{field_name} is required.")
     return normalized
+
+
+def create_tenant_support_ticket(
+    tenant_slug: str,
+    sender_email: str,
+    message: str,
+    *,
+    automated_response: str | None = None,
+) -> tuple[bool, str | None]:
+    """Create a support ticket only for an active tenant in the primary portal DB."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    normalized_email = _required_text(sender_email, "sender_email")
+    normalized_message = _required_text(message, "message")
+    if len(normalized_email) > 320 or "@" not in normalized_email:
+        raise ValueError("sender_email must be a valid email address.")
+    if len(normalized_message) > 10_000:
+        raise ValueError("message cannot exceed 10000 characters.")
+    if automated_response is not None:
+        automated_response = automated_response.strip() or None
+        if automated_response is not None and len(automated_response) > 20_000:
+            raise ValueError("automated_response cannot exceed 20000 characters.")
+
+    init_db()
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with get_connection() as connection:
+        tenant = connection.execute(
+            """
+            SELECT full_corporation_name
+            FROM tenants
+            WHERE tenant_slug = ? AND is_deleted = 0
+              AND UPPER(TRIM(COALESCE(status, ''))) = 'ACTIVE'
+            """,
+            (normalized_slug,),
+        ).fetchone()
+        if tenant is None:
+            return False, None
+        connection.execute(
+            """
+            INSERT INTO tenant_support_tickets (
+                tenant_slug, org_name, sender_email, message, response,
+                status, is_auto_responded, created_at, responded_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                normalized_slug,
+                str(tenant["full_corporation_name"] or normalized_slug),
+                normalized_email,
+                normalized_message,
+                automated_response,
+                "RESOLVED (AI AUTO-REPLY)" if automated_response else "OPEN",
+                int(automated_response is not None),
+                timestamp,
+                timestamp if automated_response else None,
+            ),
+        )
+    return True, automated_response
+
+
+def get_tenant_support_tickets(tenant_slug: str) -> list[dict[str, Any]]:
+    """Return support history for one active, non-deleted tenant."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    init_db()
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT ticket_id, tenant_slug, org_name, sender_email, message,
+                   response, status, is_auto_responded, created_at, responded_at
+            FROM tenant_support_tickets
+            WHERE tenant_slug = ?
+            ORDER BY created_at DESC, ticket_id DESC
+            """,
+            (normalized_slug,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_all_tenant_support_tickets() -> list[dict[str, Any]]:
+    """Return all support tickets; callers must enforce platform-admin access."""
+    init_db()
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT ticket_id, tenant_slug, org_name, sender_email, message,
+                   response, status, is_auto_responded, created_at, responded_at
+            FROM tenant_support_tickets
+            ORDER BY created_at DESC, ticket_id DESC
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def respond_to_tenant_support_ticket(ticket_id: int, response_text: str) -> bool:
+    """Resolve an open tenant support ticket with a developer response."""
+    if isinstance(ticket_id, bool) or not isinstance(ticket_id, int) or ticket_id < 1:
+        raise ValueError("ticket_id must be a positive integer.")
+    normalized_response = _required_text(response_text, "response_text")
+    if len(normalized_response) > 20_000:
+        raise ValueError("response_text cannot exceed 20000 characters.")
+
+    init_db()
+    responded_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    with get_connection() as connection:
+        cursor = connection.execute(
+            """
+            UPDATE tenant_support_tickets
+            SET response = ?, status = 'RESOLVED (CEO RESPONSE)',
+                is_auto_responded = 0, responded_at = ?
+            WHERE ticket_id = ? AND status = 'OPEN'
+            """,
+            (normalized_response, responded_at, ticket_id),
+        )
+    return cursor.rowcount == 1
 
 
 def _insert_security_audit_event(

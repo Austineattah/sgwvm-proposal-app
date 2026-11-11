@@ -3,11 +3,31 @@ NexusVault Developer Console & Seminar Training Portal (src/developer_console.py
 Empowers Lead Architect & CEO with master admin controls, blinking alert notifications, and tenant support controls.
 """
 
+import logging
+import sqlite3
 import time
 
 import streamlit as st
-from src.developer_kb import NEXUSVAULT_EXECUTIVE_KB
-from src.nexus_db_adapter import get_all_support_tickets, respond_to_support_ticket
+
+try:
+    from src.developer_kb import NEXUSVAULT_EXECUTIVE_KB
+except ImportError as exc:
+    NEXUSVAULT_EXECUTIVE_KB = {}
+    _KNOWLEDGE_BASE_IMPORT_ERROR: ImportError | None = exc
+else:
+    _KNOWLEDGE_BASE_IMPORT_ERROR = None
+
+try:
+    from src.nexus_db_adapter import (
+        get_all_support_tickets as _get_all_support_tickets,
+        respond_to_support_ticket as _respond_to_support_ticket,
+    )
+except ImportError as exc:
+    _get_all_support_tickets = None
+    _respond_to_support_ticket = None
+    _SUPPORT_ADAPTER_IMPORT_ERROR: ImportError | None = exc
+else:
+    _SUPPORT_ADAPTER_IMPORT_ERROR = None
 
 
 def _expire_developer_session():
@@ -31,7 +51,7 @@ def _monitor_developer_session():
         st.rerun()
 
 
-def render_developer_console():
+def render_developer_console(*, get_tickets=None, respond_to_ticket=None):
     if _expire_developer_session():
         st.rerun()
     st.session_state["last_activity"] = time.time()
@@ -50,8 +70,21 @@ def render_developer_console():
         "Master Administrative Oversight & Executive Seminar Training Environment"
     )
 
-    tickets = get_all_support_tickets()
-    unanswered_count = sum(1 for t in tickets if t["status"] == "OPEN")
+    ticket_reader = get_tickets or _get_all_support_tickets
+    ticket_responder = respond_to_ticket or _respond_to_support_ticket
+    tickets = None
+    if ticket_reader is not None:
+        try:
+            tickets = ticket_reader()
+        except (OSError, RuntimeError, sqlite3.Error, ValueError):
+            logging.exception("Support tickets could not be loaded.")
+            st.error("Support tickets could not be loaded.")
+    elif _SUPPORT_ADAPTER_IMPORT_ERROR is not None:
+        st.error(f"Support ticket storage is unavailable: {_SUPPORT_ADAPTER_IMPORT_ERROR}")
+
+    unanswered_count = sum(
+        1 for ticket in (tickets or []) if ticket["status"] == "OPEN"
+    )
 
     feedback_label = "📩 Client Tenant Feedback & Complaints"
     if unanswered_count > 0:
@@ -92,13 +125,31 @@ def render_developer_console():
         st.button("🔄 Refresh Sovereign Database State", use_container_width=True)
 
     with tab_feedback:
-        render_tenant_feedback_tab(tickets, unanswered_count)
+        if tickets is None:
+            st.error("Support history is unavailable; no ticket actions are enabled.")
+        else:
+            render_tenant_feedback_tab(
+                tickets,
+                unanswered_count,
+                respond_to_ticket=ticket_responder,
+            )
 
     with tab_seminar:
-        render_seminar_training_suite()
+        if _KNOWLEDGE_BASE_IMPORT_ERROR is not None:
+            st.error(
+                "The Executive Knowledge Base is unavailable: "
+                f"{_KNOWLEDGE_BASE_IMPORT_ERROR}"
+            )
+        else:
+            render_seminar_training_suite()
 
 
-def render_tenant_feedback_tab(tickets, unanswered_count):
+def render_tenant_feedback_tab(
+    tickets,
+    unanswered_count,
+    *,
+    respond_to_ticket=None,
+):
     st.markdown("### 📩 Client Tenant Inquiries & Escalation Gateway")
 
     # Blinking Pulsing CSS Notification Banner for Unanswered Tickets
@@ -139,6 +190,10 @@ def render_tenant_feedback_tab(tickets, unanswered_count):
             "🟢 All client tenant inquiries have been answered or resolved by AI Auto-Reply!"
         )
 
+    if respond_to_ticket is None:
+        st.error("Ticket responses are unavailable because ticket storage is missing.")
+        return
+
     if not tickets:
         st.info("No active inquiries or complaints recorded from client tenants.")
         return
@@ -175,9 +230,19 @@ def render_tenant_feedback_tab(tickets, unanswered_count):
                     type="primary",
                 ):
                     if reply_text.strip():
-                        if respond_to_support_ticket(
-                            t["ticket_id"], reply_text.strip()
-                        ):
+                        try:
+                            responded = respond_to_ticket(
+                                t["ticket_id"],
+                                reply_text.strip(),
+                            )
+                        except (OSError, RuntimeError, sqlite3.Error, ValueError):
+                            logging.exception(
+                                "Could not respond to support ticket %s.",
+                                t["ticket_id"],
+                            )
+                            st.error("Failed to record the executive response.")
+                            continue
+                        if responded:
                             st.success(
                                 "Executive response sent! Visual blinking alert cleared."
                             )

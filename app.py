@@ -20,6 +20,29 @@ from typing import Any
 from urllib.parse import urlencode, urlparse
 
 import streamlit as st
+
+
+def _handle_primary_workspace_change() -> None:
+    """Unconditional module-level callback for primary workspace navigation."""
+    if not _guard_session_interaction():
+        return
+    selected_workspace = st.session_state.get(
+        "_primary_workspace_selection",
+        "Developer Console",
+    )
+    if selected_workspace not in {"Onboarding Portal", "Developer Console"}:
+        logging.error(
+            "The primary workspace selector returned an unsupported value: %r.",
+            selected_workspace,
+        )
+        return
+    st.session_state["_primary_workspace"] = selected_workspace
+    if selected_workspace == "Developer Console":
+        st.query_params["mode"] = "dev"
+    else:
+        st.query_params.pop("mode", None)
+
+
 import requests
 from PIL import Image, UnidentifiedImageError
 from cryptography.fernet import Fernet, InvalidToken
@@ -27,8 +50,81 @@ from cryptography.fernet import Fernet, InvalidToken
 from streamlit.errors import StreamlitSecretNotFoundError
 
 import database as db
-from src.committee_auth import CommitteeTokenManager
 
+
+try:
+    from src.committee_auth import CommitteeTokenManager
+except ImportError as exc:
+    CommitteeTokenManager = None
+    _COMMITTEE_AUTH_IMPORT_ERROR: ImportError | None = exc
+else:
+    _COMMITTEE_AUTH_IMPORT_ERROR = None
+
+try:
+    from src.developer_console import (
+        render_seminar_training_suite as _render_seminar_training_suite,
+        render_tenant_feedback_tab as _render_tenant_feedback_tab,
+    )
+except ImportError as exc:
+    _render_seminar_training_suite = None
+    _render_tenant_feedback_tab = None
+    _DEVELOPER_UI_IMPORT_ERROR: ImportError | None = exc
+else:
+    _DEVELOPER_UI_IMPORT_ERROR = None
+
+try:
+    from src.developer_kb import NEXUSVAULT_EXECUTIVE_KB
+except ImportError as exc:
+    NEXUSVAULT_EXECUTIVE_KB = {}
+    _DEVELOPER_KB_IMPORT_ERROR: ImportError | None = exc
+else:
+    _DEVELOPER_KB_IMPORT_ERROR = None
+
+try:
+    from src.nexus_db_adapter import match_knowledge_base as _match_knowledge_base
+except ImportError as exc:
+    _match_knowledge_base = None
+    _SUPPORT_KB_IMPORT_ERROR: ImportError | None = exc
+else:
+    _SUPPORT_KB_IMPORT_ERROR = None
+
+try:
+    from psycopg2 import Error as _PostgreSQLSupportError
+    from src.nexus_ai_support import (
+        NexusAgenticSupportEngine,
+        SovereignKnowledgeBase,
+        SupportTier,
+        UserContext,
+    )
+except ImportError as exc:
+    _PostgreSQLSupportError = None
+    NexusAgenticSupportEngine = None
+    SovereignKnowledgeBase = None
+    SupportTier = None
+    UserContext = None
+    _AI_SUPPORT_IMPORT_ERROR: ImportError | None = exc
+else:
+    _AI_SUPPORT_IMPORT_ERROR = None
+
+try:
+    from src.tenant_support_panel import (
+        render_client_tenant_support_panel as _render_tenant_support_panel,
+    )
+except ImportError as exc:
+    _render_tenant_support_panel = None
+    _TENANT_SUPPORT_IMPORT_ERROR: ImportError | None = exc
+else:
+    _TENANT_SUPPORT_IMPORT_ERROR = None
+
+try:
+    from developer_console import (
+        render_developer_master_console as _render_developer_master_console,
+    )
+except ImportError as exc:
+    _render_developer_master_console = None
+    _MASTER_CONSOLE_IMPORT_ERROR: ImportError | None = exc
+else:
+    _MASTER_CONSOLE_IMPORT_ERROR = None
 PRODUCTION_BASE_URL = "https://nexusvault-proposal-enterprise-connect.streamlit.app"
 
 
@@ -2605,7 +2701,7 @@ def _render_executive_committee_tab(tenant_slug: str, actor: str) -> None:
         key=_tenant_key(tenant_slug, "executive", "committee_count"),
     )
     member_values: list[tuple[str, str]] = []
-    with st.form(key=_tenant_key(tenant_slug, "executive", "committee_form")):
+    with st.container():
         for index in range(roster_count):
             name_col, email_col = st.columns(2)
             name = name_col.text_input(
@@ -2617,8 +2713,9 @@ def _render_executive_committee_tab(tenant_slug: str, actor: str) -> None:
                 key=_tenant_key(tenant_slug, "executive", f"committee_email_{index}"),
             )
             member_values.append((name.strip(), email.strip()))
-        provision = st.form_submit_button(
+        provision = st.button(
             "Provision committee and credentials",
+            key=_tenant_key(tenant_slug, "executive", "provision_committee"),
             type="primary",
             disabled=encryption_key is None,
         )
@@ -2746,7 +2843,7 @@ def _render_executive_committee_tab(tenant_slug: str, actor: str) -> None:
         return
     member_options = {member["member_id"]: member for member in members}
     tender_options = {tender["tender_id"]: tender for tender in tenders}
-    with st.form(key=_tenant_key(tenant_slug, "executive", "signed_token_form")):
+    with st.container():
         member_id = st.selectbox(
             "Evaluator",
             options=list(member_options),
@@ -2757,7 +2854,10 @@ def _render_executive_committee_tab(tenant_slug: str, actor: str) -> None:
             options=list(tender_options),
             format_func=lambda value: f"{tender_options[value]['title']} ({value})",
         )
-        issue = st.form_submit_button("Issue signed access token")
+        issue = st.button(
+            "Issue signed access token",
+            key=_tenant_key(tenant_slug, "executive", "issue_signed_token"),
+        )
     issued_key = _tenant_key(tenant_slug, "executive", "issued_signed_token")
     if issue:
         st.session_state.pop(issued_key, None)
@@ -2828,13 +2928,7 @@ def _render_executive_committee_roster(tenant_slug: str, actor: str) -> None:
             if member["coi_signed"]:
                 st.caption(f"Recorded at {member['coi_signed_at']}.")
             else:
-                with st.form(
-                    key=_tenant_key(
-                        tenant_slug,
-                        "executive",
-                        f"coi_form_{member['member_id']}",
-                    )
-                ):
+                with st.container():
                     attested = st.checkbox(
                         "I confirm the member's signed COI declaration was received.",
                         key=_tenant_key(
@@ -2843,8 +2937,13 @@ def _render_executive_committee_roster(tenant_slug: str, actor: str) -> None:
                             f"coi_attested_{member['member_id']}",
                         ),
                     )
-                    record_signoff = st.form_submit_button(
+                    record_signoff = st.button(
                         "Record received COI sign-off",
+                        key=_tenant_key(
+                            tenant_slug,
+                            "executive",
+                            f"coi_submit_{member['member_id']}",
+                        ),
                         disabled=not attested,
                     )
                 if record_signoff:
@@ -2940,8 +3039,14 @@ def _render_committee_leaderboard(tenant_slug: str) -> None:
             )
 
 
-def _configured_committee_token_manager() -> CommitteeTokenManager | None:
+def _configured_committee_token_manager() -> Any | None:
     """Load the signing key without treating a missing key as valid."""
+    if CommitteeTokenManager is None:
+        logging.error(
+            "Committee token authentication is unavailable: %s",
+            _COMMITTEE_AUTH_IMPORT_ERROR,
+        )
+        return None
     key = os.environ.get("DOSSIER_ENCRYPTION_KEY", "").strip()
     if not key:
         try:
@@ -2954,7 +3059,7 @@ def _configured_committee_token_manager() -> CommitteeTokenManager | None:
 
 
 def _verified_committee_token(
-    manager: CommitteeTokenManager, token: str, tenant_slug: str
+    manager: Any, token: str, tenant_slug: str
 ) -> dict[str, str] | None:
     """Validate signed claims and bind the token to the current tenant."""
     valid, payload, _ = manager.verify_token(token)
@@ -3068,14 +3173,15 @@ def _render_signed_committee_sandbox(tenant_slug: str) -> None:
         if token is not None:
             st.session_state.pop(token_key, None)
             st.warning("Your committee token has expired or is no longer valid.")
-        with st.form(key=_tenant_key(tenant_slug, "committee_signed", "form")):
+        with st.container():
             st.text_input(
                 "Signed committee token",
                 type="password",
                 key=_tenant_key(tenant_slug, "committee_signed", "input"),
             )
-            st.form_submit_button(
+            st.button(
                 "Unlock signed-token sandbox",
+                key=_tenant_key(tenant_slug, "committee_signed", "submit"),
                 on_click=_handle_signed_committee_login,
                 args=(tenant_slug,),
             )
@@ -3292,7 +3398,7 @@ def _render_committee_workspace(tenant_slug: str) -> None:
         if not tender_options:
             st.info("No active tender batches are available for committee evaluation.")
             return
-        with st.form(key=_tenant_key(tenant_slug, "committee", "login_form")):
+        with st.container():
             st.text_input(
                 "Cryptographic access token",
                 type="password",
@@ -3304,8 +3410,9 @@ def _render_committee_workspace(tenant_slug: str) -> None:
                 format_func=lambda tender_id: f"{tender_options[tender_id]} ({tender_id})",
                 key=_tenant_key(tenant_slug, "committee", "tender"),
             )
-            submitted = st.form_submit_button(
+            submitted = st.button(
                 "Authenticate & Unlock Workspace",
+                key=_tenant_key(tenant_slug, "committee", "login_submit"),
                 type="primary",
                 on_click=_handle_committee_access,
                 args=(tenant_slug,),
@@ -3482,9 +3589,7 @@ def _render_committee_workspace(tenant_slug: str) -> None:
         st.error("Your saved evaluation could not be loaded.")
         return
     st.subheader("Evaluation matrix")
-    with st.form(
-        key=_tenant_key(tenant_slug, "committee", f"evaluation_{tracking_id}")
-    ):
+    with st.container():
         score_keys = {}
         score_values = (
             ("technical", "Technical Capacity", "technical_score"),
@@ -3517,7 +3622,15 @@ def _render_committee_workspace(tenant_slug: str) -> None:
             max_chars=8_000,
             key=notes_key,
         )
-        submitted = st.form_submit_button("Save proposal evaluation", type="primary")
+        submitted = st.button(
+            "Save proposal evaluation",
+            key=_tenant_key(
+                tenant_slug,
+                "committee",
+                f"save_evaluation_{tracking_id}",
+            ),
+            type="primary",
+        )
     if submitted:
         scores = {name: int(st.session_state[key]) for name, key in score_keys.items()}
         try:
@@ -3917,15 +4030,205 @@ def _render_executive_command_center(
         _render_executive_apex_tab(tenant_slug, actor)
 
 
+def _create_primary_tenant_support_ticket(
+    *,
+    tenant_id: str,
+    tenant_slug: str,
+    org_name: str,
+    sender_email: str,
+    message: str,
+) -> tuple[bool, str | None]:
+    if tenant_id != tenant_slug:
+        raise ValueError("Support tenant identity does not match the active route.")
+    if not org_name.strip():
+        raise ValueError("org_name is required.")
+    automated_response = (
+        _match_knowledge_base(message) if _match_knowledge_base is not None else None
+    )
+    return db.create_tenant_support_ticket(
+        tenant_slug=tenant_slug,
+        sender_email=sender_email,
+        message=message,
+        automated_response=automated_response,
+    )
+
+
+def _configured_support_postgresql_dsn() -> str | None:
+    dsn = os.environ.get("DATABASE_URL", "").strip()
+    if not dsn:
+        try:
+            secret = st.secrets.get("DATABASE_URL", "")
+        except (KeyError, StreamlitSecretNotFoundError):
+            secret = ""
+        if isinstance(secret, str):
+            dsn = secret.strip()
+    if dsn.startswith("postgresql+psycopg2://"):
+        dsn = dsn.replace("postgresql+psycopg2://", "postgresql://", 1)
+    if dsn.startswith(("postgresql://", "postgres://")):
+        return dsn
+    return None
+
+
+def _render_tenant_ai_support_query(
+    tenant_slug: str,
+    identity: Mapping[str, Any],
+) -> None:
+    st.markdown("### Tenant-Scoped AI Knowledge Base")
+    st.caption(
+        "Queries and any escalation tickets are scoped to this authenticated "
+        "tenant by PostgreSQL row-level security."
+    )
+    if (
+        NexusAgenticSupportEngine is None
+        or SovereignKnowledgeBase is None
+        or SupportTier is None
+        or UserContext is None
+    ):
+        detail = (
+            f" {_AI_SUPPORT_IMPORT_ERROR}"
+            if _AI_SUPPORT_IMPORT_ERROR is not None
+            else ""
+        )
+        st.error(f"The tenant-scoped AI support engine is unavailable.{detail}")
+        return
+    dsn = _configured_support_postgresql_dsn()
+    if dsn is None:
+        st.info(
+            "The tenant-scoped PostgreSQL Knowledge Base is not configured. "
+            "Submit an inquiry in Support & Feedback for local Knowledge Base "
+            "matching and executive follow-up."
+        )
+        return
+
+    query_key = _tenant_key(tenant_slug, "support", "ai_query")
+    result_key = _tenant_key(tenant_slug, "support", "ai_result")
+    with st.form(key=_tenant_key(tenant_slug, "support", "ai_query_form")):
+        query_text = st.text_area(
+            "Ask a question about this tenant's services or procedures",
+            key=query_key,
+            max_chars=10_000,
+        )
+        submitted = st.form_submit_button("Submit Knowledge Base Query")
+
+    if submitted:
+        if not _guard_session_interaction():
+            st.rerun()
+        if not query_text.strip():
+            st.warning("Enter a question before submitting.")
+        else:
+            context = UserContext(
+                user_id=str(identity["username"]),
+                tenant_id=tenant_slug,
+                role=str(identity["role"]),
+                tier=SupportTier.INTERNAL_ADMIN,
+                email=None,
+            )
+            try:
+                engine = NexusAgenticSupportEngine(
+                    SovereignKnowledgeBase(connection_string=dsn),
+                )
+                response = engine.process_query(query_text, context)
+            except (RuntimeError, ValueError):
+                logging.exception(
+                    "Tenant Knowledge Base query failed for %s.",
+                    tenant_slug,
+                )
+                st.session_state.pop(result_key, None)
+                st.error(
+                    "The tenant Knowledge Base could not process this query. "
+                    "Please use the Support & Feedback gateway."
+                )
+            except Exception as exc:
+                if (
+                    _PostgreSQLSupportError is None
+                    or not isinstance(exc, _PostgreSQLSupportError)
+                ):
+                    raise
+                logging.exception(
+                    "Tenant PostgreSQL Knowledge Base query failed for %s.",
+                    tenant_slug,
+                )
+                st.session_state.pop(result_key, None)
+                st.error(
+                    "The tenant Knowledge Base is temporarily unavailable. "
+                    "Please use the Support & Feedback gateway."
+                )
+            else:
+                st.session_state[result_key] = response
+
+    response = st.session_state.get(result_key)
+    if response is not None:
+        st.markdown("#### Query response")
+        st.markdown(response.response_text)
+        st.caption(
+            f"Confidence: {response.confidence_score:.0%} · "
+            f"{'Grounded in the tenant Knowledge Base' if response.grounded_in_kb else 'No matching Knowledge Base entry'}"
+        )
+        if response.escalated_to_human:
+            st.warning(
+                f"Escalated for human assistance · Ticket {response.ticket_id}"
+            )
+        else:
+            st.success("Answered from the tenant Knowledge Base.")
+
+
+def _render_authenticated_tenant_support(
+    tenant: Mapping[str, Any],
+    tenant_slug: str,
+) -> None:
+    identity = st.session_state.get(
+        _tenant_key(tenant_slug, "internal", "identity")
+    )
+    if (
+        not _tenant_access_is_authenticated("staff", tenant_slug)
+        or not isinstance(identity, Mapping)
+        or identity.get("tenant_slug") != tenant_slug
+        or identity.get("role")
+        not in {"admin", "tenant_admin", "directorate_staff"}
+    ):
+        st.info(
+            "Sign in under Desk Operations · Staff before opening this "
+            "tenant-scoped support gateway."
+        )
+        return
+    if _render_tenant_support_panel is None:
+        detail = (
+            f" {_TENANT_SUPPORT_IMPORT_ERROR}"
+            if _TENANT_SUPPORT_IMPORT_ERROR is not None
+            else ""
+        )
+        st.error(f"The tenant support interface is unavailable.{detail}")
+        return
+    if _SUPPORT_KB_IMPORT_ERROR is not None:
+        st.warning(
+            "Automated Knowledge Base responses are unavailable; inquiries "
+            "will still be routed for manual review."
+        )
+    ai_query_tab, feedback_tab = st.tabs(
+        ["Tenant-Scoped AI Query", "Support & Feedback"]
+    )
+    with ai_query_tab:
+        _render_tenant_ai_support_query(tenant_slug, identity)
+    with feedback_tab:
+        _render_tenant_support_panel(
+            tenant_id=tenant_slug,
+            tenant_slug=tenant_slug,
+            org_name=str(tenant.get("full_corporation_name") or tenant_slug),
+            create_ticket=_create_primary_tenant_support_ticket,
+            get_tickets=db.get_tenant_support_tickets,
+        )
+
+
 def _render_internal_portal(tenant: Mapping[str, Any], tenant_slug: str) -> None:
     st.title("Internal Directorate Access")
     st.caption(str(tenant.get("full_corporation_name") or tenant_slug))
 
-    staff_tab, executive_tab, committee_tab = st.tabs(
+    staff_tab, executive_tab, committee_tab, support_tab = st.tabs(
         [
             "Desk Operations · Staff",
             "Executive Management",
             "Committee Workspace",
+            "Support & Feedback Gateway",
         ]
     )
 
@@ -4044,6 +4347,9 @@ def _render_internal_portal(tenant: Mapping[str, Any], tenant_slug: str) -> None
 
     with committee_tab:
         _render_committee_workspace(tenant_slug)
+
+    with support_tab:
+        _render_authenticated_tenant_support(tenant, tenant_slug)
 
 
 def _render_vendor_portal(
@@ -4404,6 +4710,15 @@ def render_sovereign_tenant_header(tenant_data: Mapping[str, Any]) -> None:
 
 
 def _render_home() -> None:
+    st.session_state["_primary_workspace"] = "Onboarding Portal"
+    st.session_state["_primary_workspace_selection"] = "Onboarding Portal"
+    st.sidebar.radio(
+        "Application Workspace",
+        ["Onboarding Portal", "Developer Console"],
+        key="_primary_workspace_selection",
+        on_change=_handle_primary_workspace_change,
+    )
+
     if "custom_portal_heading" not in st.session_state:
         st.session_state["custom_portal_heading"] = (
             'NEXUSVAULT TECHNOLOGIES "SUPER INTELLIGENCE - '
@@ -4818,7 +5133,7 @@ def _send_tenant_activation_notification(tenant: Mapping[str, Any]) -> bool:
     return bool(sent)
 
 
-def render_developer_console() -> None:
+def _render_platform_developer_console() -> None:
     st.markdown("## Sovereign Developer Command Console")
     st.markdown("Client tenant, archive, and platform broadcast management.")
 
@@ -5288,6 +5603,138 @@ def render_developer_console() -> None:
             )
 
 
+def _render_platform_support_feedback() -> None:
+    try:
+        tickets = db.get_all_tenant_support_tickets()
+    except (sqlite3.Error, RuntimeError, ValueError):
+        logging.exception("Developer support ticket data failed to load.")
+        st.error("Support and feedback data is unavailable.")
+        return
+
+    unanswered_count = sum(1 for ticket in tickets if ticket["status"] == "OPEN")
+    if _render_tenant_feedback_tab is not None:
+        _render_tenant_feedback_tab(
+            tickets,
+            unanswered_count,
+            respond_to_ticket=db.respond_to_tenant_support_ticket,
+        )
+        return
+
+    if _DEVELOPER_UI_IMPORT_ERROR is not None:
+        st.warning(
+            "The enhanced feedback view is unavailable; using the platform "
+            f"ticket view instead. {_DEVELOPER_UI_IMPORT_ERROR}"
+        )
+    if not tickets:
+        st.info("No tenant support inquiries have been recorded.")
+        return
+    for ticket in tickets:
+        with st.expander(
+            f"{ticket['status']} · {ticket['org_name']} · "
+            f"{ticket['created_at']}"
+        ):
+            st.markdown(f"**From:** {ticket['sender_email']}")
+            st.markdown(f"**Inquiry:**\n\n> {ticket['message']}")
+            if ticket["response"]:
+                st.info(ticket["response"])
+            elif st.session_state.get("dev_authenticated") is True:
+                reply = st.text_area(
+                    "Executive response",
+                    key=f"platform_support_reply_{ticket['ticket_id']}",
+                )
+                if st.button(
+                    "Send executive response",
+                    key=f"platform_support_respond_{ticket['ticket_id']}",
+                    disabled=not reply.strip(),
+                ):
+                    try:
+                        responded = db.respond_to_tenant_support_ticket(
+                            ticket["ticket_id"],
+                            reply,
+                        )
+                    except (sqlite3.Error, RuntimeError, ValueError):
+                        logging.exception(
+                            "Could not respond to tenant support ticket %s.",
+                            ticket["ticket_id"],
+                        )
+                        st.error("The executive response could not be recorded.")
+                    else:
+                        if responded:
+                            st.success("Executive response recorded.")
+                            st.rerun()
+                        else:
+                            st.warning(
+                                "This inquiry has already been answered or removed."
+                            )
+
+
+def _render_executive_knowledge_base() -> None:
+    st.markdown("## Executive Knowledge Base")
+    if _DEVELOPER_KB_IMPORT_ERROR is not None:
+        st.error(
+            "The Executive Knowledge Base is unavailable: "
+            f"{_DEVELOPER_KB_IMPORT_ERROR}"
+        )
+        return
+    if not NEXUSVAULT_EXECUTIVE_KB:
+        st.error("The Executive Knowledge Base contains no entries.")
+        return
+
+    for topic, topic_data in NEXUSVAULT_EXECUTIVE_KB.items():
+        st.subheader(topic)
+        st.caption(
+            f"{topic_data['category']} · {topic_data['status_badge']}"
+        )
+        st.markdown(topic_data["summary"])
+        for index, qa in enumerate(topic_data["qa_pairs"], start=1):
+            with st.expander(f"Q{index}: {qa['question']}"):
+                st.markdown(qa["answer"])
+
+
+def render_developer_console() -> None:
+    if not _guard_session_interaction():
+        st.rerun()
+    if st.session_state.get("dev_authenticated") is not True:
+        st.error("Developer authentication is required.")
+        return
+
+    platform_tab, support_tab, knowledge_tab, slides_tab, legacy_tab = st.tabs(
+        [
+            "Developer Console",
+            "Support & Feedback Gateway",
+            "Executive Knowledge Base",
+            "Tenant UI Slide Deck",
+            "SaaS Master Console",
+        ]
+    )
+    with platform_tab:
+        _render_platform_developer_console()
+    with support_tab:
+        _render_platform_support_feedback()
+    with knowledge_tab:
+        _render_executive_knowledge_base()
+    with slides_tab:
+        if _render_seminar_training_suite is None:
+            detail = (
+                f" {_DEVELOPER_UI_IMPORT_ERROR}"
+                if _DEVELOPER_UI_IMPORT_ERROR is not None
+                else ""
+            )
+            st.error(f"The Tenant UI Slide Deck is unavailable.{detail}")
+        else:
+            _render_seminar_training_suite()
+    with legacy_tab:
+        if _render_developer_master_console is None:
+            detail = (
+                f" {_MASTER_CONSOLE_IMPORT_ERROR}"
+                if _MASTER_CONSOLE_IMPORT_ERROR is not None
+                else ""
+            )
+            st.error(f"The SaaS Master Console is unavailable.{detail}")
+        else:
+            _render_developer_master_console()
+
+
 session_expired_notice = st.session_state.pop("session_expired_msg", None)
 if isinstance(session_expired_notice, str) and session_expired_notice:
     st.warning(session_expired_notice)
@@ -5295,6 +5742,14 @@ if isinstance(session_expired_notice, str) and session_expired_notice:
 if st.query_params.get("mode") == "dev" and _raw_portal is None:
     _sync_tenant_session(None, "dev")
     st.session_state.pop("dev_grant_input", None)
+    st.session_state["_primary_workspace"] = "Developer Console"
+    st.session_state["_primary_workspace_selection"] = "Developer Console"
+    st.sidebar.radio(
+        "Application Workspace",
+        ["Onboarding Portal", "Developer Console"],
+        key="_primary_workspace_selection",
+        on_change=_handle_primary_workspace_change,
+    )
     configured_password = _configured_developer_password()
     if not configured_password:
         st.error(
@@ -5304,13 +5759,13 @@ if st.query_params.get("mode") == "dev" and _raw_portal is None:
         st.stop()
 
     st.markdown("## NexusVault Developer Authentication")
-    with st.form(key="developer_authentication_form"):
+    with st.container():
         st.text_input(
             "Enter Developer Grant Password",
             type="password",
             key="dev_password_input",
         )
-        st.form_submit_button("Authenticate", on_click=_handle_developer_login)
+        st.button("Authenticate", on_click=_handle_developer_login)
 
     feedback = st.session_state.pop("dev_login_feedback", None)
     if feedback == "success":

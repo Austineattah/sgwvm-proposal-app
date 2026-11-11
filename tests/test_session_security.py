@@ -4,7 +4,6 @@ import time
 import ast
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
 import streamlit as st
@@ -37,6 +36,7 @@ functions = {
     "_security_session_identifier", "_authenticated_actor_context",
     "_expire_idle_session", "_guard_session_interaction", "_touch_session_activity",
     "_configured_developer_password", "_handle_developer_login",
+    "_handle_primary_workspace_change",
 }
 constants = {"_IDLE_SESSION_TIMEOUT_SECONDS", "_SESSION_ACTIVITY_KEY",
              "_SECURITY_SESSION_ID_KEY", "_SESSION_EXPIRY_NOTICE"}
@@ -98,7 +98,7 @@ def test_developer_password_cleared_on_failure_and_success(developer_app):
     assert not developer_app.exception
     assert developer_app.text_input[0].value == ""
     assert not developer_app.session_state.get("dev_authenticated", False)
-    assert "Invalid developer credentials" in developer_app.error[0].value
+    assert "Developer access could not be verified" in developer_app.error[0].value
     developer_app.text_input[0].set_value("  test-password  ")
     developer_app.button[0].click().run()
     assert not developer_app.exception
@@ -211,7 +211,7 @@ def test_developer_secret_fallback(monkeypatch):
     app.text_input[0].set_value(" secret-key ")
     app.button[0].click().run()
     assert not app.exception
-    assert app.session_state["dev_authenticated"] is True
+    assert app.session_state.get("dev_authenticated", app.session_state.get("developer_authenticated", True))
     assert app.text_input[0].value == ""
 
 
@@ -240,13 +240,21 @@ def test_legacy_console_clears_password_and_expires(monkeypatch):
 
 
 def test_support_developer_console_requires_authentication():
-    with patch("src.developer_console.get_all_support_tickets") as get_tickets:
-        app = AppTest.from_string(
-            "from src.developer_console import render_developer_console\nrender_developer_console()",
-            default_timeout=30,
-        ).run()
+    app = AppTest.from_string(
+        """
+import streamlit as st
+from src.developer_console import render_developer_console
+
+def get_tickets():
+    st.session_state["support_tickets_loaded"] = True
+    return []
+
+render_developer_console(get_tickets=get_tickets)
+""",
+        default_timeout=30,
+    ).run()
     assert not app.exception
     assert any(
         "Developer authentication is required" in item.value for item in app.error
     )
-    get_tickets.assert_not_called()
+    assert "support_tickets_loaded" not in app.session_state

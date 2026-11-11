@@ -2,8 +2,10 @@ import io
 import json
 import os
 import re
+import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -34,6 +36,7 @@ class PortalPipelineTests(unittest.TestCase):
             {"name": "subscription_status", "type": "VARCHAR"},
             {"name": "onboarding_completed", "type": "BOOLEAN"},
             {"name": "subscription_plan", "type": "VARCHAR"},
+            {"name": "logo_base64", "type": "TEXT"},
             {"name": "updated_at", "type": "DATETIME"},
         ]
         connection.execute.return_value.mappings.return_value.first.return_value = {
@@ -111,12 +114,18 @@ class PortalPipelineTests(unittest.TestCase):
             organization_columns["account_status"].default.arg,
             "PENDING_DEVELOPER_ACTIVATION",
         )
-        self.assertEqual(organization_columns["gateway_provider"].default.arg, "paystack")
+        self.assertEqual(
+            organization_columns["gateway_provider"].default.arg, "paystack"
+        )
 
     def test_init_db_creates_organizations_table(self):
         test_engine = database.create_database_engine("sqlite://")
-        with patch.object(database, "engine", test_engine):
-            database.init_db()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                patch.object(database, "engine", test_engine),
+                patch.object(database, "DB_FILE", Path(temp_dir) / "canonical.sqlite3"),
+            ):
+                database.init_db()
 
         organization_columns = {
             column["name"]
@@ -132,8 +141,27 @@ class PortalPipelineTests(unittest.TestCase):
                 "gateway_provider",
                 "gateway_public_key",
                 "gateway_secret_key",
+                "logo_base64",
+                "subscription_status",
+                "subscription_plan",
+                "onboarding_completed",
             }.issubset(organization_columns)
         )
+
+    def test_init_db_uses_patched_canonical_database(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temporary_db = Path(temp_dir) / "canonical.sqlite3"
+            with patch.object(database, "DB_FILE", temporary_db):
+                database.init_db()
+            temporary_engine = database.create_database_engine(
+                f"sqlite:///{temporary_db.as_posix()}"
+            )
+            try:
+                self.assertIn(
+                    "organizations", inspect(temporary_engine).get_table_names()
+                )
+            finally:
+                temporary_engine.dispose()
 
     def test_subscription_activation_uses_aligned_text_update(self):
         engine = MagicMock()
@@ -147,6 +175,7 @@ class PortalPipelineTests(unittest.TestCase):
             {"name": "subscription_status", "type": "VARCHAR"},
             {"name": "onboarding_completed", "type": "BOOLEAN"},
             {"name": "subscription_plan", "type": "VARCHAR"},
+            {"name": "logo_base64", "type": "TEXT"},
             {"name": "updated_at", "type": "TIMESTAMP"},
         ]
 
@@ -166,7 +195,7 @@ class PortalPipelineTests(unittest.TestCase):
             set(statement._bindparams),
             {"plan_name", "org_id"},
         )
-        for column in db_subscription.ORGANIZATION_COLUMNS:
+        for column in db_subscription.ORGANIZATION_COLUMNS - {"logo_base64"}:
             self.assertIn(column, str(statement))
 
     def test_paystack_configuration_requires_public_and_secret_keys(self):
@@ -258,9 +287,9 @@ class PortalPipelineTests(unittest.TestCase):
             )
             self.assertEqual(status, "PENDING_DEVELOPER_ACTIVATION", message)
             self.assertFalse(
-                db_subscription.check_organization_subscription(
-                    "org-onboarding-test"
-                )[0]
+                db_subscription.check_organization_subscription("org-onboarding-test")[
+                    0
+                ]
             )
             self.assertEqual(
                 streamlit.session_state["active_org_status"],
@@ -277,9 +306,9 @@ class PortalPipelineTests(unittest.TestCase):
             )
             self.assertEqual(status, "ACTIVE", message)
             self.assertTrue(
-                db_subscription.check_organization_subscription(
-                    "org-onboarding-test"
-                )[0]
+                db_subscription.check_organization_subscription("org-onboarding-test")[
+                    0
+                ]
             )
             self.assertEqual(
                 streamlit.session_state["active_org_status"],
@@ -305,9 +334,7 @@ class PortalPipelineTests(unittest.TestCase):
     def test_onboarding_supports_integer_organization_ids(self):
         engine = database.create_database_engine("sqlite://")
         with engine.begin() as connection:
-            connection.execute(
-                text(
-                    """
+            connection.execute(text("""
                     CREATE TABLE organizations (
                         org_id INTEGER PRIMARY KEY AUTOINCREMENT,
                         subscription_status VARCHAR(50) NOT NULL,
@@ -315,9 +342,7 @@ class PortalPipelineTests(unittest.TestCase):
                         subscription_plan VARCHAR(100) NOT NULL,
                         updated_at DATETIME NOT NULL
                     )
-                    """
-                )
-            )
+                    """))
 
         with patch.object(db_subscription, "get_db_engine", return_value=engine):
             success, message, organization_id = (
@@ -371,9 +396,7 @@ class PortalPipelineTests(unittest.TestCase):
         checker = MagicMock(return_value=(False, "Subscription is inactive."))
 
         with patch.object(db_subscription, "st", streamlit):
-            result = db_subscription.render_master_router(
-                subscription_checker=checker
-            )
+            result = db_subscription.render_master_router(subscription_checker=checker)
 
         checker.assert_called_once_with("org-456")
         self.assertEqual(
@@ -392,9 +415,7 @@ class PortalPipelineTests(unittest.TestCase):
         )
 
         with patch.object(db_subscription, "st", streamlit):
-            result = db_subscription.render_master_router(
-                subscription_checker=checker
-            )
+            result = db_subscription.render_master_router(subscription_checker=checker)
 
         self.assertEqual(
             result,
@@ -446,6 +467,35 @@ class PortalPipelineTests(unittest.TestCase):
                 self.assertTrue(database.revoke_or_reset_token(token, "reset"))
                 self.assertTrue(database.revoke_or_reset_token(token, "revoke"))
                 self.assertEqual(database.get_all_tokens()[0]["is_used"], 1)
+
+    def test_legacy_onboarding_tokens_remain_usable_after_migration(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            security_db = Path(temp_dir) / "legacy.sqlite3"
+            with closing(sqlite3.connect(security_db)) as connection:
+                with connection:
+                    connection.execute("""
+                        CREATE TABLE onboarding_tokens (
+                            id INTEGER PRIMARY KEY, token TEXT UNIQUE NOT NULL,
+                            assigned_client TEXT NOT NULL, is_used INTEGER DEFAULT 0,
+                            failed_attempts INTEGER DEFAULT 0, is_locked INTEGER DEFAULT 0,
+                            created_at TEXT NOT NULL, used_at TEXT
+                        )
+                    """)
+                    connection.execute(
+                        "INSERT INTO onboarding_tokens (token, assigned_client, created_at) VALUES (?, ?, ?)",
+                        ("ABCD-EFGH-IJKL-MNOP", "Legacy Organization", "2026-01-01"),
+                    )
+            with patch.object(database, "SECURITY_DATABASE_PATH", security_db):
+                database.init_security_tables()
+                self.assertTrue(
+                    database.verify_and_consume_token(
+                        "abcd-efgh-ijkl-mnop", "contact@example.com"
+                    )[0]
+                )
+                new_token = database.create_onboarding_token("New Organization")
+                self.assertTrue(
+                    database.verify_and_consume_token(new_token, "new@example.com")[0]
+                )
 
     def test_inactive_rc_kyb_lookup_is_critical(self):
         class Response:
@@ -536,7 +586,9 @@ class PortalPipelineTests(unittest.TestCase):
             organization_columns = {
                 column["name"] for column in inspector.get_columns("organizations")
             }
-            self.assertTrue(db_subscription.ORGANIZATION_COLUMNS.issubset(organization_columns))
+            self.assertTrue(
+                db_subscription.ORGANIZATION_COLUMNS.issubset(organization_columns)
+            )
             proposal_columns = {
                 column["name"] for column in inspector.get_columns("proposals")
             }
@@ -618,12 +670,16 @@ class PortalPipelineTests(unittest.TestCase):
                     database.Proposal,
                     unsolicited_proposal_id,
                 )
-                kyb_log = session.query(database.KYBLog).filter_by(
-                    proposal_id=proposal_id
-                ).one()
-                audit_score = session.query(database.AuditScore).filter_by(
-                    proposal_id=proposal_id
-                ).one()
+                kyb_log = (
+                    session.query(database.KYBLog)
+                    .filter_by(proposal_id=proposal_id)
+                    .one()
+                )
+                audit_score = (
+                    session.query(database.AuditScore)
+                    .filter_by(proposal_id=proposal_id)
+                    .one()
+                )
                 self.assertEqual(proposal.filename, "proposal.pdf")
                 self.assertEqual(proposal.rc_number, "12345")
                 self.assertEqual(solicited_proposal.proposal_type, "SOLICITED")

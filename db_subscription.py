@@ -1,4 +1,3 @@
-
 def _validate_org_columns(engine):
     try:
         inspector = inspect(engine)
@@ -20,9 +19,12 @@ def _validate_org_columns(engine):
             if missing:
                 with engine.begin() as conn:
                     for m in missing:
-                        conn.execute(text(f"ALTER TABLE organizations ADD COLUMN {m} TEXT"))
+                        conn.execute(
+                            text(f"ALTER TABLE organizations ADD COLUMN {m} TEXT")
+                        )
     except Exception:
         pass
+
 
 import logging
 import os
@@ -34,7 +36,7 @@ from streamlit.errors import StreamlitAPIException, StreamlitSecretNotFoundError
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 
-from database import get_connection as get_db_engine
+from database import get_db_engine
 
 ORGANIZATION_COLUMNS = {
     "org_id",
@@ -108,13 +110,11 @@ def get_organization_status(org_id: str) -> tuple[str | None, str]:
         )
         with engine.connect() as connection:
             result = connection.execute(
-                text(
-                    """
+                text("""
                     SELECT subscription_status
                     FROM organizations
                     WHERE org_id = :org_id
-                    """
-                ),
+                    """),
                 {"org_id": org_id_value},
             ).first()
         if result is None:
@@ -154,15 +154,34 @@ def complete_organization_onboarding(
             try:
                 with engine.begin() as conn:
                     for mc in missing_columns:
-                        if mc == 'logo_base64':
-                            conn.execute(text("ALTER TABLE organizations ADD COLUMN logo_base64 TEXT"))
-                        elif mc == 'onboarding_completed':
-                            conn.execute(text("ALTER TABLE organizations ADD COLUMN onboarding_completed BOOLEAN"))
-                        elif mc == 'subscription_plan':
-                            conn.execute(text("ALTER TABLE organizations ADD COLUMN subscription_plan VARCHAR(50)"))
-                        elif mc == 'updated_at':
-                            conn.execute(text("ALTER TABLE organizations ADD COLUMN updated_at TIMESTAMP"))
-                columns = {column["name"]: column["type"] for column in inspect(engine).get_columns("organizations")}
+                        if mc == "logo_base64":
+                            conn.execute(
+                                text(
+                                    "ALTER TABLE organizations ADD COLUMN logo_base64 TEXT"
+                                )
+                            )
+                        elif mc == "onboarding_completed":
+                            conn.execute(
+                                text(
+                                    "ALTER TABLE organizations ADD COLUMN onboarding_completed BOOLEAN"
+                                )
+                            )
+                        elif mc == "subscription_plan":
+                            conn.execute(
+                                text(
+                                    "ALTER TABLE organizations ADD COLUMN subscription_plan VARCHAR(50)"
+                                )
+                            )
+                        elif mc == "updated_at":
+                            conn.execute(
+                                text(
+                                    "ALTER TABLE organizations ADD COLUMN updated_at TIMESTAMP"
+                                )
+                            )
+                columns = {
+                    column["name"]: column["type"]
+                    for column in inspect(engine).get_columns("organizations")
+                }
                 missing_columns = ORGANIZATION_COLUMNS - columns.keys()
             except Exception:
                 pass
@@ -180,8 +199,7 @@ def complete_organization_onboarding(
         with engine.begin() as connection:
             if "integer" in str(columns["org_id"]).lower() and not normalized_org_id:
                 result = connection.execute(
-                    text(
-                        """
+                    text("""
                         INSERT INTO organizations (
                             subscription_status, onboarding_completed,
                             subscription_plan, logo_base64, updated_at
@@ -190,8 +208,7 @@ def complete_organization_onboarding(
                             :plan_name, :logo_data, CURRENT_TIMESTAMP
                         )
                         RETURNING org_id
-                        """
-                    ),
+                        """),
                     {"plan_name": normalized_plan, "logo_data": normalized_logo},
                 )
                 generated_org_id = str(result.scalar_one())
@@ -214,8 +231,7 @@ def complete_organization_onboarding(
                 org_id_value = normalized_org_id or f"org-{uuid.uuid4().hex}"
 
             result = connection.execute(
-                text(
-                    """
+                text("""
                     UPDATE organizations
                     SET subscription_status = 'PENDING_DEVELOPER_ACTIVATION',
                         onboarding_completed = TRUE,
@@ -223,14 +239,16 @@ def complete_organization_onboarding(
                         logo_base64 = :logo_data,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE org_id = :org_id
-                    """
-                ),
-                {"plan_name": normalized_plan, "logo_data": normalized_logo, "org_id": org_id_value},
+                    """),
+                {
+                    "plan_name": normalized_plan,
+                    "logo_data": normalized_logo,
+                    "org_id": org_id_value,
+                },
             )
             if result.rowcount == 0:
                 connection.execute(
-                    text(
-                        """
+                    text("""
                         INSERT INTO organizations (
                             org_id, subscription_status, onboarding_completed,
                             subscription_plan, logo_base64, updated_at
@@ -238,9 +256,12 @@ def complete_organization_onboarding(
                             :org_id, 'PENDING_DEVELOPER_ACTIVATION', TRUE,
                             :plan_name, :logo_data, CURRENT_TIMESTAMP
                         )
-                        """
-                    ),
-                    {"plan_name": normalized_plan, "org_id": org_id_value, "logo_data": normalized_logo},
+                        """),
+                    {
+                        "plan_name": normalized_plan,
+                        "org_id": org_id_value,
+                        "logo_data": normalized_logo,
+                    },
                 )
         return (
             True,
@@ -284,14 +305,12 @@ def set_developer_activation_status(
         )
         with engine.begin() as connection:
             result = connection.execute(
-                text(
-                    """
+                text("""
                     UPDATE organizations
                     SET subscription_status = :status,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE org_id = :org_id
-                    """
-                ),
+                    """),
                 {"status": normalized_status, "org_id": org_id_value},
             )
         if result.rowcount != 1:
@@ -417,15 +436,34 @@ def check_organization_subscription(org_id: str) -> tuple[bool, str]:
                 try:
                     with engine.begin() as conn:
                         for mc in missing_columns:
-                            if mc == 'logo_base64':
-                                conn.execute(text("ALTER TABLE organizations ADD COLUMN logo_base64 TEXT"))
-                            elif mc == 'onboarding_completed':
-                                conn.execute(text("ALTER TABLE organizations ADD COLUMN onboarding_completed BOOLEAN"))
-                            elif mc == 'subscription_plan':
-                                conn.execute(text("ALTER TABLE organizations ADD COLUMN subscription_plan VARCHAR(50)"))
-                            elif mc == 'updated_at':
-                                conn.execute(text("ALTER TABLE organizations ADD COLUMN updated_at TIMESTAMP"))
-                    columns = {column["name"]: column["type"] for column in inspect(engine).get_columns("organizations")}
+                            if mc == "logo_base64":
+                                conn.execute(
+                                    text(
+                                        "ALTER TABLE organizations ADD COLUMN logo_base64 TEXT"
+                                    )
+                                )
+                            elif mc == "onboarding_completed":
+                                conn.execute(
+                                    text(
+                                        "ALTER TABLE organizations ADD COLUMN onboarding_completed BOOLEAN"
+                                    )
+                                )
+                            elif mc == "subscription_plan":
+                                conn.execute(
+                                    text(
+                                        "ALTER TABLE organizations ADD COLUMN subscription_plan VARCHAR(50)"
+                                    )
+                                )
+                            elif mc == "updated_at":
+                                conn.execute(
+                                    text(
+                                        "ALTER TABLE organizations ADD COLUMN updated_at TIMESTAMP"
+                                    )
+                                )
+                    columns = {
+                        column["name"]: column["type"]
+                        for column in inspect(engine).get_columns("organizations")
+                    }
                     missing_columns = ORGANIZATION_COLUMNS - columns.keys()
                 except Exception:
                     pass
@@ -434,7 +472,10 @@ def check_organization_subscription(org_id: str) -> tuple[bool, str]:
                     "Cannot check organization subscription: organizations table lacks columns %s",
                     ", ".join(sorted(missing_columns)),
                 )
-                return False, "The organizations table is missing required subscription fields."
+                return (
+                    False,
+                    "The organizations table is missing required subscription fields.",
+                )
 
             org_id_value = normalized_org_id
             if "integer" in str(columns["org_id"]).lower():
@@ -443,17 +484,19 @@ def check_organization_subscription(org_id: str) -> tuple[bool, str]:
                 except ValueError:
                     return False, "Organization ID must be a valid integer."
 
-            result = connection.execute(
-                text(
-                    """
+            result = (
+                connection.execute(
+                    text("""
                     SELECT subscription_status, onboarding_completed,
                            subscription_plan, updated_at
                     FROM organizations
                     WHERE org_id = :org_id
-                    """
-                ),
-                {"org_id": org_id_value},
-            ).mappings().first()
+                    """),
+                    {"org_id": org_id_value},
+                )
+                .mappings()
+                .first()
+            )
 
         if result is None:
             st.session_state["active_org_status"] = "PENDING_DEVELOPER_ACTIVATION"
@@ -511,16 +554,34 @@ def complete_organization_subscription(
                 try:
                     with engine.begin() as conn:
                         for mc in missing_columns:
-                            if mc == 'logo_base64':
-                                conn.execute(text("ALTER TABLE organizations ADD COLUMN logo_base64 TEXT"))
-                            elif mc == 'onboarding_completed':
-                                conn.execute(text("ALTER TABLE organizations ADD COLUMN onboarding_completed BOOLEAN"))
-                            elif mc == 'subscription_plan':
-                                conn.execute(text("ALTER TABLE organizations ADD COLUMN subscription_plan VARCHAR(50)"))
-                            elif mc == 'updated_at':
-                                conn.execute(text("ALTER TABLE organizations ADD COLUMN updated_at TIMESTAMP"))
+                            if mc == "logo_base64":
+                                conn.execute(
+                                    text(
+                                        "ALTER TABLE organizations ADD COLUMN logo_base64 TEXT"
+                                    )
+                                )
+                            elif mc == "onboarding_completed":
+                                conn.execute(
+                                    text(
+                                        "ALTER TABLE organizations ADD COLUMN onboarding_completed BOOLEAN"
+                                    )
+                                )
+                            elif mc == "subscription_plan":
+                                conn.execute(
+                                    text(
+                                        "ALTER TABLE organizations ADD COLUMN subscription_plan VARCHAR(50)"
+                                    )
+                                )
+                            elif mc == "updated_at":
+                                conn.execute(
+                                    text(
+                                        "ALTER TABLE organizations ADD COLUMN updated_at TIMESTAMP"
+                                    )
+                                )
                     organization_columns = inspector.get_columns("organizations")
-                    available_columns = {column["name"] for column in organization_columns}
+                    available_columns = {
+                        column["name"] for column in organization_columns
+                    }
                     missing_columns = ORGANIZATION_COLUMNS - available_columns
                 except Exception:
                     pass
@@ -529,7 +590,10 @@ def complete_organization_subscription(
                     "Cannot activate organization: organizations table lacks columns %s",
                     ", ".join(sorted(missing_columns)),
                 )
-                return False, "The organizations table is missing required subscription fields."
+                return (
+                    False,
+                    "The organizations table is missing required subscription fields.",
+                )
 
             org_id_column = next(
                 column for column in organization_columns if column["name"] == "org_id"
@@ -542,21 +606,25 @@ def complete_organization_subscription(
                     return False, "Organization ID must be a valid integer."
 
             result = connection.execute(
-                text(
-                    """
+                text("""
                     UPDATE organizations
                     SET subscription_status = 'ACTIVE',
                         onboarding_completed = TRUE,
                         subscription_plan = :plan_name,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE org_id = :org_id
-                    """
-                ),
-                {"plan_name": normalized_plan, "org_id": org_id_value, "logo_data": normalized_logo},
+                    """),
+                {"plan_name": normalized_plan, "org_id": org_id_value},
             )
             if result.rowcount != 1:
-                return False, "Organization was not found; no subscription was activated."
+                return (
+                    False,
+                    "Organization was not found; no subscription was activated.",
+                )
         return True, "Subscription successfully activated."
     except SQLAlchemyError:
         logging.exception("PostgreSQL subscription activation failed.")
-        return False, "The database could not activate the subscription. Check server logs."
+        return (
+            False,
+            "The database could not activate the subscription. Check server logs.",
+        )
