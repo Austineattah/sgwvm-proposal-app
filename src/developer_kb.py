@@ -99,6 +99,33 @@ NEXUSVAULT_EXECUTIVE_KB = {
                     "currently no per-token signed-token revocation control or database-wide "
                     "session purge."
                 )
+            },
+            {
+                "category": "Committee Security & Access Management",
+                "question": "What is the Committee Evaluation Workspace and what are its core functions?",
+                "answer": (
+                    "The Committee Evaluation Workspace is the secure, role-based digital command center within "
+                    "NexusVault where statutory evaluation panels, administrative desk officers, and review "
+                    "committees vet, score, and process incoming public sector proposals and contractor bids.\n\n"
+                    "Because public procurement handles sensitive financial bids, corporate credentials, and statutory "
+                    "compliance documents, this workspace operates behind strict security layers (such as Fernet "
+                    "dossier encryption and Row-Level Security).\n\n"
+                    "**Core Functions of the Committee Workspace:**\n"
+                    "1. **Encrypted Dossier Review:** Authorized committee members use secure access tokens to decrypt "
+                    "and examine full contractor proposal dossiers (technical specs, financial bids, and track record "
+                    "portfolios) without exposing sensitive data to unauthorized viewers.\n"
+                    "2. **Standardized Scoring & Compliance Auditing:** Provides structured evaluation matrices where "
+                    "committee members grade submissions against public procurement standards (such as BPP and ICRC guidelines), "
+                    "checking for tax compliance, corporate registration, and past performance.\n"
+                    "3. **The Bridge to Contract Award:** Once a winning contractor is selected and approved within this workspace, "
+                    "the system transitions the record into the Post-Award Verification Matrix, allowing the Head of "
+                    "Administration to lock in project milestones, timelines, and phase-by-phase execution tracking.\n"
+                    "4. **Immutable Audit Trails:** Every review, score, sign-off, or rejection made inside the workspace is "
+                    "permanently logged in the system's audit trail (`tenant_audit_logs`) to ensure complete transparency, "
+                    "accountability, and protection against administrative tampering or fraud.\n\n"
+                    "In short, it is the secure internal engine that turns raw contractor submissions into legally vetted, "
+                    "trackable public projects."
+                )
             }
         ]
     },
