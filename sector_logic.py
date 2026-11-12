@@ -1408,8 +1408,10 @@ def render_solicited_vendor_qr_clearance_gate(
         }
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .nv-solicited-panel-marker) div[data-testid="stForm"],
         div[data-testid="stVerticalBlock"]:has(> div.element-container .nv-solicited-panel-marker) div[data-testid="stForm"] {
-            background: rgba(15, 23, 42, 0.75);
-            border-color: #334155;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-color: rgba(56, 189, 248, 0.2);
         }
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .nv-solicited-panel-marker) :is(p, label, h1, h2, h3, h4, h5, h6),
         div[data-testid="stVerticalBlock"]:has(> div.element-container .nv-solicited-panel-marker) :is(p, label, h1, h2, h3, h4, h5, h6) {
@@ -1435,6 +1437,21 @@ def render_solicited_vendor_qr_clearance_gate(
             background: #1e293b;
             border-color: #334155;
             color: #f8fafc;
+        }
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .nv-solicited-panel-marker) button,
+        div[data-testid="stVerticalBlock"]:has(> div.element-container .nv-solicited-panel-marker) button {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .nv-solicited-panel-marker) div.stButton > button:hover,
+        div[data-testid="stVerticalBlock"]:has(> div.element-container .nv-solicited-panel-marker) div.stButton > button:hover {
+            border-color: #2563eb;
+            box-shadow: 0 4px 16px rgba(37, 99, 235, 0.25);
+        }
+        @media (prefers-reduced-motion: reduce) {
+            div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .nv-solicited-panel-marker) button,
+            div[data-testid="stVerticalBlock"]:has(> div.element-container .nv-solicited-panel-marker) button {
+                transition: none;
+            }
         }
         </style>
         """,
