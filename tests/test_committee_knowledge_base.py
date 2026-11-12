@@ -1,11 +1,89 @@
 import unittest
+from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
 
 from src.developer_kb import NEXUSVAULT_EXECUTIVE_KB
 
+BRIEFING_TITLE = (
+    "🛡️ NEXUSVAULT TECHNOLOGIES: Super Intelligence — "
+    "Agentic AI Proposal Intake & Governance Portal"
+)
+PRESENTATION_TITLE = "📊 Executive Presentation"
+
 
 class CommitteeKnowledgeBaseTests(unittest.TestCase):
+    def assert_briefing_rendered(self, app):
+        document = NEXUSVAULT_EXECUTIVE_KB[BRIEFING_TITLE]["documentation"]
+        self.assertTrue(any(item.value == document for item in app.markdown))
+        self.assertTrue(
+            any("backdrop-filter: blur(12px)" in item.value for item in app.markdown)
+        )
+        self.assertTrue(any("nv-kb-executive-badge" in item.value for item in app.markdown))
+
+    def test_briefing_is_selectable_in_training_lookup(self):
+        app = AppTest.from_string(
+            "from src.developer_console import render_seminar_training_suite\n"
+            "render_seminar_training_suite()",
+            default_timeout=120,
+        ).run()
+        self.assertFalse(app.exception)
+        app.radio[0].set_value("🔍 Interactive Knowledge Base Lookup").run()
+        self.assertFalse(app.exception)
+        document = NEXUSVAULT_EXECUTIVE_KB[BRIEFING_TITLE]["documentation"]
+        self.assertFalse(any(item.value == document for item in app.markdown))
+        topic = next(
+            item for item in app.selectbox
+            if item.label == "Select System Component / Module for Deep Dive:"
+        )
+        topic.set_value(BRIEFING_TITLE).run()
+        self.assertFalse(app.exception)
+        self.assert_briefing_rendered(app)
+        topic.set_value(PRESENTATION_TITLE).run()
+        self.assertFalse(app.exception)
+        presentation = NEXUSVAULT_EXECUTIVE_KB[PRESENTATION_TITLE]["documentation"]
+        self.assertTrue(any(item.value == presentation for item in app.markdown))
+        self.assertFalse(any(item.value == document for item in app.markdown))
+        self.assertTrue(any("backdrop-filter: blur(12px)" in item.value for item in app.markdown))
+        topic.set_value("Committee Evaluation Workspace").run()
+        self.assertFalse(app.exception)
+        self.assertFalse(any(item.value == document for item in app.markdown))
+        self.assertTrue(any("Immediate Token Revocation" in item.label for item in app.expander))
+
+    def test_briefing_is_selectable_in_main_knowledge_base(self):
+        source = Path(__file__).resolve().parents[1] / "app.py"
+        script = f"""
+import ast
+from pathlib import Path
+import streamlit as st
+from src.developer_kb import NEXUSVAULT_EXECUTIVE_KB
+from src.kb_presentation import render_executive_document
+_DEVELOPER_KB_IMPORT_ERROR = None
+path = Path({str(source)!r})
+tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+node = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+            and n.name == "_render_executive_knowledge_base")
+exec(compile(ast.Module(body=[node], type_ignores=[]), str(path), "exec"))
+_render_executive_knowledge_base()
+"""
+        app = AppTest.from_string(script, default_timeout=120).run()
+        self.assertFalse(app.exception)
+        app.selectbox[0].set_value(BRIEFING_TITLE).run()
+        self.assertFalse(app.exception)
+        self.assert_briefing_rendered(app)
+        app.selectbox[0].set_value(PRESENTATION_TITLE).run()
+        self.assertFalse(app.exception)
+        presentation = NEXUSVAULT_EXECUTIVE_KB[PRESENTATION_TITLE]["documentation"]
+        self.assertTrue(any(item.value == presentation for item in app.markdown))
+        self.assertTrue(any("nv-kb-executive-badge" in item.value for item in app.markdown))
+
+    def test_presentation_contains_all_slides_and_speaker_notes(self):
+        presentation = NEXUSVAULT_EXECUTIVE_KB[PRESENTATION_TITLE]["documentation"]
+        self.assertEqual(presentation.count("#### Slide "), 6)
+        self.assertEqual(presentation.count("**Speaker Notes:**"), 6)
+        self.assertIn("80%+ Faster Proposal Review Cycles", presentation)
+        self.assertTrue(presentation.endswith('ready for Phase 1 deployment."'))
+
     def test_committee_guidance_appears_in_lookup(self):
         app = AppTest.from_string(
             "from src.developer_console import render_seminar_training_suite\n"

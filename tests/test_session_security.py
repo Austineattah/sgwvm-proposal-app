@@ -31,6 +31,8 @@ db = AuditStore()
 _raw_portal = None
 inject_sovereign_workspace_css = lambda: None
 _sync_tenant_session = lambda tenant, portal: None
+_parse_route = lambda: ("home", None, None)
+_render_home = lambda: st.write("Public onboarding")
 render_developer_console = lambda: st.write("Protected console")
 tree = ast.parse(open(APP_PATH, encoding="utf-8-sig").read())
 functions = {
@@ -99,12 +101,23 @@ def test_developer_password_cleared_on_failure_and_success(developer_app):
     assert not developer_app.exception
     assert developer_app.text_input[0].value == ""
     assert not developer_app.session_state.get("dev_authenticated", False)
-    assert "Developer access could not be verified" in developer_app.error[0].value
+    assert "Invalid developer credentials." in developer_app.error[0].value
     developer_app.text_input[0].set_value("  test-password  ")
     developer_app.button[0].click().run()
     assert not developer_app.exception
     assert developer_app.text_input[0].value == ""
     assert developer_app.session_state["dev_authenticated"] is True
+
+
+def test_workspace_callback_leaves_developer_mode_outside_form(developer_app):
+    selector = next(
+        radio for radio in developer_app.sidebar.radio
+        if radio.label == "Application Workspace"
+    )
+    selector.set_value("Onboarding Portal").run()
+    assert not developer_app.exception
+    assert developer_app.query_params.get("mode") is None
+    assert developer_app.session_state["_primary_workspace"] == "Onboarding Portal"
 
 
 def test_developer_expiry_purges_all_state_and_shows_notice(developer_app):

@@ -331,3 +331,26 @@ def test_executive_issues_audited_signed_tender_token(monkeypatch, audit_failure
         assert payload["tenant_id"] == "example_tenant"
         assert payload["tender_id"] == "tender-1"
         assert payload["email"] == "member@example.org"
+
+
+def test_executive_provision_button_is_usable_outside_form(monkeypatch):
+    monkeypatch.setenv("DOSSIER_ENCRYPTION_KEY", "test-signing-key")
+    harness = _WORKSPACE_HARNESS.replace(
+        '"_clear_committee_access", "_handle_committee_access", "_render_committee_workspace",',
+        '"_clear_committee_access", "_handle_committee_access", "_render_committee_workspace", "_render_executive_committee_tab", "_render_executive_committee_roster",',
+    ).replace(
+        '_render_committee_workspace("example_tenant")',
+        "import re\n"
+        "_physical_document_encryption_key = lambda: b'valid-key'\n"
+        "_render_committee_leaderboard = lambda tenant: None\n"
+        '_render_executive_committee_tab("example_tenant", "executive")',
+    )
+    app = AppTest.from_string(
+        f"APP_PATH = {str(_APP_PATH)!r}\n" + harness, default_timeout=60
+    ).run()
+    assert not app.exception
+    button = _find_widget_by_label(app.button, "Provision committee and credentials")
+    assert not button.disabled
+    button.click().run()
+    assert not app.exception
+    assert any("Enter a name for every committee member." in error.value for error in app.error)
