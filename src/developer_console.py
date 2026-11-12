@@ -11,8 +11,10 @@ import streamlit as st
 
 try:
     from src.developer_kb import NEXUSVAULT_EXECUTIVE_KB
+    from src.kb_presentation import render_executive_document
 except ImportError as exc:
     NEXUSVAULT_EXECUTIVE_KB = {}
+    render_executive_document = None
     _KNOWLEDGE_BASE_IMPORT_ERROR: ImportError | None = exc
 else:
     _KNOWLEDGE_BASE_IMPORT_ERROR = None
@@ -366,9 +368,12 @@ def render_seminar_training_suite():
         )
         if selected_topic:
             topic_data = NEXUSVAULT_EXECUTIVE_KB[selected_topic]
-            st.info(
-                f"**Category:** {topic_data['category']}  \n**Summary:** {topic_data['summary']}"
-            )
-            for idx, qa in enumerate(topic_data["qa_pairs"], start=1):
-                with st.expander(f"Q{idx}: {qa['question']}", expanded=(idx == 1)):
-                    st.markdown(qa["answer"])
+            if "documentation" in topic_data:
+                render_executive_document(topic_data["documentation"])
+            else:
+                st.info(
+                    f"**Category:** {topic_data['category']}  \n**Summary:** {topic_data['summary']}"
+                )
+                for idx, qa in enumerate(topic_data["qa_pairs"], start=1):
+                    with st.expander(f"Q{idx}: {qa['question']}", expanded=(idx == 1)):
+                        st.markdown(qa["answer"])
