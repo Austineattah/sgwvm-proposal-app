@@ -177,6 +177,67 @@ def inject_production_security_css() -> None:
     )
 
 
+def inject_sovereign_workspace_css() -> None:
+    """Apply a shared dark surface to the onboarding and developer workspaces."""
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background: linear-gradient(135deg, #0f172a, #1e1b4b);
+            color: #f8fafc;
+        }
+        div[data-testid="stForm"],
+        div[data-testid="stExpander"],
+        div[data-testid="stMetric"],
+        .onboarding-title-banner {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            border-radius: 12px;
+        }
+        div[data-testid="stMetric"] {
+            padding: 1rem;
+        }
+        div[data-testid="stMetric"],
+        div[data-testid="stButton"] > button,
+        div[data-testid="stFormSubmitButton"] > button,
+        table tbody tr {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        div[data-testid="stMetric"]:hover,
+        div[data-testid="stButton"] > button:hover,
+        div[data-testid="stFormSubmitButton"] > button:hover {
+            border-color: #2563eb;
+            box-shadow: 0 4px 16px rgba(37, 99, 235, 0.25);
+        }
+        table tbody tr:hover {
+            background: rgba(37, 99, 235, 0.2);
+        }
+        div[data-testid="stMetricLabel"],
+        div[data-testid="stMetricValue"],
+        div[data-testid="stExpander"] summary,
+        div[data-testid="stForm"] label {
+            color: #f8fafc;
+        }
+        .section-hdr, .onboarding-title-banner h2,
+        div[data-testid="stBadge"] {
+            color: #38bdf8;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            div[data-testid="stMetric"],
+            div[data-testid="stButton"] > button,
+            div[data-testid="stFormSubmitButton"] > button,
+            table tbody tr {
+                transition: none;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 st.set_page_config(
     page_title="NEXUSVAULT Sovereign Enterprise Portal",
     page_icon="🛡️",
@@ -4737,6 +4798,7 @@ def render_sovereign_tenant_header(tenant_data: Mapping[str, Any]) -> None:
 
 
 def _render_home() -> None:
+    inject_sovereign_workspace_css()
     st.session_state["_primary_workspace"] = "Onboarding Portal"
     st.session_state["_primary_workspace_selection"] = "Onboarding Portal"
 
@@ -5158,30 +5220,8 @@ def _render_platform_developer_console() -> None:
     st.markdown("## Sovereign Developer Command Console")
     st.markdown("Client tenant, archive, and platform broadcast management.")
 
-    try:
-        tenants = db.list_tenants()
-        archived_tenants = db.list_archived_tenants()
-        recycle_bin_tenants = db.list_recycle_bin_tenants()
-        current_broadcast = db.get_general_broadcast()
-        all_activities = db.get_all_tenant_activities()
-    except (sqlite3.Error, RuntimeError, ValueError):
-        logging.exception("Developer console data failed to load.")
-        st.error("Developer console data is unavailable. Please try again later.")
-        return
-
-    if "developer_broadcast_message" not in st.session_state:
-        st.session_state["developer_broadcast_message"] = (
-            current_broadcast["message"] if current_broadcast else ""
-        )
-
-    (
-        activation_tab,
-        deactivation_tab,
-        deletion_tab,
-        copy_tab,
-        settings_tab,
-        activity_tab,
-    ) = st.tabs(
+    section = st.selectbox(
+        "Platform operations",
         [
             "Tenant Activation",
             "Tenant Deactivation",
@@ -5189,8 +5229,32 @@ def _render_platform_developer_console() -> None:
             "Slug & URL Registry",
             "Platform Broadcasts",
             "📋 Activity Audit Trail",
-        ]
+        ],
+        key="developer_platform_section",
     )
+    try:
+        tenants = db.list_tenants() if section in {
+            "Tenant Activation", "Tenant Deactivation", "Tenant Deletion & Recycle Bin",
+            "Slug & URL Registry", "📋 Activity Audit Trail",
+        } else []
+        archived_tenants = (
+            db.list_archived_tenants() if section == "Tenant Deletion & Recycle Bin" else []
+        )
+        recycle_bin_tenants = (
+            db.list_recycle_bin_tenants() if section == "Tenant Deletion & Recycle Bin" else []
+        )
+        current_broadcast = (
+            db.get_general_broadcast() if section == "Platform Broadcasts" else None
+        )
+    except (sqlite3.Error, RuntimeError, ValueError):
+        logging.exception("Developer console data failed to load.")
+        st.error("Developer console data is unavailable. Please try again later.")
+        return
+
+    if section == "Platform Broadcasts" and "developer_broadcast_message" not in st.session_state:
+        st.session_state["developer_broadcast_message"] = (
+            current_broadcast["message"] if current_broadcast else ""
+        )
 
     activation_feedback = st.session_state.pop(
         "_developer_activation_feedback",
@@ -5203,7 +5267,7 @@ def _render_platform_developer_console() -> None:
         else:
             st.warning(feedback_message)
 
-    with activation_tab:
+    if section == "Tenant Activation":
         activation_candidates = [
             tenant
             for tenant in tenants
@@ -5264,7 +5328,7 @@ def _render_platform_developer_console() -> None:
                                 "or no longer exists."
                             )
 
-    with deactivation_tab:
+    if section == "Tenant Deactivation":
         active_tenants = [
             tenant
             for tenant in tenants
@@ -5303,7 +5367,7 @@ def _render_platform_developer_console() -> None:
                                 f"Tenant {name} is no longer active or has been deleted."
                             )
 
-    with deletion_tab:
+    if section == "Tenant Deletion & Recycle Bin":
         st.markdown("### Tenant Deletion")
         for tenant in tenants:
             slug = tenant["tenant_slug"]
@@ -5497,7 +5561,7 @@ def _render_platform_developer_console() -> None:
                                 )
                                 st.rerun()
 
-    with copy_tab:
+    if section == "Slug & URL Registry":
         st.markdown("### Production Tenant URL Registry")
         registry_rows = []
         for tenant in tenants:
@@ -5548,7 +5612,7 @@ def _render_platform_developer_console() -> None:
         else:
             st.info("No tenant URLs are available to copy.")
 
-    with settings_tab:
+    if section == "Platform Broadcasts":
         st.markdown("### Global Tenant Administrator Broadcast")
         st.caption(
             "Changes are saved automatically and appear on authenticated internal "
@@ -5566,37 +5630,56 @@ def _render_platform_developer_console() -> None:
                 f"Currently published · Updated {current_broadcast['updated_at']}"
             )
 
-    with activity_tab:
+    if section == "📋 Activity Audit Trail":
         st.markdown("### Client Tenant Activity & Audit Trail")
-        tenant_slugs = sorted(
-            {tenant["tenant_slug"] for tenant in tenants}
-            | {activity["tenant_slug"] for activity in all_activities}
-        )
+        try:
+            tenant_slugs = sorted(
+                {tenant["tenant_slug"] for tenant in tenants}
+                | set(db.get_tenant_activity_slugs())
+            )
+        except (sqlite3.Error, RuntimeError, ValueError):
+            logging.exception("Could not load tenant activity filters.")
+            st.error("Tenant activity filters are unavailable.")
+            return
         selected_tenant = st.selectbox(
             "Filter by Client Tenant slug",
             ["All tenants", *tenant_slugs],
             key="tenant_activity_filter",
         )
-        activities = (
-            all_activities
-            if selected_tenant == "All tenants"
-            else [
-                activity
-                for activity in all_activities
-                if activity["tenant_slug"] == selected_tenant
-            ]
-        )
+        activity_tenant = None if selected_tenant == "All tenants" else selected_tenant
+        try:
+            total, latest_activities = db.get_tenant_activity_page(
+                activity_tenant, limit=3
+            )
+            total_pages = max(1, (total + 49) // 50)
+            page_key = f"tenant_activity_page_{selected_tenant}"
+            if st.session_state.get(page_key, 1) > total_pages:
+                st.session_state[page_key] = total_pages
+            page = int(st.number_input(
+                "Activity page",
+                min_value=1,
+                max_value=total_pages,
+                value=1,
+                key=page_key,
+            ))
+            _, activities = db.get_tenant_activity_page(
+                activity_tenant, limit=50, offset=(page - 1) * 50
+            )
+        except (sqlite3.Error, RuntimeError, ValueError):
+            logging.exception("Could not load tenant activity history.")
+            st.error("Tenant activity history is unavailable.")
+            return
 
         total_col, recent_col = st.columns(2)
-        total_col.metric("Total logged actions", len(activities))
+        total_col.metric("Total logged actions", total)
         latest_timestamp = (
-            f"{activities[0]['date']} {activities[0]['time']}"
-            if activities
+            f"{latest_activities[0]['date']} {latest_activities[0]['time']}"
+            if latest_activities
             else "No activity"
         )
         recent_col.metric("Most recent activity", latest_timestamp)
         recent_timestamps = [
-            f"{activity['date']} {activity['time']}" for activity in activities[:3]
+            f"{activity['date']} {activity['time']}" for activity in latest_activities
         ]
         st.caption(
             "Recent activity timestamps: "
@@ -5626,13 +5709,27 @@ def _render_platform_developer_console() -> None:
 
 def _render_platform_support_feedback() -> None:
     try:
-        tickets = db.get_all_tenant_support_tickets()
+        total, unanswered_count, _ = db.get_platform_support_ticket_page(limit=1)
+        total_pages = max(1, (total + 49) // 50)
+        page_key = "developer_support_page"
+        if st.session_state.get(page_key, 1) > total_pages:
+            st.session_state[page_key] = total_pages
+        page = int(st.number_input(
+            "Support history page",
+            min_value=1,
+            max_value=total_pages,
+            value=1,
+            key=page_key,
+        ))
+        _, unanswered_count, tickets = db.get_platform_support_ticket_page(
+            limit=50, offset=(page - 1) * 50
+        )
     except (sqlite3.Error, RuntimeError, ValueError):
         logging.exception("Developer support ticket data failed to load.")
         st.error("Support and feedback data is unavailable.")
         return
 
-    unanswered_count = sum(1 for ticket in tickets if ticket["status"] == "OPEN")
+    st.caption(f"Showing page {page} of {total_pages} · {total} total inquiries")
     if _render_tenant_feedback_tab is not None:
         _render_tenant_feedback_tab(
             tickets,
@@ -5719,16 +5816,18 @@ def render_developer_console() -> None:
         st.error("Developer authentication is required.")
         return
 
-    platform_tab, support_tab, knowledge_tab, slides_tab, legacy_tab = st.tabs(
+    workspace = st.selectbox(
+        "Developer workspace",
         [
             "Developer Console",
             "Support & Feedback Gateway",
             "Executive Knowledge Base",
             "Tenant UI Slide Deck",
             "SaaS Master Console",
-        ]
+        ],
+        key="developer_workspace_section",
     )
-    with platform_tab:
+    if workspace == "Developer Console":
         _render_platform_developer_console()
         st.divider()
         if render_report_export_widget is None:
@@ -5750,11 +5849,11 @@ def render_developer_console() -> None:
                 st.error(f"The Executive PDF Briefing exporter is unavailable.{detail}")
             else:
                 render_pdf_export_widget(tenant_slug=None)
-    with support_tab:
+    elif workspace == "Support & Feedback Gateway":
         _render_platform_support_feedback()
-    with knowledge_tab:
+    elif workspace == "Executive Knowledge Base":
         _render_executive_knowledge_base()
-    with slides_tab:
+    elif workspace == "Tenant UI Slide Deck":
         if _render_seminar_training_suite is None:
             detail = (
                 f" {_DEVELOPER_UI_IMPORT_ERROR}"
@@ -5764,7 +5863,7 @@ def render_developer_console() -> None:
             st.error(f"The Tenant UI Slide Deck is unavailable.{detail}")
         else:
             _render_seminar_training_suite()
-    with legacy_tab:
+    elif workspace == "SaaS Master Console":
         if _render_developer_master_console is None:
             detail = (
                 f" {_MASTER_CONSOLE_IMPORT_ERROR}"
@@ -5781,6 +5880,7 @@ if isinstance(session_expired_notice, str) and session_expired_notice:
     st.warning(session_expired_notice)
 
 if st.query_params.get("mode") == "dev" and _raw_portal is None:
+    inject_sovereign_workspace_css()
     _sync_tenant_session(None, "dev")
     st.session_state.pop("dev_grant_input", None)
     st.session_state["_primary_workspace"] = "Developer Console"

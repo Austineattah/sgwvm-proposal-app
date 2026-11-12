@@ -29,6 +29,7 @@ class AuditStore:
 
 db = AuditStore()
 _raw_portal = None
+inject_sovereign_workspace_css = lambda: None
 _sync_tenant_session = lambda tenant, portal: None
 render_developer_console = lambda: st.write("Protected console")
 tree = ast.parse(open(APP_PATH, encoding="utf-8-sig").read())

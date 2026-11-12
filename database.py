@@ -790,6 +790,10 @@ _CREATE_TABLES = (
     ON tenant_support_tickets (tenant_slug, created_at DESC, ticket_id DESC)
     """,
     """
+    CREATE INDEX IF NOT EXISTS idx_tenant_support_tickets_created
+    ON tenant_support_tickets (created_at DESC, ticket_id DESC)
+    """,
+    """
     CREATE TABLE IF NOT EXISTS admin_access_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         tenant_slug TEXT,
@@ -811,6 +815,14 @@ _CREATE_TABLES = (
         year TEXT NOT NULL,
         created_at TIMESTAMP NOT NULL
     )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tenant_activity_logs_global_order
+    ON tenant_activity_logs (date DESC, time DESC, id DESC)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tenant_activity_logs_tenant_order
+    ON tenant_activity_logs (tenant_slug, date DESC, time DESC, id DESC)
     """,
     """
     CREATE TABLE IF NOT EXISTS tenant_audit_logs (
@@ -1576,6 +1588,30 @@ def get_all_tenant_support_tickets() -> list[dict[str, Any]]:
             """
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_platform_support_ticket_page(
+    *, limit: int = 50, offset: int = 0
+) -> tuple[int, int, list[dict[str, Any]]]:
+    """Return a bounded support page and platform-wide total and open counts."""
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+        raise ValueError("limit must be an integer between 1 and 100.")
+    if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
+        raise ValueError("offset must be a non-negative integer.")
+    init_db()
+    with get_connection() as connection:
+        counts = connection.execute(
+            "SELECT COUNT(*), COUNT(CASE WHEN status = 'OPEN' THEN 1 END) "
+            "FROM tenant_support_tickets"
+        ).fetchone()
+        rows = connection.execute(
+            "SELECT ticket_id, tenant_slug, org_name, sender_email, message, "
+            "response, status, is_auto_responded, created_at, responded_at "
+            "FROM tenant_support_tickets "
+            "ORDER BY created_at DESC, ticket_id DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+    return counts[0], counts[1], [dict(row) for row in rows]
 
 
 def respond_to_tenant_support_ticket(ticket_id: int, response_text: str) -> bool:
@@ -4056,6 +4092,49 @@ def get_all_tenant_activities(
                 (normalized_slug,),
             ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_tenant_activity_slugs() -> list[str]:
+    """Return tenants with historical activity, including archived tenants."""
+    init_db()
+    with get_connection() as connection:
+        rows = connection.execute(
+            "SELECT DISTINCT tenant_slug FROM tenant_activity_logs ORDER BY tenant_slug"
+        ).fetchall()
+    return [row["tenant_slug"] for row in rows]
+
+
+def get_tenant_activity_page(
+    tenant_slug: str | None = None,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[int, list[dict[str, Any]]]:
+    """Return a bounded page and total count for the platform activity history."""
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+        raise ValueError("limit must be an integer between 1 and 100.")
+    if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
+        raise ValueError("offset must be a non-negative integer.")
+    normalized_slug = (
+        _required_text(tenant_slug, "tenant_slug").lower()
+        if tenant_slug is not None
+        else None
+    )
+    where = " WHERE tenant_slug = ?" if normalized_slug is not None else ""
+    params = (normalized_slug,) if normalized_slug is not None else ()
+    init_db()
+    with get_connection() as connection:
+        total = connection.execute(
+            "SELECT COUNT(*) FROM tenant_activity_logs" + where, params
+        ).fetchone()[0]
+        rows = connection.execute(
+            "SELECT id, tenant_slug, activity_type, description, performed_by, "
+            "date, time, month, year, created_at FROM tenant_activity_logs"
+            + where
+            + " ORDER BY date DESC, time DESC, id DESC LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        ).fetchall()
+    return total, [dict(row) for row in rows]
 
 
 def _vendor_slug(

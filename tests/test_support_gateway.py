@@ -51,6 +51,13 @@ render_developer_console()
         self.assertTrue(
             any("global PDF exporter" in item.value for item in app.markdown)
         )
+        self.assertFalse(any("support feedback" in item.value for item in app.markdown))
+        workspace = next(item for item in app.selectbox if item.label == "Developer workspace")
+        workspace.set_value("Support & Feedback Gateway").run()
+        self.assertFalse(app.exception)
+        self.assertTrue(any("support feedback" in item.value for item in app.markdown))
+        self.assertFalse(any("platform operations" in item.value for item in app.markdown))
+        self.assertFalse(any("global report exporter" in item.value for item in app.markdown))
 
         unauthorized = AppTest.from_string(
             "import streamlit as st\n"
