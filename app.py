@@ -74,8 +74,10 @@ else:
 
 try:
     from src.developer_kb import NEXUSVAULT_EXECUTIVE_KB
+    from src.kb_presentation import render_executive_document
 except ImportError as exc:
     NEXUSVAULT_EXECUTIVE_KB = {}
+    render_executive_document = None
     _DEVELOPER_KB_IMPORT_ERROR: ImportError | None = exc
 else:
     _DEVELOPER_KB_IMPORT_ERROR = None
@@ -5798,11 +5800,17 @@ def _render_executive_knowledge_base() -> None:
         st.error("The Executive Knowledge Base contains no entries.")
         return
 
-    for topic, topic_data in NEXUSVAULT_EXECUTIVE_KB.items():
+    topic = st.selectbox(
+        "Select executive knowledge-base topic",
+        list(NEXUSVAULT_EXECUTIVE_KB),
+        key="executive_knowledge_base_topic",
+    )
+    topic_data = NEXUSVAULT_EXECUTIVE_KB[topic]
+    if "documentation" in topic_data:
+        render_executive_document(topic_data["documentation"])
+    else:
         st.subheader(topic)
-        st.caption(
-            f"{topic_data['category']} · {topic_data['status_badge']}"
-        )
+        st.caption(f"{topic_data['category']} · {topic_data['status_badge']}")
         st.markdown(topic_data["summary"])
         for index, qa in enumerate(topic_data["qa_pairs"], start=1):
             with st.expander(f"Q{index}: {qa['question']}"):
