@@ -4977,153 +4977,305 @@ def _render_home() -> None:
         """,
         unsafe_allow_html=True,
     )
-    st.markdown(
-        """
-        <div class="onboarding-title-banner">
-            <h2>👉 ONBOARDING MODULE 👇</h2>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    tab_new_onboard, tab_returning_login = st.tabs(
+        [
+            "🆕 New Organizational Onboarding",
+            "🔑 Returning Client Login / Resume Workspace",
+        ]
     )
 
-    with st.form("corporate_onboarding_form"):
+    with tab_returning_login:
         st.markdown(
-            "<div class='section-hdr'>🏢 Step 1: Organizational Classification & "
-            "Domain Setup</div>",
+            """
+            <div style="background:rgba(15,23,42,0.78);border:1px solid rgba(56,189,248,0.35);
+                        border-radius:12px;padding:1.25rem 1.4rem;margin:0.75rem 0 1.1rem 0;">
+                <div style="font-size:0.78rem;font-weight:800;letter-spacing:0.12em;color:#38BDF8;text-transform:uppercase;">
+                    CONTINUATION &amp; DEFERRED ACTIVATION PORTAL
+                </div>
+                <div style="font-size:1.05rem;font-weight:700;color:#F8FAFC;margin-top:0.25rem;">
+                    Resume Your Provisioned Organizational Slug or Complete Subscription Activation
+                </div>
+                <div style="font-size:0.86rem;color:#CBD5E1;margin-top:0.35rem;">
+                    If you previously selected <strong>LATER</strong> during onboarding, enter your
+                    <strong>Organizational Workspace Slug</strong> or <strong>Registered Admin Email</strong> below
+                    to jump straight back to your saved workspace.
+                </div>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
-        entity_type = st.selectbox(
-            "Select Organization / Entity Category*",
-            [
-                "Public University / Polytechnic / Research Institute (Academic Sector)",
-                "Multinational Funder / UN Agency / International NGO (Humanitarian Sector)",
-                "National Assembly / Parliament / Legislative Directorate",
-                "Federal Ministry, Department, or Agency (MDA)",
-                "State Ministry, Department, or Agency (MDA)",
-                "Private Limited Company / Enterprise (Commercial Sector)",
-                "Non-Profit Foundation / Civil Society Organization",
-            ],
+        resume_identifier = st.text_input(
+            "Organizational Workspace Slug or Registered Admin Email *",
+            placeholder="e.g., federalministry_a1b2c3d4 or admin@organization.gov.ng",
+            key="returning_tenant_identifier_input",
         )
+        if st.button(
+            "Access Provisioned Workspace & Subscription Portal",
+            type="primary",
+            use_container_width=True,
+            key="btn_returning_tenant_resume",
+        ):
+            ident = resume_identifier.strip()
+            if not ident:
+                st.warning("Please enter your Organizational Workspace Slug or Registered Admin Email.")
+            else:
+                try:
+                    resume_db = NexusDatabaseAdapter()
+                    resume_engine = NexusTenantLifecycleEngine(resume_db)
+                    matched_tenant = None
+                    if hasattr(resume_engine, "resume_login"):
+                        try:
+                            matched_tenant = resume_engine.resume_login(ident)
+                        except Exception:
+                            matched_tenant = None
+                    if matched_tenant is None and hasattr(resume_db, "get_tenant_by_slug"):
+                        matched_tenant = resume_db.get_tenant_by_slug(ident.lower())
+                    if matched_tenant is None and hasattr(resume_db, "get_tenant_by_email"):
+                        matched_tenant = resume_db.get_tenant_by_email(ident.lower())
+                    if matched_tenant is None and hasattr(resume_db, "list_tenants"):
+                        for candidate in resume_db.list_tenants():
+                            c_slug = str(candidate.get("slug", "")).strip().lower()
+                            c_email = str(candidate.get("admin_email", "")).strip().lower()
+                            if ident.lower() in {c_slug, c_email}:
+                                matched_tenant = candidate
+                                break
+                    if matched_tenant is None:
+                        st.error(
+                            "No provisioned organizational workspace matched that slug or admin email. "
+                            "Please verify your credentials or complete New Organizational Onboarding."
+                        )
+                    else:
+                        st.session_state["onboarded_tenant_id"] = str(matched_tenant["tenant_id"])
+                        st.session_state["onboarded_tenant_slug"] = str(matched_tenant["slug"])
+                        st.session_state["corp_name"] = str(matched_tenant.get("org_name", ""))
+                        st.session_state["admin_email"] = str(matched_tenant.get("admin_email", ""))
+                        st.session_state["show_tenant_checkout"] = False
+                        st.session_state["onboarding_submitted"] = True
+                        st.rerun()
+                except Exception as exc:
+                    logging.exception("Returning client resume login failed.")
+                    st.error(f"Unable to resume tenant session: {exc}")
 
-        col_a, col_b = st.columns(2)
-        with col_a:
-            corp_name = st.text_input(
-                "Organizational Entity Name*",
-                placeholder="e.g., Federal Ministry of Technology",
-            )
-            corp_email = st.text_input(
-                "Official Dispatch Email*",
-                placeholder="contact@entity.gov.ng",
-            )
-
-        with col_b:
-            corp_phone = st.text_input(
-                "Official Phone / SMS Gateway Contact*",
-                placeholder="+234 803 000 0000",
-            )
-            corp_address = st.text_input(
-                "Institutional Headquarters Address*",
-                placeholder="Central Area, Abuja",
-            )
-            admin_email = st.text_input(
-                "Executive Chief Notification Node",
-                placeholder="executive-office@entity.org",
-            )
-
+    with tab_new_onboard:
         st.markdown(
-            "<div class='section-hdr'>🎨 Step 2: Branding & Custom Portal "
-            "Heading</div>",
+            """
+            <div class="onboarding-title-banner">
+                <h2>👉 ONBOARDING MODULE 👇</h2>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
-        col_c, col_d = st.columns(2)
-        with col_c:
-            custom_title_input = st.text_input(
-                "Custom Portal Banner Title",
-                value=st.session_state["custom_portal_heading"],
+
+        if st.session_state.get("onboarding_review_mode", False) and not st.session_state.get("onboarding_submitted", False):
+            draft = st.session_state.get("onboarding_draft_payload", {})
+            st.markdown(
+                """
+                <div style="background:linear-gradient(135deg,#0B192C 0%,#132A46 100%);
+                            border:1.5px solid #38BDF8;border-radius:12px;padding:1.25rem 1.4rem;margin-bottom:1rem;">
+                    <div style="font-size:0.75rem;font-weight:800;letter-spacing:0.12em;color:#38BDF8;text-transform:uppercase;">
+                        PRE-SUBMISSION CREDENTIAL VERIFICATION
+                    </div>
+                    <div style="font-size:1.08rem;font-weight:800;color:#FFFFFF;margin-top:0.25rem;">
+                        Review Your Organizational Credentials Before Final Activation Submission
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
-            sub_package = st.selectbox(
-                "SaaS Sovereign Tier*",
+            st.table(
                 [
-                    "Sovereign Legislative & Statutory Node",
-                    "Custom Government Parastatal Node",
-                    "Enterprise Commercial Node",
-                    "NGO & Donor Grant Node",
-                    "Sovereign Academic Research Node",
+                    {"Credential Field": "Entity Category", "Entered Value": draft.get("entity_type", "")},
+                    {"Credential Field": "Organizational Entity Name", "Entered Value": draft.get("org", "")},
+                    {"Credential Field": "Official Corporate Email", "Entered Value": draft.get("email", "")},
+                    {"Credential Field": "Designated Admin Email", "Entered Value": draft.get("admin_email", "")},
+                    {"Credential Field": "Official Phone Line", "Entered Value": draft.get("phone", "")},
+                    {"Credential Field": "Headquarters Address", "Entered Value": draft.get("address", "")},
+                    {"Credential Field": "Custom Portal Heading", "Entered Value": draft.get("custom_title", "")},
+                    {"Credential Field": "Selected SaaS Sovereign Tier", "Entered Value": draft.get("sub_package", "")},
+                ]
+            )
+            col_edit_btn, col_confirm_btn = st.columns(2)
+            with col_edit_btn:
+                if st.button("✏️ Edit Organizational Credentials", use_container_width=True, key="btn_edit_onboard_draft"):
+                    st.session_state["onboarding_review_mode"] = False
+                    st.rerun()
+            with col_confirm_btn:
+                confirm_final_onboard = st.button(
+                    "✅ Confirm & Submit Organizational Node for Activation",
+                    type="primary",
+                    use_container_width=True,
+                    key="btn_confirm_final_onboard",
+                )
+        else:
+            confirm_final_onboard = False
+
+        with st.form("corporate_onboarding_form"):
+            st.markdown(
+                "<div class='section-hdr'>🏢 Step 1: Organizational Classification & "
+                "Domain Setup</div>",
+                unsafe_allow_html=True,
+            )
+            entity_type = st.selectbox(
+                "Select Organization / Entity Category*",
+                [
+                    "Public University / Polytechnic / Research Institute (Academic Sector)",
+                    "Multinational Funder / UN Agency / International NGO (Humanitarian Sector)",
+                    "National Assembly / Parliament / Legislative Directorate",
+                    "Federal Ministry, Department, or Agency (MDA)",
+                    "State Ministry, Department, or Agency (MDA)",
+                    "Private Limited Company / Enterprise (Commercial Sector)",
+                    "Non-Profit Foundation / Civil Society Organization",
                 ],
             )
-        with col_d:
-            uploaded_logo = st.file_uploader(
-                "Upload Official Institutional Branding Logo (PNG/JPG)",
-                type=["png", "jpg", "jpeg"],
+
+            col_a, col_b = st.columns(2)
+            with col_a:
+                corp_name = st.text_input(
+                    "Organizational Entity Name*",
+                    placeholder="e.g., Federal Ministry of Technology",
+                )
+                corp_email = st.text_input(
+                    "Official Dispatch Email*",
+                    placeholder="contact@entity.gov.ng",
+                )
+
+            with col_b:
+                corp_phone = st.text_input(
+                    "Official Phone / SMS Gateway Contact*",
+                    placeholder="+234 803 000 0000",
+                )
+                corp_address = st.text_input(
+                    "Institutional Headquarters Address*",
+                    placeholder="Central Area, Abuja",
+                )
+                admin_email = st.text_input(
+                    "Executive Chief Notification Node",
+                    placeholder="executive-office@entity.org",
+                )
+
+            st.markdown(
+                "<div class='section-hdr'>🎨 Step 2: Branding & Custom Portal "
+                "Heading</div>",
+                unsafe_allow_html=True,
+            )
+            col_c, col_d = st.columns(2)
+            with col_c:
+                custom_title_input = st.text_input(
+                    "Custom Portal Banner Title",
+                    value=st.session_state["custom_portal_heading"],
+                )
+                sub_package = st.selectbox(
+                    "SaaS Sovereign Tier*",
+                    [
+                        "Sovereign Legislative & Statutory Node",
+                        "Custom Government Parastatal Node",
+                        "Enterprise Commercial Node",
+                        "NGO & Donor Grant Node",
+                        "Sovereign Academic Research Node",
+                    ],
+                )
+            with col_d:
+                uploaded_logo = st.file_uploader(
+                    "Upload Official Institutional Branding Logo (PNG/JPG)",
+                    type=["png", "jpg", "jpeg"],
+                )
+
+            preview_before_submit = st.checkbox(
+                "🔍 Review & Verify Credentials on Summary Card Before Final Commit (Uncheck to Submit Immediately)",
+                value=False,
+            )
+            submitted = st.form_submit_button(
+                "Submit Organizational Node for Approval and Activation",
+                use_container_width=True,
             )
 
-        submitted = st.form_submit_button(
-            "Submit Organizational Node for Approval and Activation",
-            use_container_width=True,
-        )
-
-    if submitted:
-        org = corp_name.strip()
-        email = corp_email.strip()
-        phone = corp_phone.strip()
-        address = corp_address.strip()
-        if not org or not email or not phone or not address:
-            st.error(
-                "⚠️ Please fill in all required organizational entity fields "
-                "marked with an asterisk (*)."
-            )
-        else:
-            client_id = str(uuid.uuid4())[:8]
-            slug_prefix = re.sub(r"[^a-zA-Z0-9]", "", org.lower())[:15] or "tenant"
-            tenant_slug = f"{slug_prefix}_{client_id}"
-            logo_filename = ""
-            logo_file_path: Path | None = None
-            try:
-                if uploaded_logo is not None:
-                    logo_filename = _store_tenant_logo(tenant_slug, uploaded_logo)
-                    logo_file_path = _tenant_logo_directory() / logo_filename
-                db.create_tenant_onboarding(
-                    {
-                        "tenant_slug": tenant_slug,
-                        "full_corporation_name": org,
-                        "institution_category": entity_type,
-                        "logo_path": logo_filename,
-                        "cac_registration_number": "N/A",
-                        "admin_email": admin_email.strip() or email,
-                        "admin_phone": phone,
-                    }
-                )
-                lifecycle_database = NexusDatabaseAdapter()
-                lifecycle_engine = NexusTenantLifecycleEngine(lifecycle_database)
-                lifecycle_tenant = lifecycle_engine.register_tenant(
-                    org,
-                    admin_email.strip() or email,
-                )
-            except Exception as exc:
-                logging.exception("Tenant onboarding failed.")
-                if logo_file_path is not None:
-                    try:
-                        logo_file_path.unlink(missing_ok=True)
-                    except OSError:
-                        logging.exception(
-                            "Could not remove the unregistered logo for tenant %s.",
-                            tenant_slug,
-                        )
-                st.error(f"Tenant onboarding failed: {exc}")
+        if submitted or confirm_final_onboard:
+            if confirm_final_onboard and st.session_state.get("onboarding_draft_payload"):
+                _d = st.session_state["onboarding_draft_payload"]
+                org = _d["org"]
+                email = _d["email"]
+                phone = _d["phone"]
+                address = _d["address"]
+                entity_type = _d["entity_type"]
+                admin_email = _d["admin_email"]
+                custom_title_input = _d["custom_title"]
+                sub_package = _d["sub_package"]
             else:
-                st.session_state["current_client_id"] = client_id
-                st.session_state["entity_type"] = entity_type
-                st.session_state["corp_name"] = org
-                st.session_state["corp_email"] = email
-                st.session_state["corp_phone"] = phone
-                st.session_state["corp_address"] = address
-                st.session_state["sub_package"] = sub_package
-                st.session_state["admin_email"] = admin_email.strip() or email
-                st.session_state["custom_portal_heading"] = custom_title_input.strip()
-                st.session_state["onboarded_tenant_slug"] = lifecycle_tenant["slug"]
-                st.session_state["onboarded_tenant_id"] = lifecycle_tenant["tenant_id"]
-                st.session_state["onboarding_submitted"] = True
+                org = corp_name.strip()
+                email = corp_email.strip()
+                phone = corp_phone.strip()
+                address = corp_address.strip()
+            if not org or not email or not phone or not address:
+                st.error(
+                    "⚠️ Please fill in all required organizational entity fields "
+                    "marked with an asterisk (*)."
+                )
+            elif submitted and preview_before_submit and not confirm_final_onboard:
+                st.session_state["onboarding_draft_payload"] = {
+                    "entity_type": entity_type,
+                    "org": org,
+                    "email": email,
+                    "admin_email": admin_email.strip() or email,
+                    "phone": phone,
+                    "address": address,
+                    "custom_title": custom_title_input.strip(),
+                    "sub_package": sub_package,
+                }
+                st.session_state["onboarding_review_mode"] = True
                 st.rerun()
+            else:
+                st.session_state["onboarding_review_mode"] = False
+                client_id = str(uuid.uuid4())[:8]
+                slug_prefix = re.sub(r"[^a-zA-Z0-9]", "", org.lower())[:15] or "tenant"
+                tenant_slug = f"{slug_prefix}_{client_id}"
+                logo_filename = ""
+                logo_file_path: Path | None = None
+                try:
+                    if uploaded_logo is not None:
+                        logo_filename = _store_tenant_logo(tenant_slug, uploaded_logo)
+                        logo_file_path = _tenant_logo_directory() / logo_filename
+                    db.create_tenant_onboarding(
+                        {
+                            "tenant_slug": tenant_slug,
+                            "full_corporation_name": org,
+                            "institution_category": entity_type,
+                            "logo_path": logo_filename,
+                            "cac_registration_number": "N/A",
+                            "admin_email": admin_email.strip() or email,
+                            "admin_phone": phone,
+                        }
+                    )
+                    lifecycle_database = NexusDatabaseAdapter()
+                    lifecycle_engine = NexusTenantLifecycleEngine(lifecycle_database)
+                    lifecycle_tenant = lifecycle_engine.register_tenant(
+                        org,
+                        admin_email.strip() or email,
+                    )
+                except Exception as exc:
+                    logging.exception("Tenant onboarding failed.")
+                    if logo_file_path is not None:
+                        try:
+                            logo_file_path.unlink(missing_ok=True)
+                        except OSError:
+                            logging.exception(
+                                "Could not remove the unregistered logo for tenant %s.",
+                                tenant_slug,
+                            )
+                    st.error(f"Tenant onboarding failed: {exc}")
+                else:
+                    st.session_state["current_client_id"] = client_id
+                    st.session_state["entity_type"] = entity_type
+                    st.session_state["corp_name"] = org
+                    st.session_state["corp_email"] = email
+                    st.session_state["corp_phone"] = phone
+                    st.session_state["corp_address"] = address
+                    st.session_state["sub_package"] = sub_package
+                    st.session_state["admin_email"] = admin_email.strip() or email
+                    st.session_state["custom_portal_heading"] = custom_title_input.strip()
+                    st.session_state["onboarded_tenant_slug"] = lifecycle_tenant["slug"]
+                    st.session_state["onboarded_tenant_id"] = lifecycle_tenant["tenant_id"]
+                    st.session_state["onboarding_submitted"] = True
+                    st.rerun()
 
     st.markdown(
         """
