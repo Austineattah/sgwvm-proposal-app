@@ -295,3 +295,28 @@ class NexusTenantLifecycleEngine:
     @staticmethod
     def _missing(tenant_id: str) -> TenantRow:
         raise LookupError(f"Tenant {tenant_id!r} was not found.")
+
+    def choose_subscribe(self, tenant_id: str) -> None:
+        """Transition tenant status to PAYMENT_PENDING or activate subscription flow."""
+        if hasattr(self, "db") and self.db:
+            if hasattr(self.db, "update_tenant_status"):
+                self.db.update_tenant_status(tenant_id, "PAYMENT_PENDING")
+            elif hasattr(self.db, "conn"):
+                with self.db.conn:
+                    self.db.conn.execute(
+                        "UPDATE nv_tenants SET status = ? WHERE tenant_id = ?",
+                        ("PAYMENT_PENDING", tenant_id),
+                    )
+
+    def choose_demo(self, tenant_id: str) -> None:
+        """Transition tenant status to DEMO_ACTIVE for the evaluation window."""
+        if hasattr(self, "db") and self.db:
+            if hasattr(self.db, "update_tenant_status"):
+                self.db.update_tenant_status(tenant_id, "DEMO_ACTIVE")
+            elif hasattr(self.db, "conn"):
+                with self.db.conn:
+                    self.db.conn.execute(
+                        "UPDATE nv_tenants SET status = ? WHERE tenant_id = ?",
+                        ("DEMO_ACTIVE", tenant_id),
+                    )
+
