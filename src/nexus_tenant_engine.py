@@ -297,26 +297,14 @@ class NexusTenantLifecycleEngine:
         raise LookupError(f"Tenant {tenant_id!r} was not found.")
 
     def choose_subscribe(self, tenant_id: str) -> None:
-        """Transition tenant status to PAYMENT_PENDING or activate subscription flow."""
-        if hasattr(self, "db") and self.db:
-            if hasattr(self.db, "update_tenant_status"):
-                self.db.update_tenant_status(tenant_id, "PAYMENT_PENDING")
-            elif hasattr(self.db, "conn"):
-                with self.db.conn:
-                    self.db.conn.execute(
-                        "UPDATE nv_tenants SET status = ? WHERE tenant_id = ?",
-                        ("PAYMENT_PENDING", tenant_id),
-                    )
+        """Persist PAYMENT_PENDING for a tenant choosing immediate activation."""
+        current = self._load_state(tenant_id)
+        if current.status is TenantStatus.PENDING_ACTIVATION:
+            self.choose_subscription(tenant_id, commence_now=True)
 
     def choose_demo(self, tenant_id: str) -> None:
-        """Transition tenant status to DEMO_ACTIVE for the evaluation window."""
-        if hasattr(self, "db") and self.db:
-            if hasattr(self.db, "update_tenant_status"):
-                self.db.update_tenant_status(tenant_id, "DEMO_ACTIVE")
-            elif hasattr(self.db, "conn"):
-                with self.db.conn:
-                    self.db.conn.execute(
-                        "UPDATE nv_tenants SET status = ? WHERE tenant_id = ?",
-                        ("DEMO_ACTIVE", tenant_id),
-                    )
+        """Persist DEMO_ACTIVE and the 14-day evaluation window expiry."""
+        current = self._load_state(tenant_id)
+        if current.status is TenantStatus.PENDING_ACTIVATION:
+            self.choose_subscription(tenant_id, commence_now=False)
 

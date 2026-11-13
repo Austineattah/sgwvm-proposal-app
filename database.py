@@ -1166,6 +1166,11 @@ def get_connection() -> Iterator[sqlite3.Connection]:
         connection.close()
 
 
+_ORDER_INSENSITIVE_TABLES = frozenset(
+    {"tenant_gateway_configs", "tenant_corporate_lodgments"}
+)
+
+
 def _verify_schema(connection: sqlite3.Connection) -> None:
     for table_name, expected_columns in _TABLE_COLUMNS.items():
         rows = connection.execute(f'PRAGMA table_info("{table_name}")').fetchall()
@@ -1182,7 +1187,13 @@ def _verify_schema(connection: sqlite3.Connection) -> None:
             )
             for row in rows
         )
-        if actual_columns != expected_columns:
+        # ALTER TABLE ... ADD COLUMN appends migrated columns, so these tables
+        # are validated by column name/type/pk/default rather than physical order.
+        if table_name in _ORDER_INSENSITIVE_TABLES:
+            schema_matches = sorted(actual_columns) == sorted(expected_columns)
+        else:
+            schema_matches = actual_columns == expected_columns
+        if not schema_matches:
             raise RuntimeError(
                 f"SQLite table {table_name!r} does not match the required schema. "
                 f"Expected {expected_columns!r}, found {actual_columns!r}."

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime, timezone
@@ -114,6 +114,8 @@ def render_tenant_banner(
                 try:
                     engine.choose_demo(tenant_id)
                     st.session_state["show_tenant_checkout"] = False
+                    st.session_state["onboarding_success"] = True
+                    st.session_state["tenant_slug"] = slug
                     st.rerun()
                 except Exception as exc:
                     st.error(f"Unable to defer activation: {exc}")

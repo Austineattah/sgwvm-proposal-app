@@ -4832,17 +4832,50 @@ def _render_home() -> None:
             return
 
         tenant_slug = str(tenant_row["slug"])
+        st.session_state["tenant_slug"] = tenant_slug
+        st.session_state["onboarding_success"] = True
         vendor_url = _tenant_portal_url("vendor", tenant_slug, "unsolicited")
+        org_url = _tenant_portal_url("internal", tenant_slug)
+        tenant_status = str(tenant_row["status"]).strip().upper()
+        if st.session_state.get("show_tenant_checkout") or tenant_status == "PAYMENT_PENDING":
+            st.markdown(
+                textwrap.dedent(
+                    """
+                    <div style="background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%); border: 1px solid #6366f1; border-left: 5px solid #818cf8; border-radius: 12px; padding: 24px; color: #f8fafc; margin-top: 16px; margin-bottom: 16px;">
+                        <h3 style="color: #f8fafc; margin: 0 0 12px 0;">✅ Organisational Profile will be fully activated once you are through with this phase.</h3>
+                        <p style="color: #f8fafc; margin: 0; line-height: 1.7;">
+                            Please copy and securely retain your dedicated <strong>Organisational URL</strong> below, and take note of the following operational activation rules:
+                        </p>
+                    </div>
+                    """
+                ).strip(),
+                unsafe_allow_html=True,
+            )
+            st.code(org_url, language=None)
+            st.markdown(
+                textwrap.dedent(
+                    """
+                    <div style="background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%); border: 1px solid #6366f1; border-left: 5px solid #818cf8; border-radius: 12px; padding: 24px; color: #f8fafc; margin-top: 16px; margin-bottom: 16px;">
+                        <ol style="color: #f8fafc; margin: 0; padding-left: 20px; line-height: 1.7;">
+                            <li><strong>Unsolicited Proposals &amp; Vendors Portal:</strong> Your public portal for receiving, indexing, and standardizing unsolicited proposals and vendor pre-qualifications becomes active upon completion of this phase and <strong>Developer Activation</strong>.</li>
+                            <li><strong>Solicited Tenders Portal:</strong> Your formal competitive tender submission gateway becomes active once you input specific tender parameters and activate them within your <strong>Internal Administrative Workspace</strong>.</li>
+                            <li><strong>Desk Officer &amp; Registry Workspace:</strong> Your statutory evaluation, vetting, and registry command center—governing both solicited bids and unsolicited submissions—becomes active upon <strong>Full Developer Activation</strong>.</li>
+                            <li><strong>Automated Training Guide:</strong> Your guided seminar and training suite for administrators and desk officers becomes available once your organisational profile is <strong>fully activated</strong>.</li>
+                        </ol>
+                    </div>
+                    """
+                ).strip(),
+                unsafe_allow_html=True,
+            )
         render_tenant_banner(tenant_row, engine)
-        if str(tenant_row["status"]).strip().upper() == "DEMO_ACTIVE":
-            org_url = _tenant_portal_url("internal", tenant_slug)
+        if tenant_status == "DEMO_ACTIVE":
             st.markdown(
                 textwrap.dedent(
                     """
                     <div style="background: linear-gradient(135deg, #064e3b 0%, #0f172a 100%); border: 1px solid #10b981; border-left: 5px solid #34d399; border-radius: 12px; padding: 24px; color: #f8fafc; margin-top: 16px; margin-bottom: 16px;">
                         <h3 style="color: #f8fafc; margin: 0 0 12px 0;">✅ Organisational Profile Provisioned — 14-Day Free Trial Initiated</h3>
                         <p style="color: #f8fafc; margin: 0; line-height: 1.7;">
-                            Your organisational credentials have been profiled for a <strong>14-day free trial</strong>, subject to final system activation. Please copy and securely retain your dedicated <strong>Organisational URL</strong> below, and take note of the following operational activation protocols across your <strong>solicited and unsolicited</strong> gateways:
+                            Your organisational credentials have been profiled for a <strong>14-day free trial</strong>, subject to final system activation. Please copy and securely retain your dedicated <strong>Organisational URL</strong> below, and take note of the following operational activation rules:
                         </p>
                     </div>
                     """
