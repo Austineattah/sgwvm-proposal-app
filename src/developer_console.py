@@ -185,7 +185,7 @@ def render_tenant_feedback_tab(
                     <span style="font-size: 13px; color: #f87171;">Client tenant submitted a inquiry outside standard AI Knowledge Base logic. Visual alert will pulse until resolved.</span>
                 </div>
             </div>
-            """,
+            """).strip(),
             unsafe_allow_html=True,
         )
     else:
@@ -314,7 +314,7 @@ def render_seminar_training_suite():
         current = slides[st.session_state.seminar_slide_idx]
 
         st.markdown(
-            f"""
+            textwrap.dedent(f"""
             <div style="border: 2px solid #3b82f6; border-radius: 14px; background: #090d16; padding: 0px; box-shadow: 0 12px 30px rgba(0,0,0,0.5); margin-top: 15px; margin-bottom: 20px; overflow: hidden; font-family: sans-serif;">
                 <div style="background: #1e293b; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155;">
                     <div>
