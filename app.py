@@ -51,6 +51,10 @@ from streamlit.errors import StreamlitSecretNotFoundError
 
 import database as db
 
+from src.nexus_db_adapter import NexusDatabaseAdapter
+from src.nexus_tenant_engine import NexusTenantLifecycleEngine
+from src.tenant_banner import render_tenant_banner
+
 
 try:
     from src.committee_auth import CommitteeTokenManager
@@ -4811,40 +4815,24 @@ def _render_home() -> None:
         )
 
     if st.session_state.get("onboarding_submitted", False):
-        success_message = st.session_state.pop("onboarding_success_message", None)
-        if success_message:
-            st.success(success_message)
-        tenant_slug = str(st.session_state.get("onboarded_tenant_slug", ""))
+        st.session_state.pop("onboarding_success_message", None)
+        tenant_id = str(st.session_state.get("onboarded_tenant_id", ""))
+        if not tenant_id:
+            logging.error("Onboarded tenant lifecycle ID is missing from the session.")
+            st.error("Unable to load the onboarding lifecycle status.")
+            return
+
+        database = NexusDatabaseAdapter()
+        engine = NexusTenantLifecycleEngine(database)
+        tenant_row = database.get_tenant(tenant_id)
+        if tenant_row is None:
+            logging.error("Onboarded tenant %s was not found in nv_tenants.", tenant_id)
+            st.error("Unable to load the onboarding lifecycle status.")
+            return
+
+        tenant_slug = str(tenant_row["slug"])
         vendor_url = _tenant_portal_url("vendor", tenant_slug, "unsolicited")
-        st.markdown(
-            f"""
-            <section style="background: linear-gradient(135deg, #061a36 0%, #0b2d5c 100%);
-                            border: 1px solid rgba(147, 197, 253, 0.65);
-                            border-radius: 16px; padding: 2.2rem;
-                            margin: 2rem auto; max-width: 860px;
-                            box-shadow: 0 18px 48px rgba(4, 17, 40, 0.35);">
-                <h2 style="color: #bfdbfe; margin: 0 0 1.2rem; text-align: center;">
-                    NEXUSVAULT INSTITUTIONAL ONBOARDING
-                </h2>
-                <div style="background: rgba(255, 255, 255, 0.07);
-                            border: 1px solid rgba(191, 219, 254, 0.3);
-                            border-radius: 12px; padding: 1.4rem; text-align: center;">
-                    <p style="color: #eff6ff; font-size: 1.2rem; font-weight: 800;
-                              letter-spacing: 0.04em; margin: 0;">
-                        YOUR INSTITUTIONAL CREDENTIALS HAVE BEEN ONBOARDED,
-                        AWAITING ACTIVATION SHORTLY
-                    </p>
-                </div>
-                <p style="color: #dbeafe; text-align: center; margin: 1.2rem 0 0;">
-                    Status: Pending Activation · Tenant: {html.escape(tenant_slug)}
-                </p>
-                <p style="color: #bfdbfe; text-align: center; margin: 0.6rem 0 0;">
-                    Public submissions become available after institutional activation.
-                </p>
-            </section>
-            """,
-            unsafe_allow_html=True,
-        )
+        render_tenant_banner(tenant_row, engine)
         st.caption("Production unsolicited portal URL (available after activation)")
         st.code(vendor_url, language="text")
         if st.button("Return to Onboarding Portal", use_container_width=True):
@@ -5105,6 +5093,12 @@ def _render_home() -> None:
                         "admin_phone": phone,
                     }
                 )
+                lifecycle_database = NexusDatabaseAdapter()
+                lifecycle_engine = NexusTenantLifecycleEngine(lifecycle_database)
+                lifecycle_tenant = lifecycle_engine.register_tenant(
+                    org,
+                    admin_email.strip() or email,
+                )
             except Exception as exc:
                 logging.exception("Tenant onboarding failed.")
                 if logo_file_path is not None:
@@ -5126,11 +5120,9 @@ def _render_home() -> None:
                 st.session_state["sub_package"] = sub_package
                 st.session_state["admin_email"] = admin_email.strip() or email
                 st.session_state["custom_portal_heading"] = custom_title_input.strip()
-                st.session_state["onboarded_tenant_slug"] = tenant_slug
+                st.session_state["onboarded_tenant_slug"] = lifecycle_tenant["slug"]
+                st.session_state["onboarded_tenant_id"] = lifecycle_tenant["tenant_id"]
                 st.session_state["onboarding_submitted"] = True
-                st.session_state["onboarding_success_message"] = (
-                    "Your tenant onboarding request was saved and is awaiting activation."
-                )
                 st.rerun()
 
     st.markdown(
