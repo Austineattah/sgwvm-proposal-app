@@ -327,23 +327,18 @@ def render_seminar_training_suite():
                         🔒 {current['status_badge']}
                     </div>
                 </div>
-                
                 <div style="padding: 30px; background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc;">
                     <div style="display: flex; gap: 10px; margin-bottom: 15px;">
                         <span style="background-color: #2563eb; color: white; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">{current['category']}</span>
                         <span style="background-color: #334155; color: #cbd5e1; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 500;">{current['topic']}</span>
                     </div>
-                    
                     <h2 style="color: #38bdf8; font-size: 24px; margin-top: 10px; margin-bottom: 15px; font-weight: 700;">{current['question']}</h2>
                     <p style="color: #94a3b8; font-size: 14px; font-style: italic; margin-bottom: 20px;">{current['summary']}</p>
-                    
                     <hr style="border-color: #334155; margin: 20px 0;" />
-                    
                     <div style="font-size: 15px; line-height: 1.8; color: #e2e8f0; background: rgba(15, 23, 42, 0.6); padding: 20px; border-radius: 8px; border-left: 4px solid #38bdf8;">
                         {current['answer'].replace(chr(10), '<br>')}
                     </div>
                 </div>
-                
                 <div style="background: #0f172a; padding: 10px 20px; border-top: 1px solid #1e293b; text-align: right; color: #64748b; font-size: 12px;">
                     NexusVault Sovereign GovTech OS &bull; Secure Executive Briefing Mode
                 </div>
