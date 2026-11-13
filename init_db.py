@@ -1,36 +1,74 @@
-from sqlalchemy import text
+﻿import sqlite3
+from pathlib import Path
 
-from database import get_db_engine, initialize_database as initialize_models
+db_paths = ["nexus_sovereign.db", "data/nexus_sovereign.db", "sovereign.db"]
+db_path = None
 
+for p in db_paths:
+    if Path(p).exists():
+        db_path = p
+        break
 
-def initialize_database():
-    """Initialize the application ORM schema and supporting PostgreSQL tables."""
-    initialize_models()
-    engine = get_db_engine()
-    with engine.begin() as connection:
-        connection.execute(
-            text("""
-                CREATE TABLE IF NOT EXISTS tracking_logs (
-                    id SERIAL PRIMARY KEY,
-                    proposal_id INT REFERENCES proposals(id) ON DELETE CASCADE,
-                    stage VARCHAR(100) NOT NULL,
-                    status_message TEXT,
-                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-        )
-        connection.execute(
-            text("""
-                CREATE TABLE IF NOT EXISTS audit_logs (
-                    id SERIAL PRIMARY KEY,
-                    action_performed VARCHAR(255) NOT NULL,
-                    performed_by VARCHAR(100) DEFAULT 'system',
-                    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    details TEXT
-                )
-            """)
-        )
+if not db_path:
+    db_path = "nexus_sovereign.db"
 
+print(f"Targeting database: {db_path}")
 
-if __name__ == "__main__":
-    initialize_database()
+conn = sqlite3.connect(db_path)
+cursor = conn.cursor()
+
+cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+existing_tables = [row[0] for row in cursor.fetchall()]
+print(f"Existing tables: {existing_tables}")
+
+schema_queries = [
+    """
+    CREATE TABLE IF NOT EXISTS nv_tenants (
+        tenant_id TEXT PRIMARY KEY,
+        slug TEXT UNIQUE,
+        org_name TEXT,
+        status TEXT,
+        sub_package TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS nv_document_parses (
+        parse_id TEXT PRIMARY KEY,
+        tenant_id TEXT,
+        file_name TEXT,
+        extracted_json TEXT,
+        confidence_score REAL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tenant_id) REFERENCES nv_tenants(tenant_id)
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS nv_scoring_grids (
+        grid_id TEXT PRIMARY KEY,
+        tenant_id TEXT,
+        criteria_name TEXT,
+        weight_percentage REAL,
+        score_awarded REAL,
+        FOREIGN KEY (tenant_id) REFERENCES nv_tenants(tenant_id)
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS nv_audit_logs (
+        log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id TEXT,
+        action_type TEXT,
+        actor_email TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tenant_id) REFERENCES nv_tenants(tenant_id)
+    );
+    """
+]
+
+for query in schema_queries:
+    cursor.execute(query)
+
+conn.commit()
+conn.close()
+
+print("Database inspection and schema initialization completed successfully!")
