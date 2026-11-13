@@ -1,3 +1,4 @@
+import textwrap
 ﻿"""
 NexusVault Developer Console & Seminar Training Portal (src/developer_console.py)
 Empowers Lead Architect & CEO with master admin controls, blinking alert notifications, and tenant support controls.
@@ -157,7 +158,7 @@ def render_tenant_feedback_tab(
     # Blinking Pulsing CSS Notification Banner for Unanswered Tickets
     if unanswered_count > 0:
         st.markdown(
-            f"""
+            textwrap.dedent(f"""
             <style>
             @keyframes pulse-red {{
                 0% {{ box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); background-color: rgba(239, 68, 68, 0.15); }}
@@ -347,7 +348,7 @@ def render_seminar_training_suite():
                     NexusVault Sovereign GovTech OS &bull; Secure Executive Briefing Mode
                 </div>
             </div>
-            """,
+            """).strip(),
             unsafe_allow_html=True,
         )
 
