@@ -4514,6 +4514,44 @@ def purge_archived_tenant(tenant_slug: str) -> bool:
     return True
 
 
+def purge_expired_pending_clients(max_age_days: int = 7) -> int:
+    """Archive unactivated tenants older than ``max_age_days``; return the count."""
+    init_db()
+    cutoff = datetime.now(timezone.utc).timestamp() - max_age_days * 86400
+    try:
+        with get_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT tenant.tenant_slug, contact.created_at
+                FROM tenants AS tenant
+                JOIN tenant_onboarding_contacts AS contact
+                  ON contact.tenant_slug = tenant.tenant_slug
+                WHERE tenant.is_deleted = 0
+                  AND UPPER(COALESCE(tenant.status, '')) IN ('PENDING', 'PENDING ACTIVATION')
+                """
+            ).fetchall()
+    except sqlite3.Error:
+        return 0
+    expired = []
+    for row in rows:
+        try:
+            created = datetime.fromisoformat(str(row["created_at"]).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            continue
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if created.timestamp() <= cutoff:
+            expired.append(row["tenant_slug"])
+    purged = 0
+    for slug in expired:
+        try:
+            if archive_tenant(slug):
+                purged += 1
+        except sqlite3.Error:
+            continue
+    return purged
+
+
 def _purge_tenant_records(
     connection: sqlite3.Connection,
     tenant_slug: str,
