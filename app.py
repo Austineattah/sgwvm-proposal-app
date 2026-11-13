@@ -5066,6 +5066,7 @@ def _render_home() -> None:
             unsafe_allow_html=True,
         )
 
+        confirm_final_onboard = False
         if st.session_state.get("onboarding_review_mode", False) and not st.session_state.get("onboarding_submitted", False):
             draft = st.session_state.get("onboarding_draft_payload", {})
             st.markdown(
@@ -5106,88 +5107,96 @@ def _render_home() -> None:
                     use_container_width=True,
                     key="btn_confirm_final_onboard",
                 )
-        else:
-            confirm_final_onboard = False
+        review_active = bool(
+            st.session_state.get("onboarding_review_mode", False)
+            and not st.session_state.get("onboarding_submitted", False)
+        )
+        submitted = False
+        preview_before_submit = False
+        uploaded_logo = None
+        if review_active:
+            uploaded_logo = st.session_state.get("onboarding_draft_logo")
 
-        with st.form("corporate_onboarding_form"):
-            st.markdown(
-                "<div class='section-hdr'>🏢 Step 1: Organizational Classification & "
-                "Domain Setup</div>",
-                unsafe_allow_html=True,
-            )
-            entity_type = st.selectbox(
-                "Select Organization / Entity Category*",
-                [
-                    "Public University / Polytechnic / Research Institute (Academic Sector)",
-                    "Multinational Funder / UN Agency / International NGO (Humanitarian Sector)",
-                    "National Assembly / Parliament / Legislative Directorate",
-                    "Federal Ministry, Department, or Agency (MDA)",
-                    "State Ministry, Department, or Agency (MDA)",
-                    "Private Limited Company / Enterprise (Commercial Sector)",
-                    "Non-Profit Foundation / Civil Society Organization",
-                ],
-            )
-
-            col_a, col_b = st.columns(2)
-            with col_a:
-                corp_name = st.text_input(
-                    "Organizational Entity Name*",
-                    placeholder="e.g., Federal Ministry of Technology",
+        if not review_active:
+            with st.form("corporate_onboarding_form"):
+                st.markdown(
+                    "<div class='section-hdr'>🏢 Step 1: Organizational Classification & "
+                    "Domain Setup</div>",
+                    unsafe_allow_html=True,
                 )
-                corp_email = st.text_input(
-                    "Official Dispatch Email*",
-                    placeholder="contact@entity.gov.ng",
-                )
-
-            with col_b:
-                corp_phone = st.text_input(
-                    "Official Phone / SMS Gateway Contact*",
-                    placeholder="+234 803 000 0000",
-                )
-                corp_address = st.text_input(
-                    "Institutional Headquarters Address*",
-                    placeholder="Central Area, Abuja",
-                )
-                admin_email = st.text_input(
-                    "Executive Chief Notification Node",
-                    placeholder="executive-office@entity.org",
-                )
-
-            st.markdown(
-                "<div class='section-hdr'>🎨 Step 2: Branding & Custom Portal "
-                "Heading</div>",
-                unsafe_allow_html=True,
-            )
-            col_c, col_d = st.columns(2)
-            with col_c:
-                custom_title_input = st.text_input(
-                    "Custom Portal Banner Title",
-                    value=st.session_state["custom_portal_heading"],
-                )
-                sub_package = st.selectbox(
-                    "SaaS Sovereign Tier*",
+                entity_type = st.selectbox(
+                    "Select Organization / Entity Category*",
                     [
-                        "Sovereign Legislative & Statutory Node",
-                        "Custom Government Parastatal Node",
-                        "Enterprise Commercial Node",
-                        "NGO & Donor Grant Node",
-                        "Sovereign Academic Research Node",
+                        "Public University / Polytechnic / Research Institute (Academic Sector)",
+                        "Multinational Funder / UN Agency / International NGO (Humanitarian Sector)",
+                        "National Assembly / Parliament / Legislative Directorate",
+                        "Federal Ministry, Department, or Agency (MDA)",
+                        "State Ministry, Department, or Agency (MDA)",
+                        "Private Limited Company / Enterprise (Commercial Sector)",
+                        "Non-Profit Foundation / Civil Society Organization",
                     ],
                 )
-            with col_d:
-                uploaded_logo = st.file_uploader(
-                    "Upload Official Institutional Branding Logo (PNG/JPG)",
-                    type=["png", "jpg", "jpeg"],
-                )
 
-            preview_before_submit = st.checkbox(
-                "🔍 Review & Verify Credentials on Summary Card Before Final Commit (Uncheck to Submit Immediately)",
-                value=False,
-            )
-            submitted = st.form_submit_button(
-                "Submit Organizational Node for Approval and Activation",
-                use_container_width=True,
-            )
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    corp_name = st.text_input(
+                        "Organizational Entity Name*",
+                        placeholder="e.g., Federal Ministry of Technology",
+                    )
+                    corp_email = st.text_input(
+                        "Official Dispatch Email*",
+                        placeholder="contact@entity.gov.ng",
+                    )
+
+                with col_b:
+                    corp_phone = st.text_input(
+                        "Official Phone / SMS Gateway Contact*",
+                        placeholder="+234 803 000 0000",
+                    )
+                    corp_address = st.text_input(
+                        "Institutional Headquarters Address*",
+                        placeholder="Central Area, Abuja",
+                    )
+                    admin_email = st.text_input(
+                        "Executive Chief Notification Node",
+                        placeholder="executive-office@entity.org",
+                    )
+
+                st.markdown(
+                    "<div class='section-hdr'>🎨 Step 2: Branding & Custom Portal "
+                    "Heading</div>",
+                    unsafe_allow_html=True,
+                )
+                col_c, col_d = st.columns(2)
+                with col_c:
+                    custom_title_input = st.text_input(
+                        "Custom Portal Banner Title",
+                        value=st.session_state["custom_portal_heading"],
+                    )
+                    sub_package = st.selectbox(
+                        "SaaS Sovereign Tier*",
+                        [
+                            "Sovereign Legislative & Statutory Node",
+                            "Custom Government Parastatal Node",
+                            "Enterprise Commercial Node",
+                            "NGO & Donor Grant Node",
+                            "Sovereign Academic Research Node",
+                        ],
+                    )
+                with col_d:
+                    uploaded_logo = st.file_uploader(
+                        "Upload Official Institutional Branding Logo (PNG/JPG)",
+                        type=["png", "jpg", "jpeg"],
+                    )
+
+                preview_before_submit = st.checkbox(
+                    "🔍 Review & Verify Credentials on Summary Card Before Final Commit (Uncheck to Submit Immediately)",
+                    value=False,
+                )
+                submitted = st.form_submit_button(
+                    "Submit Organizational Node for Approval and Activation",
+                    use_container_width=True,
+                )
 
         if submitted or confirm_final_onboard:
             if confirm_final_onboard and st.session_state.get("onboarding_draft_payload"):
@@ -5221,6 +5230,7 @@ def _render_home() -> None:
                     "custom_title": custom_title_input.strip(),
                     "sub_package": sub_package,
                 }
+                st.session_state["onboarding_draft_logo"] = uploaded_logo
                 st.session_state["onboarding_review_mode"] = True
                 st.rerun()
             else:
