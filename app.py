@@ -8,6 +8,7 @@ import re
 import secrets
 import sqlite3
 import tempfile
+import textwrap
 import time
 import uuid
 from collections.abc import Mapping
@@ -4833,6 +4834,36 @@ def _render_home() -> None:
         tenant_slug = str(tenant_row["slug"])
         vendor_url = _tenant_portal_url("vendor", tenant_slug, "unsolicited")
         render_tenant_banner(tenant_row, engine)
+        if str(tenant_row["status"]).strip().upper() == "DEMO_ACTIVE":
+            org_url = _tenant_portal_url("internal", tenant_slug)
+            st.markdown(
+                textwrap.dedent(
+                    """
+                    <div style="background: linear-gradient(135deg, #064e3b 0%, #0f172a 100%); border: 1px solid #10b981; border-left: 5px solid #34d399; border-radius: 12px; padding: 24px; color: #f8fafc; margin-top: 16px; margin-bottom: 16px;">
+                        <h3 style="color: #f8fafc; margin: 0 0 12px 0;">✅ Organisational Profile Provisioned — 14-Day Free Trial Initiated</h3>
+                        <p style="color: #f8fafc; margin: 0; line-height: 1.7;">
+                            Your organisational credentials have been profiled for a <strong>14-day free trial</strong>, subject to final system activation. Please copy and securely retain your dedicated <strong>Organisational URL</strong> below, and take note of the following operational activation protocols across your <strong>solicited and unsolicited</strong> gateways:
+                        </p>
+                    </div>
+                    """
+                ).strip(),
+                unsafe_allow_html=True,
+            )
+            st.code(org_url, language=None)
+            st.markdown(
+                textwrap.dedent(
+                    """
+                    <div style="background: linear-gradient(135deg, #064e3b 0%, #0f172a 100%); border: 1px solid #10b981; border-left: 5px solid #34d399; border-radius: 12px; padding: 24px; color: #f8fafc; margin-top: 16px; margin-bottom: 16px;">
+                        <ol style="color: #f8fafc; margin: 0; padding-left: 20px; line-height: 1.7;">
+                            <li><strong>Unsolicited Proposals &amp; Vendors Portal:</strong> Your public portal for receiving, indexing, and standardizing unsolicited proposals and vendor pre-qualifications becomes active immediately upon <strong>Developer Activation</strong>.</li>
+                            <li><strong>Solicited Tenders Portal:</strong> Your formal competitive tender submission gateway becomes active once you input specific tender parameters and activate them within your <strong>Internal Administrative Workspace</strong>.</li>
+                            <li><strong>Desk Officer &amp; Registry Workspace:</strong> Your statutory evaluation, vetting, and registry command center—governing both solicited bids and unsolicited submissions—becomes active upon <strong>Full Developer Activation</strong>.</li>
+                        </ol>
+                    </div>
+                    """
+                ).strip(),
+                unsafe_allow_html=True,
+            )
         st.caption("Production unsolicited portal URL (available after activation)")
         st.code(vendor_url, language="text")
         if st.button("Return to Onboarding Portal", use_container_width=True):
@@ -4975,6 +5006,19 @@ def _render_home() -> None:
             </div>
         </div>
         """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        textwrap.dedent(
+            """
+            <div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); border-left: 4px solid #38bdf8; border-radius: 12px; padding: 24px; color: #f8fafc; margin-bottom: 24px;">
+                <h3 style="color: #f8fafc; margin: 0 0 12px 0;">About NexusVault Sovereign GovTech OS</h3>
+                <p style="color: #f8fafc; margin: 0; line-height: 1.7;">
+                    <strong>A pioneering, first-of-its-kind innovation in the world:</strong> NexusVault is an <strong>Agentic Procurement Governance &amp; Bid-Evaluation Operating System</strong> engineered to streamline <strong>both solicited tender workflows and unsolicited proposal intake</strong>, enforce strict <strong>BPP statutory compliance</strong>, and guarantee <strong>cryptographic auditability</strong> across public and institutional procurement lifecycles. By standardizing how <strong>solicited bids and unsolicited proposals</strong> are received, structured, and evaluated, the platform eliminates ad-hoc paper bottlenecks and elevates organisational efficiency across every administrative tier. Powered by autonomous AI vetting agents, NexusVault automatically parses vendor compliance credentials (CAC, Tax Clearance, PENCOM, ITF, NSITF, BPP IRR), flags statutory discrepancies in real time, and generates objective scoring matrices for evaluation committees—transforming weeks of manual registry verification into a tamper-evident, single-screen executive workflow.
+                </p>
+            </div>
+            """
+        ).strip(),
         unsafe_allow_html=True,
     )
     tab_new_onboard, tab_returning_login = st.tabs(
