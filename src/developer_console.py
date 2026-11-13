@@ -1,5 +1,5 @@
 import textwrap
-﻿"""
+"""
 NexusVault Developer Console & Seminar Training Portal (src/developer_console.py)
 Empowers Lead Architect & CEO with master admin controls, blinking alert notifications, and tenant support controls.
 """
