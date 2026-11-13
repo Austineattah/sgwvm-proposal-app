@@ -98,7 +98,7 @@ def _build_proforma_invoice_text(
     return (
         "====================================================================\n"
         "NEXUSVAULT SOVEREIGN INTELLIGENCE — COMMERCIAL PROFORMA INVOICE\n"
-        "Issued by: SGWVM Technology Limited\n"
+        "Issued by: NexusVault Digital Technology Limited\n"
         "Address: Plot 119, First Avenue Efab Estate Lokogoma, Abuja\n"
         "====================================================================\n"
         f"Invoice Reference : {invoice_ref}\n"
@@ -119,7 +119,7 @@ def _build_proforma_invoice_text(
         f"   IMMEDIATE SETTLEMENT DUE TODAY: {_format_ngn(total_due_today)}\n"
         "--------------------------------------------------------------------\n"
         "CORPORATE SETTLEMENT INSTRUCTIONS (EXCLUSIVE INSTITUTIONAL GATEWAY)\n"
-        "  Beneficiary Name : SGWVM Technology Limited (NexusVault Escrow)\n"
+        "  Beneficiary Name : NexusVault Digital Technology Limited (NexusVault Escrow)\n"
         "  Settlement Mode  : Corporate Wire / NIP Institutional Transfer\n"
         "  Mandatory Narration: "
         f"{invoice_ref} | {slug}\n"
@@ -281,7 +281,7 @@ def render_tenant_checkout(
 
     with tab_wire:
         st.info(
-            f"**Beneficiary:** SGWVM Technology Limited (NexusVault Institutional Settlement) | "
+            f"**Beneficiary:** NexusVault Digital Technology Limited (NexusVault Institutional Settlement) | "
             f"**Mandatory Payment Narration:** `{invoice_ref}` | "
             f"**Amount Due:** `{_format_ngn(total_due_today)}`"
         )
