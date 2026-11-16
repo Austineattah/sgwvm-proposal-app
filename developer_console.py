@@ -352,3 +352,23 @@ def render_developer_console():
     else:
         # Execute module body directly if standalone
         pass
+
+
+def render_traffic_analytics_dashboard():
+    st.markdown("### 📊 Link Click & Traffic Intelligence")
+    st.markdown("Real-time telemetry measuring visitor engagement and link click velocity across distribution channels.")
+    
+    stats = get_link_click_stats()
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric(label="🌐 Total Clicks", value=stats.get("total_clicks", 0))
+    with col2:
+        st.metric(label="🔗 Main Domain", value=stats.get("main_domain_clicks", 0))
+    with col3:
+        st.metric(label="🏢 Tenant Portals", value=stats.get("tenant_portal_clicks", 0))
+    with col4:
+        st.metric(label="📄 Vendor Portals", value=stats.get("vendor_portal_clicks", 0))
+        
+    st.info("💡 **Tracking URL Format:** Share links formatted as `https://your-app.streamlit.app/?track=vendor_portal` or `?track=tenant_portal&tenant=client_slug` to automatically log engagement.")
+
