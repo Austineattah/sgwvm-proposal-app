@@ -9,5 +9,5 @@ call env\Scripts\activate
 echo [INFO] Setting developer grant credentials...
 set NEXUSVAULT_DEVELOPER_GRANT_PASSWORD=MyRealPassword123
 echo [INFO] Environment active. Launching application...
-streamlit run app.py --server.headless=false
+streamlit run app.py --server.port=8505 --server.headless=false
 pause
