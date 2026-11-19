@@ -78,3 +78,128 @@ def is_critical_kyb_result(kyb_data: dict) -> bool:
         or status == "INACTIVE"
         or company_status == "INACTIVE"
     )
+
+
+from datetime import date
+from typing import Any
+
+from bid_pricing_ingestion import BoQLineItem, evaluate_boq_pricing
+from ownership_conflict import BidOwnershipRecord, detect_ownership_conflicts
+from statutory_compliance import (
+    StatutoryItemInput,
+    build_kyb_statutory_seed,
+    evaluate_statutory_matrix,
+)
+
+
+def evaluate_bid_integrity_package(
+    *,
+    document_text: str = "",
+    model_has_budget: bool | None = None,
+    model_budget_display: str = "",
+    kyb_data: dict[str, Any] | None = None,
+    statutory_records: list[StatutoryItemInput | dict[str, Any]] | None = None,
+    required_statutory_codes: list[str] | tuple[str, ...] | None = None,
+    as_of_date: date | str | None = None,
+    expiring_within_days: int = 30,
+    competing_bids: list[BidOwnershipRecord | dict[str, Any]] | None = None,
+    boq_items: list[BoQLineItem | dict[str, Any]] | None = None,
+    stated_subtotal: float | None = None,
+    stated_grand_total: float | None = None,
+    vat_rate: float = 0.0,
+    peer_unit_prices_by_item: dict[str, list[float]] | None = None,
+) -> dict[str, Any]:
+    """Aggregate budget evidence, KYB/statutory matrix, ownership conflicts, and BoQ math."""
+    has_budget, budget_display, budget_override_status = assess_budget(
+        document_text=document_text,
+        model_has_budget=model_has_budget,
+        model_budget_display=model_budget_display,
+    )
+
+    critical_kyb = is_critical_kyb_result(kyb_data) if isinstance(kyb_data, dict) else False
+
+    merged_records: list[StatutoryItemInput | dict[str, Any]] = []
+    if isinstance(kyb_data, dict) and kyb_data:
+        merged_records.extend(build_kyb_statutory_seed(kyb_data))
+    if statutory_records:
+        merged_records.extend(statutory_records)
+
+    statutory_report = None
+    if merged_records or required_statutory_codes is not None:
+        statutory_report = evaluate_statutory_matrix(
+            records=merged_records,
+            required_codes=required_statutory_codes,
+            as_of_date=as_of_date,
+            expiring_within_days=expiring_within_days,
+        )
+
+    conflict_report = None
+    if competing_bids:
+        conflict_report = detect_ownership_conflicts(competing_bids)
+
+    boq_report = None
+    if boq_items is not None or stated_subtotal is not None or stated_grand_total is not None:
+        boq_report = evaluate_boq_pricing(
+            items=boq_items or [],
+            stated_subtotal=stated_subtotal,
+            stated_grand_total=stated_grand_total,
+            vat_rate=vat_rate,
+            peer_unit_prices_by_item=peer_unit_prices_by_item,
+        )
+
+    blocking_flags: list[str] = []
+    review_flags: list[str] = []
+
+    if critical_kyb:
+        blocking_flags.append("CRITICAL_KYB_STATUS")
+
+    if statutory_report is not None:
+        if statutory_report.overall_status == "NON_COMPLIANT":
+            blocking_flags.append("STATUTORY_NON_COMPLIANT")
+        elif statutory_report.overall_status == "CONDITIONAL":
+            review_flags.append("STATUTORY_CONDITIONAL")
+
+    if conflict_report is not None and conflict_report.has_conflicts:
+        severities = {f.severity for f in conflict_report.findings}
+        if "CRITICAL" in severities or "HIGH" in severities:
+            blocking_flags.append("OWNERSHIP_CONFLICT_HIGH")
+        else:
+            review_flags.append("OWNERSHIP_CONFLICT_REVIEW")
+
+    if boq_report is not None and boq_report.has_anomalies:
+        blocking_codes = {
+            "LINE_MATH_MISMATCH",
+            "SUBTOTAL_MISMATCH",
+            "GRAND_TOTAL_MISMATCH",
+            "NEGATIVE_PRICING_VALUE",
+        }
+        if any(f.code in blocking_codes for f in boq_report.findings):
+            blocking_flags.append("BOQ_MATH_MISMATCH")
+        else:
+            review_flags.append("BOQ_PRICE_OUTLIER")
+
+    if budget_override_status == "Conditional":
+        review_flags.append("BUDGET_CONDITIONAL")
+
+    if blocking_flags:
+        package_status = "BLOCKED"
+    elif review_flags:
+        package_status = "REVIEW_REQUIRED"
+    else:
+        package_status = "CLEAR"
+
+    return {
+        "package_status": package_status,
+        "blocking_flags": blocking_flags,
+        "review_flags": review_flags,
+        "budget": {
+            "has_budget": has_budget,
+            "display": budget_display,
+            "override_status": budget_override_status,
+        },
+        "critical_kyb": critical_kyb,
+        "statutory": statutory_report.to_dict() if statutory_report is not None else None,
+        "ownership_conflicts": conflict_report.to_dict() if conflict_report is not None else None,
+        "boq_pricing": boq_report.to_dict() if boq_report is not None else None,
+    }
+
