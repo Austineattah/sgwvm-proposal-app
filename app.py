@@ -5288,7 +5288,28 @@ def _render_home() -> None:
             with st.form("corporate_onboarding_form"):
                 st.markdown(
                     "<div class='section-hdr'>Step 1: Organizational Classification & "
-                    "Domain Setup</div>",
+                    "Domain Setup</div>"
+                    "<style>"
+                    "[data-testid=\"stForm\"] [data-testid=\"stSelectbox\"]:has([aria-label*=\"Select Organization / Entity Category*\"]) label,"
+                    "[data-testid=\"stForm\"] [data-testid=\"stSelectbox\"]:has([aria-label*=\"Select Organization / Entity Category*\"]) label p {"
+                    "  color: #FACC15 !important;"
+                    "  font-weight: 700 !important;"
+                    "}"
+                    "[data-testid=\"stForm\"] input,"
+                    "[data-testid=\"stForm\"] textarea,"
+                    "[data-testid=\"stForm\"] [data-baseweb=\"select\"] > div,"
+                    "[data-testid=\"stForm\"] [data-baseweb=\"input\"] > div {"
+                    "  background-color: #000000 !important;"
+                    "  border-color: #475569 !important;"
+                    "}"
+                    "[data-testid=\"stForm\"] input:focus,"
+                    "[data-testid=\"stForm\"] textarea:focus,"
+                    "[data-testid=\"stForm\"] [data-baseweb=\"select\"] > div:focus-within,"
+                    "[data-testid=\"stForm\"] [data-baseweb=\"input\"] > div:focus-within {"
+                    "  background-color: #000000 !important;"
+                    "  border-color: #FACC15 !important;"
+                    "}"
+                    "</style>",
                     unsafe_allow_html=True,
                 )
                 entity_type = st.selectbox(
