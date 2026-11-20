@@ -5051,6 +5051,22 @@ def _render_home() -> None:
     )
 
     safe_heading = html.escape(str(st.session_state["custom_portal_heading"]))
+    _logo_path = Path("assets/nexusvault_logo.png")
+    if not _logo_path.is_file():
+        _logo_path = Path.home() / "Desktop" / "MY LOGO.JPG"
+    _banner_prefix = "🛡️"
+    if _logo_path.is_file():
+        import base64 as _b64_mod
+        _mime = "image/png" if _logo_path.suffix.lower() == ".png" else "image/jpeg"
+        _logo_b64 = _b64_mod.b64encode(_logo_path.read_bytes()).decode("ascii")
+        _banner_prefix = (
+            f'<img src="data:{_mime};base64,{_logo_b64}" '
+            f'alt="NexusVault Logo" '
+            f'style="display: block; width: 100%; max-width: 610px; height: 80px; '
+            f'object-fit: fill; background: transparent; border: none; padding: 0; '
+            f'border-radius: 0 0 42% 42% / 0 0 28px 28px; '
+            f'filter: drop-shadow(0 3px 12px rgba(56, 189, 248, 0.28));" />'
+        )
     st.markdown(
         f"""
         <div style="background: linear-gradient(135deg, rgba(10, 25, 47, 0.85) 0%, rgba(13, 33, 55, 0.85) 100%);
@@ -5061,10 +5077,14 @@ def _render_home() -> None:
             <div style="display: flex; justify-content: space-between; align-items: center;
                         flex-wrap: wrap; gap: 20px;">
                 <div style="flex: 1; min-width: 320px;">
+                    <div style="display: block; width: 100%; max-width: 610px; margin-bottom: 12px;">
+                        {_banner_prefix}
+                    </div>
                     <h1 style="color: #FF5C8A !important; color: #FF5C8A; margin: 0 0 10px 0; font-size: 25px;
                                font-weight: 900; letter-spacing: 0.4px; line-height: 1.3;
-                               font-family: 'Plus Jakarta Sans', sans-serif;">
-                        🛡️ {safe_heading}
+                               font-family: 'Plus Jakarta Sans', sans-serif;
+                               display: block !important;">
+                        {safe_heading}
                     </h1>
                     <p style="color: #cbd5e1 !important; margin: 0 0 14px 0; font-size: 15px;
                               font-weight: 500; line-height: 1.5;
