@@ -51,6 +51,10 @@ from cryptography.fernet import Fernet, InvalidToken
 from streamlit.errors import StreamlitSecretNotFoundError
 
 import database as db
+try:
+    from proposal_evaluation import evaluate_bid_integrity_package as _evaluate_bid_integrity_package
+except ImportError:
+    _evaluate_bid_integrity_package = None
 
 from src.nexus_db_adapter import NexusDatabaseAdapter
 from src.nexus_tenant_engine import NexusTenantLifecycleEngine
@@ -1596,6 +1600,34 @@ def _render_departmental_directorate_interface(
             sector,
             references,
         )
+        if _evaluate_bid_integrity_package is not None:
+            try:
+                _pkg_records = [
+                    {
+                        "code": chk["check_name"],
+                        "status": chk["verification_status"],
+                        "reference": chk["credential_reference"],
+                    }
+                    for chk in checks
+                    if chk.get("verification_status") != "NOT_APPLICABLE"
+                ]
+                _pkg_kyb = {
+                    "rc_number": str(proposal.get("cac_registration_number") or references.get("CAC") or "").strip(),
+                    "tin": str(proposal.get("tax_identification_number") or references.get("TIN") or "").strip(),
+                }
+                _pkg_report = _evaluate_bid_integrity_package(
+                    kyb_data=_pkg_kyb,
+                    statutory_records=_pkg_records,
+                )
+                _cac_chk = next((c for c in checks if c.get("check_name") == "CAC"), None)
+                if _cac_chk is not None:
+                    _flags = ", ".join(_pkg_report.get("blocking_flags") or _pkg_report.get("review_flags") or ["NONE"])
+                    _cac_chk["result_details"] = (
+                        f"{_cac_chk['result_details']} "
+                        f"[Bid Integrity: {_pkg_report['package_status']} | Flags: {_flags}]"
+                    )
+            except Exception:
+                logging.exception("Bid integrity package check failed during screening for %s.", selected_id)
         try:
             db.save_statutory_compliance_checks(
                 tenant_slug=tenant_slug,
@@ -3660,6 +3692,35 @@ def _render_committee_workspace(tenant_slug: str) -> None:
         ),
     )
 
+    if _evaluate_bid_integrity_package is not None:
+        with st.expander("Bid Integrity, Ownership Overlap & Pricing Audit", expanded=False):
+            try:
+                _competing_bids = [
+                    {
+                        "bid_id": str(item.get("tracking_id") or ""),
+                        "vendor_name": str(item.get("organization_name") or item.get("proposal_title") or ""),
+                        "rc_number": str(item.get("cac_registration_number") or ""),
+                        "tin": str(item.get("tax_identification_number") or ""),
+                    }
+                    for item in proposals
+                    if item.get("tracking_id")
+                ]
+                _integrity_summary = _evaluate_bid_integrity_package(
+                    kyb_data={
+                        "rc_number": str(proposal.get("cac_registration_number") or ""),
+                        "tin": str(proposal.get("tax_identification_number") or ""),
+                    },
+                    competing_bids=_competing_bids if len(_competing_bids) > 1 else None,
+                )
+                st.write("Integrity Status:", _integrity_summary["package_status"])
+                st.write("Blocking Flags:", _integrity_summary["blocking_flags"] or ["None"])
+                st.write("Review Flags:", _integrity_summary["review_flags"] or ["None"])
+                if _integrity_summary.get("ownership_conflicts"):
+                    st.json(_integrity_summary["ownership_conflicts"])
+            except Exception:
+                logging.exception("Committee bid integrity summary failed for %s.", tracking_id)
+                st.info("Bid integrity summary could not be computed for this dossier.")
+
     try:
         saved_evaluation = db.get_committee_proposal_evaluation(
             tenant_slug,
@@ -5197,52 +5258,77 @@ def _render_home() -> None:
             uploaded_logo = st.session_state.get("onboarding_draft_logo")
 
         if not review_active:
+            _draft_seed = st.session_state.get("onboarding_draft_payload") or {}
+            _entity_options = [
+                "Public University / Polytechnic / Research Institute (Academic Sector)",
+                "Multinational Funder / UN Agency / International NGO (Humanitarian Sector)",
+                "National Assembly / Parliament / Legislative Directorate",
+                "Federal Ministry, Department, or Agency (MDA)",
+                "State Ministry, Department, or Agency (MDA)",
+                "Private Limited Company / Enterprise (Commercial Sector)",
+                "Non-Profit Foundation / Civil Society Organization",
+            ]
+            _entity_idx = (
+                _entity_options.index(_draft_seed["entity_type"])
+                if _draft_seed.get("entity_type") in _entity_options
+                else 0
+            )
+            _tier_options = [
+                "Sovereign Legislative & Statutory Node",
+                "Custom Government Parastatal Node",
+                "Enterprise Commercial Node",
+                "NGO & Donor Grant Node",
+                "Sovereign Academic Research Node",
+            ]
+            _tier_idx = (
+                _tier_options.index(_draft_seed["sub_package"])
+                if _draft_seed.get("sub_package") in _tier_options
+                else 0
+            )
             with st.form("corporate_onboarding_form"):
                 st.markdown(
-                    "<div class='section-hdr'>🏢 Step 1: Organizational Classification & "
+                    "<div class='section-hdr'>Step 1: Organizational Classification & "
                     "Domain Setup</div>",
                     unsafe_allow_html=True,
                 )
                 entity_type = st.selectbox(
                     "Select Organization / Entity Category*",
-                    [
-                        "Public University / Polytechnic / Research Institute (Academic Sector)",
-                        "Multinational Funder / UN Agency / International NGO (Humanitarian Sector)",
-                        "National Assembly / Parliament / Legislative Directorate",
-                        "Federal Ministry, Department, or Agency (MDA)",
-                        "State Ministry, Department, or Agency (MDA)",
-                        "Private Limited Company / Enterprise (Commercial Sector)",
-                        "Non-Profit Foundation / Civil Society Organization",
-                    ],
+                    _entity_options,
+                    index=_entity_idx,
                 )
 
                 col_a, col_b = st.columns(2)
                 with col_a:
                     corp_name = st.text_input(
                         "Organizational Entity Name*",
+                        value=str(_draft_seed.get("org") or ""),
                         placeholder="e.g., Federal Ministry of Technology",
                     )
                     corp_email = st.text_input(
                         "Official Dispatch Email*",
+                        value=str(_draft_seed.get("email") or ""),
                         placeholder="contact@entity.gov.ng",
                     )
 
                 with col_b:
                     corp_phone = st.text_input(
                         "Official Phone / SMS Gateway Contact*",
+                        value=str(_draft_seed.get("phone") or ""),
                         placeholder="+234 803 000 0000",
                     )
                     corp_address = st.text_input(
                         "Institutional Headquarters Address*",
+                        value=str(_draft_seed.get("address") or ""),
                         placeholder="Central Area, Abuja",
                     )
                     admin_email = st.text_input(
                         "Executive Chief Notification Node",
+                        value=str(_draft_seed.get("admin_email") or ""),
                         placeholder="executive-office@entity.org",
                     )
 
                 st.markdown(
-                    "<div class='section-hdr'>🎨 Step 2: Branding & Custom Portal "
+                    "<div class='section-hdr'>Step 2: Branding & Custom Portal "
                     "Heading</div>",
                     unsafe_allow_html=True,
                 )
@@ -5250,17 +5336,12 @@ def _render_home() -> None:
                 with col_c:
                     custom_title_input = st.text_input(
                         "Custom Portal Banner Title",
-                        value=st.session_state["custom_portal_heading"],
+                        value=str(_draft_seed.get("custom_title") or st.session_state["custom_portal_heading"]),
                     )
                     sub_package = st.selectbox(
                         "SaaS Sovereign Tier*",
-                        [
-                            "Sovereign Legislative & Statutory Node",
-                            "Custom Government Parastatal Node",
-                            "Enterprise Commercial Node",
-                            "NGO & Donor Grant Node",
-                            "Sovereign Academic Research Node",
-                        ],
+                        _tier_options,
+                        index=_tier_idx,
                     )
                 with col_d:
                     uploaded_logo = st.file_uploader(
