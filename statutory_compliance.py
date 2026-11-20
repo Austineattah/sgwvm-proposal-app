@@ -134,18 +134,26 @@ def _coerce_item(entry: StatutoryItemInput | dict[str, Any]) -> StatutoryItemInp
         return entry
     if not isinstance(entry, dict):
         raise TypeError("Expected StatutoryItemInput or dict for statutory record entry.")
+    ref_val = entry.get("reference_number")
+    if ref_val is None:
+        ref_val = entry.get("reference")
+    if ref_val is None:
+        ref_val = entry.get("ref")
+    status_val = entry.get("status_hint")
+    if status_val is None:
+        status_val = entry.get("status")
     return StatutoryItemInput(
-        code=str(entry.get("code", "")),
-        label=str(entry.get("label", "")),
-        reference_number=str(entry.get("reference_number", entry.get("ref", ""))),
+        code=str(entry.get("code") or "").strip(),
+        label=str(entry.get("label") or "").strip(),
+        reference_number=str(ref_val or "").strip(),
         issue_date=entry.get("issue_date"),
         expiry_date=entry.get("expiry_date"),
         verified=entry.get("verified"),
-        status_hint=str(entry.get("status_hint", entry.get("status", ""))),
+        status_hint=str(status_val or "").strip(),
         required=bool(entry.get("required", True)),
         exempt=bool(entry.get("exempt", False)),
-        exemption_reason=str(entry.get("exemption_reason", "")),
-        notes=str(entry.get("notes", "")),
+        exemption_reason=str(entry.get("exemption_reason") or "").strip(),
+        notes=str(entry.get("notes") or "").strip(),
     )
 
 
@@ -220,7 +228,11 @@ def evaluate_statutory_matrix(
 
     by_code: dict[str, StatutoryItemInput] = {}
     for raw_entry in records or []:
+        if raw_entry is None:
+            continue
         item = _coerce_item(raw_entry)
+        if not item.code:
+            continue
         nc = normalize_statutory_code(item.code)
         item.code = nc
         if not item.label:

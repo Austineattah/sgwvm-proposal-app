@@ -145,15 +145,36 @@ def ingest_bid_document(file_path: str | Path) -> str:
     raise ValueError(f"Unsupported file extension '{suffix}' for {path.name}")
 
 
+def _to_optional_float(val: Any) -> float | None:
+    if val is None or isinstance(val, bool):
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    cleaned = str(val).strip().replace(",", "")
+    if not cleaned:
+        return None
+    for prefix in ("NGN", "₦", "$", "EUR", "€", "GBP", "£"):
+        if cleaned.upper().startswith(prefix):
+            cleaned = cleaned[len(prefix):].strip()
+            break
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
 def _coerce_line_item(raw: BoQLineItem | dict[str, Any], index: int) -> BoQLineItem:
     if isinstance(raw, BoQLineItem):
         return raw
     if not isinstance(raw, dict):
         raise TypeError("Expected BoQLineItem or dict for BoQ line item.")
-    qty = float(raw.get("quantity", 0.0))
-    unit_price = float(raw.get("unit_price", 0.0))
-    line_total_raw = raw.get("line_total")
-    line_total = float(line_total_raw) if line_total_raw is not None and line_total_raw != "" else None
+    qty = _to_optional_float(raw.get("quantity"))
+    if qty is None:
+        qty = 0.0
+    unit_price = _to_optional_float(raw.get("unit_price"))
+    if unit_price is None:
+        unit_price = 0.0
+    line_total = _to_optional_float(raw.get("line_total"))
     return BoQLineItem(
         item_id=str(raw.get("item_id") or raw.get("id") or f"LINE-{index + 1}").strip(),
         description=str(raw.get("description") or raw.get("item") or "").strip(),

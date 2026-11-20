@@ -1,5 +1,14 @@
-import re
+﻿import re
+from datetime import date
+from typing import Any
 
+from bid_pricing_ingestion import BoQLineItem, evaluate_boq_pricing
+from ownership_conflict import BidOwnershipRecord, detect_ownership_conflicts
+from statutory_compliance import (
+    StatutoryItemInput,
+    build_kyb_statutory_seed,
+    evaluate_statutory_matrix,
+)
 
 _BUDGET_LABEL = re.compile(
     r"^\s*(?:(?:estimated|proposed|project)\s+)*"
@@ -25,8 +34,10 @@ _NON_BUDGET_VALUES = {
 NO_BUDGET_MESSAGE = "No explicit budget found in document"
 
 
-def extract_budget_evidence(document_text: str) -> str:
+def extract_budget_evidence(document_text: str | None) -> str:
     """Return the first labeled budget or financial note found in extracted text."""
+    if not isinstance(document_text, str) or not document_text:
+        return ""
     for line in document_text.splitlines():
         match = _BUDGET_LABEL.search(line)
         if match and match.group(1).strip():
@@ -34,8 +45,10 @@ def extract_budget_evidence(document_text: str) -> str:
     return ""
 
 
-def has_explicit_budget_amount(value: str) -> bool:
+def has_explicit_budget_amount(value: str | None) -> bool:
     """Check for a currency-qualified amount or a number-only labeled amount."""
+    if not isinstance(value, str) or not value:
+        return False
     return bool(
         _EXPLICIT_AMOUNT.search(value)
         or re.fullmatch(r"\s*\d[\d,]*(?:\.\d+)?\s*", value)
@@ -78,18 +91,6 @@ def is_critical_kyb_result(kyb_data: dict) -> bool:
         or status == "INACTIVE"
         or company_status == "INACTIVE"
     )
-
-
-from datetime import date
-from typing import Any
-
-from bid_pricing_ingestion import BoQLineItem, evaluate_boq_pricing
-from ownership_conflict import BidOwnershipRecord, detect_ownership_conflicts
-from statutory_compliance import (
-    StatutoryItemInput,
-    build_kyb_statutory_seed,
-    evaluate_statutory_matrix,
-)
 
 
 def evaluate_bid_integrity_package(
@@ -202,4 +203,3 @@ def evaluate_bid_integrity_package(
         "ownership_conflicts": conflict_report.to_dict() if conflict_report is not None else None,
         "boq_pricing": boq_report.to_dict() if boq_report is not None else None,
     }
-
