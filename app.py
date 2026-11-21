@@ -1,3 +1,4 @@
+from onboarding_guides import get_help_text, render_active_guide_panel
 import hashlib
 import html
 import hmac
@@ -2069,36 +2070,61 @@ def _render_physical_proposal_intake(
         )
         return
 
+    render_active_guide_panel(
+        f"{tenant_slug}_physical_intake",
+        default_key="organization_name",
+    )
     with st.form(
         key=_tenant_key(tenant_slug, "internal", "physical_proposal_form"),
         clear_on_submit=True,
     ):
-        organization_name = st.text_input("Name of Organization", max_chars=200)
+        organization_name = st.text_input(
+            "Name of Organization",
+            max_chars=200,
+            help=get_help_text("organization_name"),
+        )
         organization_address = st.text_area(
             "Address of Organization",
             max_chars=1_000,
+            help=get_help_text("organization_address"),
         )
         cac_registration_number = st.text_input(
             "CAC Registration Number",
             max_chars=100,
+            help=get_help_text("cac_registration_number"),
         )
-        contact_phone = st.text_input("Contact Phone Number", max_chars=40)
-        official_email = st.text_input("Official Email Address", max_chars=254)
-        proposal_title = st.text_input("Proposal Title", max_chars=250)
+        contact_phone = st.text_input(
+            "Contact Phone Number",
+            max_chars=40,
+            help=get_help_text("contact_phone"),
+        )
+        official_email = st.text_input(
+            "Official Email Address",
+            max_chars=254,
+            help=get_help_text("corporate_email"),
+        )
+        proposal_title = st.text_input(
+            "Proposal Title",
+            max_chars=250,
+            help=get_help_text("proposal_title"),
+        )
         submission_date = st.date_input(
             "Date of Proposal Submission",
             value=date.today(),
             max_value=date.today(),
+            help=get_help_text("submission_date"),
         )
         signature_verified = st.radio(
             "Signature Verification",
             options=["Yes", "No"],
             horizontal=True,
+            help=get_help_text("signature_verified"),
         )
         scanned_document = st.file_uploader(
             "Scanned Document Upload (PDF or image file)",
             type=["pdf", "png", "jpg", "jpeg", "tif", "tiff", "webp"],
             max_upload_size=25,
+            help=get_help_text("scanned_document"),
         )
         submitted = st.form_submit_button(
             "Submit Physical Proposal",
@@ -2257,6 +2283,7 @@ def _render_executive_gateway_tab(tenant_slug: str, actor: str) -> None:
     if configured_mode not in payment_modes:
         configured_mode = "corporate_lodgment"
     mode_key = _tenant_key(tenant_slug, "executive", "payment_mode")
+    render_active_guide_panel(f"{tenant_slug}_payment", default_key="payment_mode")
     selected_mode = st.radio(
         "Active payment mode",
         options=payment_modes,
@@ -2268,6 +2295,7 @@ def _render_executive_gateway_tab(tenant_slug: str, actor: str) -> None:
         ),
         horizontal=True,
         key=mode_key,
+        help=get_help_text("payment_mode"),
     )
     st.caption(
         "The selected mode becomes active when either configuration tab is saved."
@@ -2352,6 +2380,10 @@ def _render_executive_gateway_tab(tenant_slug: str, actor: str) -> None:
         ]
     )
     with tsa_tab:
+        render_active_guide_panel(
+            f"{tenant_slug}_tsa_gateway",
+            default_key="tsa_endpoint",
+        )
         with st.form(
             key=_tenant_key(tenant_slug, "executive", "tsa_gateway_form"),
         ):
@@ -2359,35 +2391,41 @@ def _render_executive_gateway_tab(tenant_slug: str, actor: str) -> None:
                 "TSA payment endpoint",
                 value=tsa_default,
                 key=_tenant_key(tenant_slug, "executive", "tsa_endpoint"),
+                help=get_help_text("tsa_endpoint"),
             )
             tsa_key = st.text_input(
                 "TSA key (leave blank to preserve saved key)",
                 type="password",
                 max_chars=512,
                 key=_tenant_key(tenant_slug, "executive", "tsa_key_input"),
+                help=get_help_text("tsa_key"),
             )
             remita_endpoint = st.text_input(
                 "Remita payment endpoint",
                 value=remita_default,
                 key=_tenant_key(tenant_slug, "executive", "remita_endpoint"),
+                help=get_help_text("remita_endpoint"),
             )
             remita_key = st.text_input(
                 "Remita merchant key (leave blank to preserve saved key)",
                 type="password",
                 max_chars=512,
                 key=_tenant_key(tenant_slug, "executive", "remita_merchant_key_input"),
+                help=get_help_text("remita_key"),
             )
             service_head = st.text_input(
                 "Service head",
                 value=service_head_default,
                 max_chars=160,
                 key=_tenant_key(tenant_slug, "executive", "service_head"),
+                help=get_help_text("service_head"),
             )
             fee_amount = st.text_input(
                 "Tender Fee/Bidding Document Fee (NGN)",
                 value=fee_default,
                 max_chars=24,
                 key=_tenant_key(tenant_slug, "executive", "fee_amount"),
+                help=get_help_text("fee_amount"),
             )
             save_tsa = st.form_submit_button(
                 "Save TSA / Remita configuration",
@@ -2413,6 +2451,10 @@ def _render_executive_gateway_tab(tenant_slug: str, actor: str) -> None:
             )
 
     with corporate_tab:
+        render_active_guide_panel(
+            f"{tenant_slug}_corporate_gateway",
+            default_key="corporate_bank_name",
+        )
         with st.form(
             key=_tenant_key(tenant_slug, "executive", "corporate_gateway_form"),
         ):
@@ -2421,30 +2463,35 @@ def _render_executive_gateway_tab(tenant_slug: str, actor: str) -> None:
                 value=str(config.get("corporate_bank_name") or ""),
                 max_chars=120,
                 key=_tenant_key(tenant_slug, "executive", "corporate_bank_name"),
+                help=get_help_text("corporate_bank_name"),
             )
             corporate_account_number = st.text_input(
                 "Account Number",
                 value=str(config.get("corporate_account_number") or ""),
                 max_chars=34,
                 key=_tenant_key(tenant_slug, "executive", "corporate_account_number"),
+                help=get_help_text("corporate_account_number"),
             )
             corporate_account_name = st.text_input(
                 "Account Name",
                 value=str(config.get("corporate_account_name") or ""),
                 max_chars=160,
                 key=_tenant_key(tenant_slug, "executive", "corporate_account_name"),
+                help=get_help_text("corporate_account_name"),
             )
             payment_reference_prefix = st.text_input(
                 "Payment Reference Prefix",
                 value=str(config.get("payment_reference_prefix") or ""),
                 max_chars=40,
                 key=_tenant_key(tenant_slug, "executive", "payment_reference_prefix"),
+                help=get_help_text("payment_reference_prefix"),
             )
             lodgment_instructions = st.text_area(
                 "Transfer Instructions",
                 value=str(config.get("lodgment_instructions") or ""),
                 max_chars=2000,
                 key=_tenant_key(tenant_slug, "executive", "lodgment_instructions"),
+                help=get_help_text("lodgment_instructions"),
             )
             save_corporate = st.form_submit_button(
                 "Save corporate lodgment configuration",
@@ -5137,6 +5184,35 @@ def _render_home() -> None:
         ).strip(),
         unsafe_allow_html=True,
     )
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stTabs"] [data-baseweb="tab-list"]
+        button[data-baseweb="tab"]:first-child {
+            animation: onboarding-pulse 1.5s ease-in-out infinite;
+            border-radius: 8px;
+        }
+        @keyframes onboarding-pulse {
+            0%, 100% {
+                box-shadow: 0 0 0 0 rgba(56, 189, 248, 0);
+                background-color: rgba(56, 189, 248, 0.08);
+            }
+            50% {
+                box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.28);
+                background-color: rgba(56, 189, 248, 0.22);
+            }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            div[data-testid="stTabs"] [data-baseweb="tab-list"]
+            button[data-baseweb="tab"]:first-child {
+                animation: none;
+                background-color: rgba(56, 189, 248, 0.16);
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     tab_new_onboard, tab_returning_login = st.tabs(
         [
             "🆕 New Organizational Onboarding",
@@ -5168,6 +5244,7 @@ def _render_home() -> None:
             "Organizational Workspace Slug or Registered Admin Email *",
             placeholder="e.g., federalministry_a1b2c3d4 or admin@organization.gov.ng",
             key="returning_tenant_identifier_input",
+            help=get_help_text("resume_identifier"),
         )
         if st.button(
             "Access Provisioned Workspace & Subscription Portal",
@@ -5221,9 +5298,14 @@ def _render_home() -> None:
             """
             <div class="onboarding-title-banner">
                 <h2>👉 ONBOARDING MODULE 👇</h2>
+                <p>For further guide details, click the <strong>?</strong> mark beside any onboarding field.</p>
             </div>
             """,
             unsafe_allow_html=True,
+        )
+        render_active_guide_panel(
+            "organization_onboarding",
+            default_key="entity_type",
         )
 
         confirm_final_onboard = False
@@ -5336,6 +5418,7 @@ def _render_home() -> None:
                     "Select Organization / Entity Category*",
                     _entity_options,
                     index=_entity_idx,
+                    help=get_help_text("entity_type"),
                 )
 
                 col_a, col_b = st.columns(2)
@@ -5344,11 +5427,13 @@ def _render_home() -> None:
                         "Organizational Entity Name*",
                         value=str(_draft_seed.get("org") or ""),
                         placeholder="e.g., Federal Ministry of Technology",
+                        help=get_help_text("organization_name"),
                     )
                     corp_email = st.text_input(
                         "Official Dispatch Email*",
                         value=str(_draft_seed.get("email") or ""),
                         placeholder="contact@entity.gov.ng",
+                        help=get_help_text("corporate_email"),
                     )
 
                 with col_b:
@@ -5356,16 +5441,19 @@ def _render_home() -> None:
                         "Official Phone / SMS Gateway Contact*",
                         value=str(_draft_seed.get("phone") or ""),
                         placeholder="+234 803 000 0000",
+                        help=get_help_text("contact_phone"),
                     )
                     corp_address = st.text_input(
                         "Institutional Headquarters Address*",
                         value=str(_draft_seed.get("address") or ""),
                         placeholder="Central Area, Abuja",
+                        help=get_help_text("organization_address"),
                     )
                     admin_email = st.text_input(
                         "Executive Chief Notification Node",
                         value=str(_draft_seed.get("admin_email") or ""),
                         placeholder="executive-office@entity.org",
+                        help=get_help_text("admin_email"),
                     )
 
                 st.markdown(
@@ -5378,16 +5466,19 @@ def _render_home() -> None:
                     custom_title_input = st.text_input(
                         "Custom Portal Banner Title",
                         value=str(_draft_seed.get("custom_title") or st.session_state["custom_portal_heading"]),
+                        help=get_help_text("custom_title"),
                     )
                     sub_package = st.selectbox(
                         "SaaS Sovereign Tier*",
                         _tier_options,
                         index=_tier_idx,
+                        help=get_help_text("subscription_tier"),
                     )
                 with col_d:
                     uploaded_logo = st.file_uploader(
                         "Upload Official Institutional Branding Logo (PNG/JPG)",
                         type=["png", "jpg", "jpeg"],
+                        help=get_help_text("institutional_logo"),
                     )
 
                 preview_before_submit = st.checkbox(
