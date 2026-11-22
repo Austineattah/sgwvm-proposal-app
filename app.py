@@ -5312,6 +5312,21 @@ def _render_home() -> None:
             max-width: 100%;
             box-sizing: border-box;
         }
+        [data-testid="stTooltipContent"],
+        [data-testid="stTooltipContent"] *,
+        div[role="tooltip"],
+        div[role="tooltip"] *,
+        div[data-testid="stPopoverBody"],
+        div[data-testid="stPopoverBody"] p,
+        div[data-testid="stPopoverBody"] li,
+        div[data-testid="stPopoverBody"] span,
+        div[data-testid="stPopoverBody"] strong {
+            color: #38BDF8 !important;
+        }
+        div[data-testid="stPopoverBody"] {
+            background: #071324 !important;
+            border: 1px solid rgba(56, 189, 248, 0.45) !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
