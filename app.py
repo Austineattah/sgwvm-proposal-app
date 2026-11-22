@@ -4202,13 +4202,14 @@ def _render_executive_command_center(
         f"{tenant.get('apex_title') or 'Permanent Secretary / Top Management'} · "
         f"{tenant.get('full_corporation_name') or tenant_slug}"
     )
-    gateway_tab, finance_tab, tenders_tab, committee_tab, apex_tab = st.tabs(
+    gateway_tab, finance_tab, tenders_tab, committee_tab, apex_tab, payment_history_tab = st.tabs(
         [
             "Payment Gateway",
             "DFA Reconciliation",
             "Tender Publishing",
             "Committee Provisioning",
             "Apex Proposal Hub",
+            "?? Payment History",
         ]
     )
     with gateway_tab:
@@ -4221,6 +4222,20 @@ def _render_executive_command_center(
         _render_executive_committee_tab(tenant_slug, actor)
     with apex_tab:
         _render_executive_apex_tab(tenant_slug, actor)
+    with payment_history_tab:
+        try:
+            from payment_history import render_payment_history_tab
+        except ImportError:
+            from src.payment_history import render_payment_history_tab
+        _tenant_org_name = str(
+            tenant.get("full_corporation_name") or tenant.get("organization_name") or tenant_slug
+        ).strip()
+        render_payment_history_tab(
+            role="tenant",
+            org_id=tenant_slug,
+            organization_name=_tenant_org_name,
+            actor=actor,
+        )
 
 
 def _create_primary_tenant_support_ticket(

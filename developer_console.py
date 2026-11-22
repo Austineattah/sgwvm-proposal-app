@@ -345,6 +345,20 @@ def render_developer_master_console():
                     st.rerun()
 
     st.markdown("---")
+    _, _dev_pay_tab = st.tabs(["?? Tenant Operations", "?? Payment History"])
+    with _dev_pay_tab:
+        _raw_orgs = locals().get("all_clients_for_broadcast") or []
+        _known_orgs = [
+            {
+                "org_id": str(c.get("client_id") or c.get("org_id") or c.get("tenant_slug") or "").strip(),
+                "organization_name": str(c.get("organization_name") or c.get("org_name") or c.get("client_name") or "").strip(),
+            }
+        for c in _raw_orgs
+        if isinstance(c, dict)
+        ]
+        render_developer_payment_history_section(known_organizations=_known_orgs or None)
+
+    st.markdown("---")
     if st.button("🔒 Logout Developer Admin Session"):
         st.session_state.pop("dev_master_logged_in", None)
         st.session_state.pop("dev_master_password_input", None)
@@ -360,6 +374,20 @@ def render_developer_console():
     else:
         # Execute module body directly if standalone
         pass
+
+
+def render_developer_payment_history_section(known_organizations=None):
+    """Render the cross-tenant Payment History ledger inside the Developer Console."""
+    try:
+        from payment_history import render_payment_history_tab
+    except ImportError:
+        from src.payment_history import render_payment_history_tab
+
+    render_payment_history_tab(
+        role="developer",
+        actor="developer_master",
+        known_organizations=known_organizations,
+    )
 
 
 def render_traffic_analytics_dashboard():
