@@ -144,7 +144,15 @@ def render_developer_master_console():
         st.markdown(
             "##### ✉️ Dispatch Statutory Alerts, Compliance Notices & Platform Updates"
         )
-        all_clients_for_broadcast = db.get_all_clients()
+        all_clients_for_broadcast = []
+        try:
+            _tenants = db.get_all_tenants() if hasattr(db, "get_all_tenants") else []
+            if not _tenants and hasattr(db, "get_subscribed_clients"):
+                _tenants = db.get_subscribed_clients()
+            if _tenants:
+                all_clients_for_broadcast = list(_tenants)
+        except Exception:
+            all_clients_for_broadcast = []
 
         with st.form("broadcast_e_newsletter_form"):
             col_b1, col_b2 = st.columns(2)
