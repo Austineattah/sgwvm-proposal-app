@@ -5187,26 +5187,29 @@ def _render_home() -> None:
     st.markdown(
         """
         <style>
-        div[data-testid="stTabs"] [data-baseweb="tab-list"]
-        button[data-baseweb="tab"]:first-child {
-            animation: onboarding-pulse 1.5s ease-in-out infinite;
-            border-radius: 8px;
+        div[data-testid="stTabs"] [data-baseweb="tab-list"] button[data-baseweb="tab"]:first-child,
+        div[data-testid="stTabs"] [role="tablist"] button[role="tab"]:first-child {
+            animation: onboarding-pulse 1.2s ease-in-out infinite !important;
+            border-radius: 8px !important;
+            border: 1px solid rgba(212, 175, 55, 0.85) !important;
         }
         @keyframes onboarding-pulse {
             0%, 100% {
-                box-shadow: 0 0 0 0 rgba(56, 189, 248, 0);
-                background-color: rgba(56, 189, 248, 0.08);
+                box-shadow: 0 0 0 0 rgba(212, 175, 55, 0.15) !important;
+                background-color: rgba(212, 175, 55, 0.14) !important;
+                border-color: rgba(212, 175, 55, 0.65) !important;
             }
             50% {
-                box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.28);
-                background-color: rgba(56, 189, 248, 0.22);
+                box-shadow: 0 0 16px 5px rgba(212, 175, 55, 0.75) !important;
+                background-color: rgba(212, 175, 55, 0.45) !important;
+                border-color: rgba(255, 215, 0, 1.0) !important;
             }
         }
         @media (prefers-reduced-motion: reduce) {
-            div[data-testid="stTabs"] [data-baseweb="tab-list"]
-            button[data-baseweb="tab"]:first-child {
-                animation: none;
-                background-color: rgba(56, 189, 248, 0.16);
+            div[data-testid="stTabs"] [data-baseweb="tab-list"] button[data-baseweb="tab"]:first-child,
+            div[data-testid="stTabs"] [role="tablist"] button[role="tab"]:first-child {
+                animation: none !important;
+                background-color: rgba(212, 175, 55, 0.25) !important;
             }
         }
         </style>
