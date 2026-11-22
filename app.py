@@ -5292,6 +5292,30 @@ def _render_home() -> None:
         """,
         unsafe_allow_html=True,
     )
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stTabs"] button[data-baseweb="tab"]:first-child,
+        div[data-testid="stTabs"] button[role="tab"]:first-child,
+        div[data-testid="stTabs"] button[data-baseweb="tab"]:first-child *,
+        div[data-testid="stTabs"] button[role="tab"]:first-child * {
+            color: #FACC15 !important;
+            font-weight: 800 !important;
+        }
+        .nv-review-verify-wrap {
+            background: rgba(250, 204, 21, 0.08);
+            border: 1px solid rgba(250, 204, 21, 0.45);
+            border-left: 4px solid #FACC15;
+            border-radius: 10px;
+            padding: 10px 14px 4px 14px;
+            margin: 10px 0 14px 0;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     tab_new_onboard, tab_returning_login = st.tabs(
         [
             "🆕 New Organizational Onboarding",
@@ -5560,10 +5584,17 @@ def _render_home() -> None:
                         help=get_help_text("institutional_logo"),
                     )
 
+                st.markdown('<div class="nv-review-verify-wrap">', unsafe_allow_html=True)
                 preview_before_submit = st.checkbox(
-                    "🔍 Review & Verify Credentials on Summary Card Before Final Commit (Uncheck to Submit Immediately)",
+                    "🔍 **Review & Verify Credentials on Summary Card Before Final Commit** *(Uncheck to Submit Immediately)*",
                     value=False,
+                    help=(
+                        "Why this matters: Checking this box displays a full summary card of your "
+                        "organizational details, domain scope, and compliance/credential inputs so you can "
+                        "verify accuracy before committing the node. Leave unchecked to submit directly."
+                    ),
                 )
+                st.markdown('</div>', unsafe_allow_html=True)
                 submitted = st.form_submit_button(
                     "Submit Organizational Node for Approval and Activation",
                     use_container_width=True,
