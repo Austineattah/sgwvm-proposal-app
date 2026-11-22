@@ -5124,25 +5124,25 @@ def _render_home() -> None:
         _banner_prefix = (
             f'<img src="data:{_mime};base64,{_logo_b64}" '
             f'alt="NexusVault Logo" '
-            f'style="display: block; width: 100%; max-width: 610px; height: 80px; '
-            f'object-fit: fill; background: transparent; border: none; padding: 0; '
+            f'class="nv-hero-logo" style="display: block; width: 100%; max-width: 610px; height: auto; max-height: 80px; '
+            f'object-fit: contain; background: transparent; border: none; padding: 0; '
             f'border-radius: 0 0 42% 42% / 0 0 28px 28px; '
             f'filter: drop-shadow(0 3px 12px rgba(56, 189, 248, 0.28));" />'
         )
     st.markdown(
         f"""
-        <div style="background: linear-gradient(135deg, rgba(10, 25, 47, 0.85) 0%, rgba(13, 33, 55, 0.85) 100%);
+        <div class="nv-hero-card" style="background: linear-gradient(135deg, rgba(10, 25, 47, 0.85) 0%, rgba(13, 33, 55, 0.85) 100%);
                     backdrop-filter: blur(16px); padding: 32px 36px; border-radius: 16px;
                     border: 1px solid rgba(56, 189, 248, 0.25);
                     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(56, 189, 248, 0.1);
                     margin-bottom: 20px;">
             <div style="display: flex; justify-content: space-between; align-items: center;
-                        flex-wrap: wrap; gap: 20px;">
-                <div style="flex: 1; min-width: 320px;">
-                    <div style="display: block; width: 100%; max-width: 610px; margin-bottom: 12px;">
+                        flex-wrap: wrap; gap: 20px; min-width: 0;">
+                <div class="nv-hero-main" style="flex: 1 1 320px; min-width: 0; max-width: 100%;">
+                    <div class="nv-hero-logo-wrap" style="display: block; width: 100%; max-width: 610px; margin-bottom: 12px; min-width: 0;">
                         {_banner_prefix}
                     </div>
-                    <h1 style="color: #FF5C8A !important; color: #FF5C8A; margin: 0 0 10px 0; font-size: 25px;
+                    <h1 class="nv-hero-title" style="color: #FF5C8A !important; margin: 0 0 10px 0; font-size: 25px;
                                font-weight: 900; letter-spacing: 0.4px; line-height: 1.3;
                                font-family: 'Plus Jakarta Sans', sans-serif;
                                display: block !important;">
@@ -5154,11 +5154,11 @@ def _render_home() -> None:
                         Initialize your secure organizational node, configure your domain scope,
                         and deploy your sovereign enterprise proposal intake gateway.
                     </p>
-                    <div style="display: inline-flex; align-items: center;
+                    <div class="nv-nitda-pill" style="display: inline-flex; align-items: center; flex-wrap: wrap; max-width: 100%; box-sizing: border-box;
                                 background: rgba(56, 189, 248, 0.12);
                                 border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 8px;
                                 padding: 6px 14px; gap: 8px;">
-                        <span style="color: #00FF66; font-size: inherit; font-weight: bold; text-align: center;">
+                        <span style="color: #00FF66; font-size: inherit; font-weight: bold; text-align: left; min-width: 0; overflow-wrap: anywhere;">
                             🔒 NEXUSVAULT_TECH Sovereign Enterprise Engine • NITDA / NDPA Compliant
                         </span>
                     </div>
@@ -5275,6 +5275,17 @@ def _render_home() -> None:
                 line-height: 1.4 !important;
                 padding: 0 8px !important;
                 overflow-wrap: anywhere !important;
+            }
+            .nv-hero-card { padding: 16px 14px !important; margin-left: 0 !important; margin-right: 0 !important; width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
+            .nv-hero-flex { gap: 12px !important; width: 100% !important; max-width: 100% !important; }
+            .nv-hero-main { flex: 1 1 100% !important; min-width: 0 !important; width: 100% !important; max-width: 100% !important; }
+            .nv-hero-logo-wrap { max-width: 100% !important; width: 100% !important; }
+            .nv-hero-logo { width: 100% !important; max-width: 100% !important; height: auto !important; max-height: 68px !important; object-fit: contain !important; }
+            .nv-hero-title { font-size: 1.05rem !important; line-height: 1.28 !important; letter-spacing: 0.2px !important; }
+            .nv-hero-init { font-size: 0.88rem !important; line-height: 1.45 !important; }
+            .nv-nitda-pill { display: flex !important; width: 100% !important; max-width: 100% !important; padding: 8px 10px !important; gap: 6px !important; }
+            .nv-nitda-pill span { font-size: 0.78rem !important; line-height: 1.35 !important; text-align: left !important; }
+            .nv-sovereign-badge { width: 100% !important; max-width: 100% !important; padding: 10px 12px !important; gap: 10px !important; }
             }
         }
         </style>
