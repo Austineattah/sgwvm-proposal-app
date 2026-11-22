@@ -5585,15 +5585,19 @@ def _render_home() -> None:
                     )
 
                 st.markdown('<div class="nv-review-verify-wrap">', unsafe_allow_html=True)
-                preview_before_submit = st.checkbox(
-                    "🔍 **Review & Verify Credentials on Summary Card Before Final Commit** *(Uncheck to Submit Immediately)*",
-                    value=False,
-                    help=(
-                        "Why this matters: Checking this box displays a full summary card of your "
-                        "organizational details, domain scope, and compliance/credential inputs so you can "
-                        "verify accuracy before committing the node. Leave unchecked to submit directly."
-                    ),
-                )
+                _cb_col, _q_col = st.columns([0.82, 0.18])
+                with _cb_col:
+                    preview_before_submit = st.checkbox(
+                        "\U0001F50D **Review & Verify Credentials on Summary Card Before Final Commit** *(Uncheck to Submit Immediately)*",
+                        value=False,
+                    )
+                with _q_col:
+                    with st.popover("? Why this?", use_container_width=True):
+                        st.markdown(
+                            "**Why this checkbox exists:**\n\n"
+                            "- **Checked:** Opens a full summary card of your organizational node, domain scope, and compliance/credential entries so you can double-check accuracy before final commit.\n"
+                            "- **Unchecked:** Submits your onboarding details straight through for approval and activation."
+                        )
                 st.markdown('</div>', unsafe_allow_html=True)
                 submitted = st.form_submit_button(
                     "Submit Organizational Node for Approval and Activation",
