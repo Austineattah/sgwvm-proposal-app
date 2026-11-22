@@ -5227,6 +5227,56 @@ def _render_home() -> None:
                 background-color: rgba(212, 175, 55, 0.25) !important;
             }
         }
+        @media (max-width: 768px) {
+            .onboarding-title-banner {
+                margin: 14px 0 !important;
+                padding: 12px 14px !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+            .onboarding-title-banner h2 {
+                font-size: 1.15rem !important;
+                letter-spacing: 0.6px !important;
+                line-height: 1.25 !important;
+                overflow-wrap: anywhere !important;
+            }
+            .onboarding-title-banner p {
+                font-size: 0.88rem !important;
+                line-height: 1.45 !important;
+                margin-bottom: 0 !important;
+                overflow-wrap: anywhere !important;
+            }
+            div[data-testid="stTabs"] [data-baseweb="tab-list"],
+            div[data-testid="stTabs"] [role="tablist"] {
+                flex-wrap: wrap !important;
+                gap: 6px !important;
+                margin-left: 0 !important;
+                padding-left: 0 !important;
+            }
+            div[data-testid="stTabs"] button[data-baseweb="tab"],
+            div[data-testid="stTabs"] button[role="tab"] {
+                max-width: 100% !important;
+                white-space: normal !important;
+                text-align: left !important;
+                padding: 8px 10px !important;
+                font-size: 0.85rem !important;
+                box-sizing: border-box !important;
+            }
+            div[data-testid="stMarkdownContainer"] div[style*="border-left: 4px solid #38bdf8"] {
+                padding: 16px 14px !important;
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+                overflow-wrap: anywhere !important;
+            }
+            div[data-testid="stMarkdownContainer"] div[style*="color: #00FF66"] {
+                font-size: 0.82rem !important;
+                line-height: 1.4 !important;
+                padding: 0 8px !important;
+                overflow-wrap: anywhere !important;
+            }
+        }
         </style>
         """,
         unsafe_allow_html=True,
