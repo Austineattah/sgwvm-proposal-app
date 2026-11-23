@@ -975,6 +975,40 @@ def _render_terminal_lockout_alert(tenant_slug: str, role: str) -> None:
         st.error("The master recovery key is not configured.")
 
 
+def _resolve_role_gate_route(
+    route_slug: str | None,
+    role: str,
+) -> tuple[str | None, str | None, str | None]:
+    """Return (canonical_tenant_slug, effective_role_slug, error_message)."""
+    cleaned = str(route_slug or "").strip().lower()
+    if not cleaned:
+        return None, None, "A tenant slug is required."
+    suffix = "-desk" if role == "front_desk" else "-admin" if role == "admin" else ""
+    gate_record = db.resolve_role_gate_by_slug(cleaned)
+    if gate_record is not None:
+        resolved_role = str(gate_record.get("role_key") or "")
+        expected_gate_role = "desk_operator" if role == "front_desk" else "admin"
+        if resolved_role != expected_gate_role:
+            return (
+                None,
+                cleaned,
+                f"Slug '{cleaned}' is not authorized for {role.replace('_', ' ')}. "
+                f"Use the dedicated '{suffix.lstrip('-')}' slug for this role.",
+            )
+        return str(gate_record["tenant_slug"]), cleaned, None
+
+    if cleaned.endswith(suffix):
+        candidate_base = cleaned[: -len(suffix)]
+        if candidate_base:
+            return candidate_base, cleaned, None
+
+    return (
+        None,
+        f"{cleaned}{suffix}" if suffix else cleaned,
+        f"Invalid role slug '{cleaned}'. Use the role-specific slug ending in '{suffix}'.",
+    )
+
+
 def _render_terminal_role_login(
     tenant_slug: str,
     role: str,
@@ -1039,6 +1073,12 @@ def _render_terminal_role_login(
             type="password",
             key=_tenant_key(tenant_slug, role, "passkey"),
         )
+        gate_password_val = st.text_input(
+            "Role Gate Password",
+            type="password",
+            key=_tenant_key(tenant_slug, role, "gate_password"),
+        )
+        st.session_state[_tenant_key(tenant_slug, role, "gate_password_entered")] = gate_password_val
         st.form_submit_button(
             "Authenticate",
             key=_tenant_key(tenant_slug, role, "login_submit"),
@@ -1053,6 +1093,43 @@ def _render_terminal_role_login(
             _render_terminal_lockout_alert(tenant_slug, role)
         else:
             st.error(error)
+
+    expected_gate_slug = (
+        f"{tenant_slug}-desk" if role == "front_desk" else f"{tenant_slug}-admin"
+    )
+    active_gate_slug = str(
+        st.session_state.get(_tenant_key(tenant_slug, role, "active_gate_slug")) or ""
+    ).strip().lower()
+    gate_verified_flag = bool(
+        st.session_state.get(_tenant_key(tenant_slug, role, "gate_verified"))
+    )
+
+    entered_gate_pw = str(
+        st.session_state.pop(
+            _tenant_key(tenant_slug, role, "gate_password_entered"), ""
+        )
+        or ""
+    )
+    if entered_gate_pw and not gate_verified_flag:
+        verified_gate = db.verify_tenant_role_gate(expected_gate_slug, entered_gate_pw)
+        if verified_gate is not None:
+            st.session_state[_tenant_key(tenant_slug, role, "gate_verified")] = True
+            st.session_state[_tenant_key(tenant_slug, role, "active_gate_slug")] = (
+                expected_gate_slug
+            )
+            gate_verified_flag = True
+            active_gate_slug = expected_gate_slug
+        else:
+            st.error(
+                f"Invalid Role Gate Password for slug '{expected_gate_slug}'."
+            )
+
+    if not gate_verified_flag or active_gate_slug != expected_gate_slug:
+        st.info(
+            f"Enter a valid Role Gate Password for slug '{expected_gate_slug}' "
+            "above to unlock role authentication."
+        )
+        return None
 
     identity = st.session_state.get(identity_key)
     if (
@@ -1096,6 +1173,38 @@ def _render_master_admin_portal(
         return
 
     st.success(f"Authenticated as {identity['username']} (Master Admin).")
+    with st.expander("Rotate Admin Gate Password & Revoke Developer Access"):
+        with st.form(key=_tenant_key(tenant_slug, "admin", "rotate_gate_form")):
+            cur_pw = st.text_input(
+                "Current Admin Gate Password",
+                type="password",
+                key=_tenant_key(tenant_slug, "admin", "cur_gate_pw"),
+            )
+            nxt_pw = st.text_input(
+                "New Admin Gate Password (min 10 characters)",
+                type="password",
+                key=_tenant_key(tenant_slug, "admin", "nxt_gate_pw"),
+            )
+            cfm_pw = st.text_input(
+                "Confirm New Admin Gate Password",
+                type="password",
+                key=_tenant_key(tenant_slug, "admin", "cfm_gate_pw"),
+            )
+            rotate_clicked = st.form_submit_button("Rotate Gate Password")
+        if rotate_clicked:
+            if nxt_pw != cfm_pw:
+                st.error("New Admin Gate Password and confirmation do not match.")
+            else:
+                rotated_ok, rotate_msg = db.rotate_admin_role_gate_password(
+                    tenant_slug,
+                    cur_pw,
+                    nxt_pw,
+                    rotated_by=str(identity.get("username") or "tenant_admin"),
+                )
+                if rotated_ok:
+                    st.success(rotate_msg)
+                else:
+                    st.error(rotate_msg)
     _render_internal_portal(tenant, tenant_slug)
     if st.button(
         "Sign out of Master Admin",
@@ -5874,7 +5983,10 @@ def _render_home() -> None:
                     st.session_state["sub_package"] = sub_package
                     st.session_state["admin_email"] = admin_email.strip() or email
                     st.session_state["custom_portal_heading"] = custom_title_input.strip()
-                    st.session_state["onboarded_tenant_slug"] = lifecycle_tenant["slug"]
+                    _onboard_base_slug = str(lifecycle_tenant["slug"])
+                    st.session_state["onboarded_tenant_slug"] = _onboard_base_slug
+                    st.session_state["onboarded_desk_slug"] = f"{_onboard_base_slug}-desk"
+                    st.session_state["onboarded_admin_slug"] = f"{_onboard_base_slug}-admin"
                     st.session_state["onboarded_tenant_id"] = lifecycle_tenant["tenant_id"]
                     st.session_state["onboarding_submitted"] = True
                     st.rerun()
@@ -6015,6 +6127,32 @@ def _render_platform_developer_console() -> None:
         else:
             st.warning(feedback_message)
 
+    last_activated = st.session_state.get("_developer_last_activated_node")
+    if isinstance(last_activated, dict) and last_activated.get("tenant_slug"):
+        base_s = str(last_activated["tenant_slug"])
+        desk_s = str(last_activated.get("desk_slug") or f"{base_s}-desk")
+        admin_s = str(last_activated.get("admin_slug") or f"{base_s}-admin")
+        vendor_s = str(last_activated.get("vendor_slug") or base_s)
+        with st.container(border=True):
+            st.markdown(
+                f"### Activated Node Slugs & Gate Summary ? {last_activated.get('full_corporation_name') or base_s}"
+            )
+            st.caption(
+                "Desk Operator and Admin use distinct gated slugs with salted password verification. "
+                "Vendors use the canonical tenant slug on vendor intake routes (no staff role gate). "
+                "Admin should rotate their gated password upon entry to revoke developer initial credentials."
+            )
+            col_d, col_a, col_v = st.columns(3)
+            with col_d:
+                st.write("**Desk Operator Slug**")
+                st.code(desk_s, language="text")
+            with col_a:
+                st.write("**Admin Slug**")
+                st.code(admin_s, language="text")
+            with col_v:
+                st.write("**Vendor Portal Slug**")
+                st.code(vendor_s, language="text")
+
     if section == "Tenant Activation":
         activation_candidates = [
             tenant
@@ -6052,6 +6190,9 @@ def _render_platform_developer_console() -> None:
                     else:
                         if activated:
                             notification_sent = _send_tenant_activation_notification(
+                                activated
+                            )
+                            st.session_state["_developer_last_activated_node"] = dict(
                                 activated
                             )
                             st.session_state["_developer_activation_feedback"] = (
@@ -6696,14 +6837,29 @@ else:
         else:
             try:
                 db.init_db()
-                _tenant = db.get_tenant_by_slug(_tenant_slug)
+                _lookup_slug = _tenant_slug
+                _role_gate_err = None
+                if _portal in {"frontdesk", "admin"}:
+                    _resolved_base, _eff_gate_slug, _role_gate_err = _resolve_role_gate_route(
+                        _tenant_slug, _portal
+                    )
+                    if _role_gate_err is not None or not _resolved_base:
+                        _tenant = None
+                    else:
+                        _lookup_slug = _resolved_base
+                        _tenant = db.get_tenant_by_slug(_lookup_slug)
+                else:
+                    _tenant = db.get_tenant_by_slug(_tenant_slug)
             except (sqlite3.Error, RuntimeError):
                 logging.exception("Tenant lookup failed.")
                 _render_route_error(
                     "Tenant access could not be verified. Please try again later."
                 )
             else:
-                if (
+                if _role_gate_err is not None:
+                    _sync_tenant_session(None, None)
+                    _render_route_error(_role_gate_err)
+                elif (
                     _tenant is None
                     or str(_tenant.get("status", "")).strip().upper() != "ACTIVE"
                     or bool(_tenant.get("is_deleted"))
@@ -6719,6 +6875,6 @@ else:
                     elif _portal == "internal":
                         _render_internal_portal(_tenant, _tenant_slug)
                     elif _portal == "frontdesk":
-                        _render_frontdesk_portal(_tenant, _tenant_slug)
+                        _render_frontdesk_portal(_tenant, _lookup_slug)
                     elif _portal == "admin":
-                        _render_master_admin_portal(_tenant, _tenant_slug)
+                        _render_master_admin_portal(_tenant, _lookup_slug)

@@ -59,6 +59,21 @@ def _authenticate_developer():
         st.session_state["dev_master_feedback"] = "invalid"
 
 
+def render_developer_payment_history_section(known_organizations=None):
+    """Render the cross-tenant Payment History ledger inside the Developer Console."""
+    try:
+        from payment_history import render_payment_history_tab
+    except ImportError:
+        from src.payment_history import render_payment_history_tab
+
+    render_payment_history_tab(
+        role="developer",
+        actor="developer_master",
+        known_organizations=known_organizations,
+    )
+
+
+
 def render_developer_master_console():
     if _expire_developer_session():
         st.rerun()
@@ -374,20 +389,6 @@ def render_developer_console():
     else:
         # Execute module body directly if standalone
         pass
-
-
-def render_developer_payment_history_section(known_organizations=None):
-    """Render the cross-tenant Payment History ledger inside the Developer Console."""
-    try:
-        from payment_history import render_payment_history_tab
-    except ImportError:
-        from src.payment_history import render_payment_history_tab
-
-    render_payment_history_tab(
-        role="developer",
-        actor="developer_master",
-        known_organizations=known_organizations,
-    )
 
 
 def render_traffic_analytics_dashboard():

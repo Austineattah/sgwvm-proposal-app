@@ -75,7 +75,8 @@ class Store:
 db = Store()
 tree = ast.parse(open(APP_PATH, encoding="utf-8-sig").read())
 names = {"_developer_password", "_expire_developer_session", "_monitor_developer_session",
-         "_authenticate_developer", "render_developer_master_console"}
+         "_authenticate_developer", "render_developer_master_console",
+         "render_developer_payment_history_section"}
 selected = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
 exec(compile(ast.Module(body=selected, type_ignores=[]), APP_PATH, "exec"))
 render_developer_master_console()

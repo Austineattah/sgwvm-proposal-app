@@ -1488,6 +1488,7 @@ def init_db() -> None:
         for statement in _CREATE_TABLES:
             connection.execute(statement)
         _migrate_database_schema(connection)
+        _ensure_tenant_role_gates_table(connection)
         _verify_schema(connection)
         if not vendors_table_exists:
             _backfill_solicited_vendors(connection)
@@ -1503,6 +1504,62 @@ def init_db() -> None:
             local_engine.dispose()
     else:
         Base.metadata.create_all(target)
+
+
+
+def _hash_role_gate_password(password: str, salt_hex: str | None = None) -> str:
+    secret = _required_text(password, "password")
+    salt_bytes = bytes.fromhex(salt_hex) if salt_hex else os.urandom(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        secret.encode("utf-8"),
+        salt_bytes,
+        200_000,
+    )
+    return f"pbkdf2_sha256$200000${salt_bytes.hex()}${digest.hex()}"
+
+
+def _verify_role_gate_password(password: str, stored_hash: str | None) -> bool:
+    if not isinstance(password, str) or not password.strip() or not isinstance(stored_hash, str):
+        return False
+    parts = stored_hash.split("$")
+    if len(parts) != 4 or parts[0] != "pbkdf2_sha256":
+        return False
+    try:
+        iterations = int(parts[1])
+        salt_bytes = bytes.fromhex(parts[2])
+        expected_digest = bytes.fromhex(parts[3])
+    except ValueError:
+        return False
+    actual_digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.strip().encode("utf-8"),
+        salt_bytes,
+        iterations,
+    )
+    return hmac.compare_digest(actual_digest, expected_digest)
+
+
+def _ensure_tenant_role_gates_table(connection: Any) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tenant_role_gates (
+            tenant_slug TEXT NOT NULL,
+            role_key TEXT NOT NULL CHECK (role_key IN ('desk_operator', 'admin')),
+            role_slug TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            developer_access_revoked INTEGER NOT NULL DEFAULT 0 CHECK (developer_access_revoked IN (0, 1)),
+            rotated_at TEXT,
+            rotated_by TEXT,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (tenant_slug, role_key),
+            FOREIGN KEY (tenant_slug) REFERENCES tenants(tenant_slug) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tenant_role_gates_slug ON tenant_role_gates(role_slug)"
+    )
 
 
 def _required_text(value: Any, field_name: str) -> str:
@@ -4887,8 +4944,197 @@ def create_tenant_onboarding(onboarding_data: dict[str, Any]) -> dict[str, Any]:
     return dict(row)
 
 
+_DEFAULT_DESK_GATE_PASSWORD = os.environ.get(
+    "NEXUSVAULT_DEFAULT_DESK_GATE_PASSWORD", "NexusStaff2026!"
+)
+_DEFAULT_ADMIN_GATE_PASSWORD = os.environ.get(
+    "NEXUSVAULT_DEFAULT_ADMIN_GATE_PASSWORD", "NexusExec2026!"
+)
+
+
+def _provision_default_role_gates(
+    connection: Any,
+    tenant_slug: str,
+    timestamp: str,
+) -> dict[str, str]:
+    _ensure_tenant_role_gates_table(connection)
+    desk_slug = f"{tenant_slug}-desk"
+    admin_slug = f"{tenant_slug}-admin"
+    defaults = (
+        ("desk_operator", desk_slug, _DEFAULT_DESK_GATE_PASSWORD),
+        ("admin", admin_slug, _DEFAULT_ADMIN_GATE_PASSWORD),
+    )
+    for role_key, role_slug, default_secret in defaults:
+        existing = connection.execute(
+            """
+            SELECT role_slug, developer_access_revoked
+            FROM tenant_role_gates
+            WHERE tenant_slug = ? AND role_key = ?
+            """,
+            (tenant_slug, role_key),
+        ).fetchone()
+        if existing is None:
+            connection.execute(
+                """
+                INSERT INTO tenant_role_gates (
+                    tenant_slug, role_key, role_slug, password_hash,
+                    developer_access_revoked, rotated_at, rotated_by, updated_at
+                ) VALUES (?, ?, ?, ?, 0, NULL, NULL, ?)
+                """,
+                (
+                    tenant_slug,
+                    role_key,
+                    role_slug,
+                    _hash_role_gate_password(default_secret),
+                    timestamp,
+                ),
+            )
+    return {
+        "desk_slug": desk_slug,
+        "admin_slug": admin_slug,
+        "vendor_slug": tenant_slug,
+    }
+
+
+def get_tenant_role_gates(tenant_slug: str) -> dict[str, dict[str, Any]]:
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    init_db()
+    with get_connection() as connection:
+        _ensure_tenant_role_gates_table(connection)
+        rows = connection.execute(
+            """
+            SELECT tenant_slug, role_key, role_slug,
+                   developer_access_revoked, rotated_at, rotated_by, updated_at
+            FROM tenant_role_gates
+            WHERE tenant_slug = ?
+            """,
+            (normalized_slug,),
+        ).fetchall()
+    gates: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        item = dict(row)
+        item["developer_access_revoked"] = bool(item.get("developer_access_revoked"))
+        gates[str(item["role_key"])] = item
+    return gates
+
+
+def resolve_role_gate_by_slug(role_slug: str) -> dict[str, Any] | None:
+    normalized_role_slug = _required_text(role_slug, "role_slug").lower()
+    init_db()
+    with get_connection() as connection:
+        _ensure_tenant_role_gates_table(connection)
+        row = connection.execute(
+            """
+            SELECT g.tenant_slug, g.role_key, g.role_slug,
+                   g.developer_access_revoked, g.rotated_at, g.rotated_by,
+                   t.full_corporation_name, t.status, t.is_deleted
+            FROM tenant_role_gates g
+            JOIN tenants t ON t.tenant_slug = g.tenant_slug
+            WHERE g.role_slug = ? AND t.is_deleted = 0
+            """,
+            (normalized_role_slug,),
+        ).fetchone()
+    if row is None:
+        return None
+    record = dict(row)
+    record["developer_access_revoked"] = bool(record.get("developer_access_revoked"))
+    return record
+
+
+def verify_tenant_role_gate(role_slug: str, password: str) -> dict[str, Any] | None:
+    normalized_role_slug = _required_text(role_slug, "role_slug").lower()
+    if not isinstance(password, str) or not password.strip():
+        return None
+    init_db()
+    with get_connection() as connection:
+        _ensure_tenant_role_gates_table(connection)
+        row = connection.execute(
+            """
+            SELECT g.tenant_slug, g.role_key, g.role_slug, g.password_hash,
+                   g.developer_access_revoked, g.rotated_at,
+                   t.status, t.is_deleted
+            FROM tenant_role_gates g
+            JOIN tenants t ON t.tenant_slug = g.tenant_slug
+            WHERE g.role_slug = ? AND t.is_deleted = 0
+            """,
+            (normalized_role_slug,),
+        ).fetchone()
+    if row is None:
+        return None
+    if str(row["status"] or "").strip().upper() != "ACTIVE":
+        return None
+    if not _verify_role_gate_password(password, row["password_hash"]):
+        return None
+    return {
+        "tenant_slug": str(row["tenant_slug"]),
+        "role_key": str(row["role_key"]),
+        "role_slug": str(row["role_slug"]),
+        "developer_access_revoked": bool(row["developer_access_revoked"]),
+        "rotated_at": row["rotated_at"],
+    }
+
+
+def rotate_admin_role_gate_password(
+    tenant_slug: str,
+    current_password: str,
+    new_password: str,
+    rotated_by: str = "tenant_admin",
+) -> tuple[bool, str]:
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    actor = _required_text(rotated_by, "rotated_by")
+    if not isinstance(current_password, str) or not current_password.strip():
+        return False, "Current Admin gated password is required."
+    if not isinstance(new_password, str) or len(new_password.strip()) < 10:
+        return False, "New Admin gated password must be at least 10 characters."
+    if hmac.compare_digest(
+        current_password.strip().encode("utf-8"),
+        new_password.strip().encode("utf-8"),
+    ):
+        return False, "New Admin gated password must differ from the current password."
+
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    init_db()
+    with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        _ensure_tenant_role_gates_table(connection)
+        row = connection.execute(
+            """
+            SELECT g.role_slug, g.password_hash, t.status, t.is_deleted
+            FROM tenant_role_gates g
+            JOIN tenants t ON t.tenant_slug = g.tenant_slug
+            WHERE g.tenant_slug = ? AND g.role_key = 'admin'
+            """,
+            (normalized_slug,),
+        ).fetchone()
+        if row is None or bool(row["is_deleted"]) or str(row["status"] or "").strip().upper() != "ACTIVE":
+            return False, "Admin gate is unavailable for this tenant."
+        if not _verify_role_gate_password(current_password, row["password_hash"]):
+            return False, "Current Admin gated password is incorrect."
+        new_hash = _hash_role_gate_password(new_password.strip())
+        connection.execute(
+            """
+            UPDATE tenant_role_gates
+            SET password_hash = ?,
+                developer_access_revoked = 1,
+                rotated_at = ?,
+                rotated_by = ?,
+                updated_at = ?
+            WHERE tenant_slug = ? AND role_key = 'admin'
+            """,
+            (new_hash, timestamp, actor, timestamp, normalized_slug),
+        )
+        _insert_tenant_activity(
+            connection,
+            normalized_slug,
+            "admin_gate_password_rotated",
+            "Admin gated password rotated; developer initial credential revoked.",
+            actor,
+        )
+    return True, "Admin gated password updated and developer credential access revoked."
+
+
 def activate_tenant(tenant_slug: str) -> dict[str, Any] | None:
-    """Activate one pending or inactive tenant and return its private contact."""
+    """Activate one pending or inactive tenant and return its private contact and role slugs."""
     normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
     timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     init_db()
@@ -4921,6 +5167,11 @@ def activate_tenant(tenant_slug: str) -> dict[str, Any] | None:
         )
         if cursor.rowcount != 1:
             return None
+        gate_slugs = _provision_default_role_gates(
+            connection,
+            normalized_slug,
+            timestamp,
+        )
         contact = connection.execute(
             """
             SELECT admin_email, admin_phone
@@ -4938,6 +5189,9 @@ def activate_tenant(tenant_slug: str) -> dict[str, Any] | None:
         )
     return {
         "tenant_slug": normalized_slug,
+        "desk_slug": gate_slugs["desk_slug"],
+        "admin_slug": gate_slugs["admin_slug"],
+        "vendor_slug": gate_slugs["vendor_slug"],
         "full_corporation_name": str(row["full_corporation_name"] or normalized_slug),
         "status": "Active",
         "admin_email": str(contact["admin_email"]) if contact else "",
