@@ -3624,12 +3624,57 @@ def _render_committee_workspace(tenant_slug: str) -> None:
         st.info("No proposals are available for committee evaluation.")
         return
 
+    scanned_map = st.session_state.setdefault(_tenant_key(tenant_slug, "committee", "solicited_scanned_map"), {})
+    try:
+        _persisted_scans = db.get_committee_vendor_scans(tenant_slug, str(payload.get("tender_id") or ""))
+        if isinstance(_persisted_scans, dict) and _persisted_scans:
+            for _k_tid, _k_rec in _persisted_scans.items():
+                if _k_tid not in scanned_map and isinstance(_k_rec, dict):
+                    scanned_map[_k_tid] = _k_rec
+    except Exception:
+        logging.exception("Could not hydrate persisted vendor scans for %s.", tenant_slug)
+    if not isinstance(scanned_map, dict):
+        scanned_map = {}
+        st.session_state[_tenant_key(tenant_slug, "committee", "solicited_scanned_map")] = scanned_map
+
+    st.subheader("Solicited Vendors Queue")
+    st.caption(
+        "Click any vendor number below to select that vendor for BPP procurement review, "
+        "KYB & Agentic scanning, and executive summary generation."
+    )
+    for idx_v, item in enumerate(proposals, 1):
+        vid = str(item.get("tracking_id") or "")
+        vname = str(item.get("organization_name") or "Unnamed Vendor")
+        vtitle = str(item.get("proposal_title") or "Untitled Proposal")
+        vref = str(item.get("payment_reference") or "N/A")
+        scan_rec = scanned_map.get(vid)
+        status_badge = (
+            f"[SCANNED / CHECKED] ({scan_rec.get('scanned_at', '')})"
+            if isinstance(scan_rec, dict) and scan_rec.get("checked")
+            else "[UNSCANNED]"
+        )
+        r_col1, r_col2, r_col3, r_col4 = st.columns([2.2, 2.4, 2.0, 1.8])
+        with r_col1:
+            if st.button(
+                f"No. {idx_v}: {vid}",
+                key=_tenant_key(tenant_slug, "committee", f"pick_vendor_{payload['tender_id']}_{vid}"),
+                use_container_width=True,
+            ):
+                st.session_state[_tenant_key(tenant_slug, "committee", "proposal_selection")] = f"{vid} · {vtitle}"
+                st.rerun()
+        with r_col2:
+            st.markdown(f"**{vname}**\n\n{vtitle}")
+        with r_col3:
+            st.caption(f"Payment Ref: {vref}")
+        with r_col4:
+            st.markdown(f"**{status_badge}**")
+
     proposal_options = {
         f"{proposal['tracking_id']} · {proposal['proposal_title']}": proposal
         for proposal in proposals
     }
     selected_label = st.selectbox(
-        "Select proposal for review",
+        "Active solicited vendor dossier",
         options=list(proposal_options),
         key=_tenant_key(tenant_slug, "committee", "proposal_selection"),
     )
@@ -3704,6 +3749,132 @@ def _render_committee_workspace(tenant_slug: str) -> None:
         f"COI signed by {coi_status['signed_by_name']} at {coi_status['timestamp']}."
     )
     st.caption(f"Digital signature SHA-256: {coi_status['digital_signature_hash']}")
+    _scan_map = st.session_state.setdefault(_tenant_key(tenant_slug, "committee", "solicited_scanned_map"), {})
+    if not isinstance(_scan_map, dict):
+        _scan_map = {}
+        st.session_state[_tenant_key(tenant_slug, "committee", "solicited_scanned_map")] = _scan_map
+    _existing_scan = _scan_map.get(tracking_id) if isinstance(_scan_map.get(tracking_id), dict) else None
+
+    st.subheader("BPP Procurement Vendor Profile & KYB / Agentic Scan")
+    _scan_status_label = (
+        f"Checked / Scanned ({_existing_scan.get('scanned_at', '')})"
+        if _existing_scan and _existing_scan.get("checked")
+        else "Not Yet Scanned"
+    )
+    st.markdown(f"**Scan Status for `{tracking_id}`:** {_scan_status_label}")
+
+    _m1, _m2, _m3, _m4 = st.columns(4)
+    with _m1:
+        st.metric("Vendor / Tracking No.", tracking_id)
+    with _m2:
+        st.metric("Vendor Organization", str(proposal.get("organization_name") or "N/A"))
+    with _m3:
+        st.metric("Tender / RFQ ID", str(payload.get("tender_id") or "N/A"))
+    with _m4:
+        st.metric("Governance Status", str(proposal.get("governance_status") or "DOSSIER_SUBMITTED"))
+
+    with st.expander("BPP / PPA 2007 Statutory & Eligibility Details", expanded=True):
+        st.write("Proposal Title:", str(proposal.get("proposal_title") or "N/A"))
+        st.write("Official Contact Email:", str(proposal.get("official_email") or "Not provided"))
+        st.write("Payment / Remita Reference:", str(proposal.get("payment_reference") or "Not recorded"))
+        st.write(
+            "CAC / RC Registration:",
+            str(proposal.get("cac_registration_number") or "Not captured on clearance pass (verify in dossier)"),
+        )
+        st.write(
+            "Tax Identification Number (TIN):",
+            str(proposal.get("tax_identification_number") or "Not captured on clearance pass (verify in dossier)"),
+        )
+        st.caption(
+            "BPP / PPA 2007 review checkpoints: CAC/MEMART/BPP IRR registration, "
+            "FIRS TCC & statutory remittances (PENCOM, ITF, NSITF), sworn affidavit/due diligence, "
+            "audited financials/bank reference/bid security, and technical capacity/CVs."
+        )
+
+    if st.button(
+        "Run KYB & Agentic Scan + Executive Summary",
+        key=_tenant_key(tenant_slug, "committee", f"run_bpp_scan_{tracking_id}"),
+        type="primary",
+    ):
+        _rc_val = str(proposal.get("cac_registration_number") or "").strip()
+        _kyb_res = None
+        if _rc_val:
+            try:
+                from kyb_verifier import verify_company_kyb
+                _kyb_res = verify_company_kyb(_rc_val)
+            except Exception as _kyb_exc:
+                _kyb_res = {"status": "ERROR", "risk_label": f"KYB check error: {_kyb_exc}", "flagged": True}
+        else:
+            _kyb_res = {
+                "status": "NO_RC_ON_PASS",
+                "risk_label": "RC/CAC number not present on clearance pass; inspect uploaded statutory dossier.",
+                "flagged": None,
+            }
+
+        _bid_audit = None
+        if _evaluate_bid_integrity_package is not None:
+            try:
+                _comp_list = [
+                    {
+                        "bid_id": str(p_item.get("tracking_id") or ""),
+                        "vendor_name": str(p_item.get("organization_name") or p_item.get("proposal_title") or ""),
+                        "rc_number": str(p_item.get("cac_registration_number") or ""),
+                        "tin": str(p_item.get("tax_identification_number") or ""),
+                    }
+                    for p_item in proposals
+                    if p_item.get("tracking_id")
+                ]
+                _bid_audit = _evaluate_bid_integrity_package(
+                    kyb_data={
+                        "rc_number": _rc_val,
+                        "tin": str(proposal.get("tax_identification_number") or ""),
+                    },
+                    competing_bids=_comp_list if len(_comp_list) > 1 else None,
+                )
+            except Exception as _bid_exc:
+                _bid_audit = {"package_status": "ERROR", "error": str(_bid_exc)}
+
+        _exec_summary = (
+            f"Solicited Vendor {tracking_id} ({proposal.get('organization_name') or 'N/A'}) submitted "
+            f"'{proposal.get('proposal_title') or 'Untitled Proposal'}' under tender {payload.get('tender_id')}. "
+            f"KYB posture: {(_kyb_res or {}).get('risk_label', 'Pending')}. "
+            f"Bid integrity posture: {(_bid_audit or {}).get('package_status', 'Not evaluated')}. "
+            f"Proceed with PPA 2007 statutory document verification and rubric scoring below."
+        )
+        _scan_map[tracking_id] = {
+            "checked": True,
+            "scanned_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            "scanned_by": str(payload.get("email") or identity.get("email") or "committee"),
+            "kyb": _kyb_res,
+            "bid_audit": _bid_audit,
+            "executive_summary": _exec_summary,
+        }
+        try:
+            db.save_committee_vendor_scan(
+                tenant_slug=tenant_slug,
+                tender_id=str(payload.get("tender_id") or ""),
+                tracking_id=tracking_id,
+                scanned_by=str(payload.get("email") or identity.get("email") or "committee"),
+                scan_payload=_scan_map[tracking_id],
+                executive_summary=_exec_summary,
+            )
+        except Exception:
+            logging.exception("Could not persist vendor scan for %s.", tracking_id)
+        st.session_state[_tenant_key(tenant_slug, "committee", "solicited_scanned_map")] = _scan_map
+        st.rerun()
+
+    _active_scan = _scan_map.get(tracking_id) if isinstance(_scan_map.get(tracking_id), dict) else None
+    if _active_scan and _active_scan.get("checked"):
+        st.success(
+            f"Scanned / Checked on {_active_scan.get('scanned_at')} by {_active_scan.get('scanned_by')}."
+        )
+        _kyb_block = _active_scan.get("kyb") or {}
+        st.markdown(f"**KYB & Agentic Scan Findings:** {_kyb_block.get('risk_label', 'Completed')}")
+        if _active_scan.get("bid_audit"):
+            st.json(_active_scan["bid_audit"])
+        st.markdown("**Executive Summary (BPP Committee Brief):**")
+        st.info(str(_active_scan.get("executive_summary") or ""))
+
     st.subheader("Proposal dossier")
     st.write("Tracking ID:", tracking_id)
     st.write("Proposal:", proposal["proposal_title"])

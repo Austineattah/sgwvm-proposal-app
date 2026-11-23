@@ -5599,6 +5599,125 @@ def update_clearance_status(
     return cursor.rowcount > 0
 
 
+def _ensure_committee_vendor_scans_table(connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS committee_vendor_scans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_slug TEXT NOT NULL,
+            tender_id TEXT NOT NULL,
+            tracking_id TEXT NOT NULL,
+            scanned_by TEXT NOT NULL,
+            scanned_at TEXT NOT NULL,
+            scan_payload_json TEXT NOT NULL,
+            executive_summary TEXT NOT NULL DEFAULT '',
+            UNIQUE (tenant_slug, tender_id, tracking_id)
+        )
+        """
+    )
+
+
+def save_committee_vendor_scan(
+    tenant_slug: str,
+    tender_id: str,
+    tracking_id: str,
+    scanned_by: str,
+    scan_payload: dict[str, Any],
+    executive_summary: str = "",
+) -> dict[str, Any]:
+    """Persist KYB and Agentic scan results for a solicited vendor tracking ID."""
+    import json
+
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    normalized_tender = _required_text(tender_id, "tender_id")
+    normalized_tracking = _required_text(tracking_id, "tracking_id")
+    actor = str(scanned_by or "committee").strip() or "committee"
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    payload_dict = dict(scan_payload or {})
+    payload_dict.setdefault("checked", True)
+    payload_dict.setdefault("scanned_at", timestamp)
+    payload_dict.setdefault("scanned_by", actor)
+    if executive_summary and not payload_dict.get("executive_summary"):
+        payload_dict["executive_summary"] = str(executive_summary)
+    serialized = json.dumps(payload_dict, default=str)
+
+    init_db()
+    with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        _ensure_committee_vendor_scans_table(connection)
+        connection.execute(
+            """
+            INSERT INTO committee_vendor_scans (
+                tenant_slug, tender_id, tracking_id, scanned_by,
+                scanned_at, scan_payload_json, executive_summary
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (tenant_slug, tender_id, tracking_id) DO UPDATE SET
+                scanned_by = excluded.scanned_by,
+                scanned_at = excluded.scanned_at,
+                scan_payload_json = excluded.scan_payload_json,
+                executive_summary = excluded.executive_summary
+            """,
+            (
+                normalized_slug,
+                normalized_tender,
+                normalized_tracking,
+                actor,
+                timestamp,
+                serialized,
+                str(executive_summary or payload_dict.get("executive_summary") or ""),
+            ),
+        )
+    return payload_dict
+
+
+def get_committee_vendor_scans(
+    tenant_slug: str,
+    tender_id: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Load persisted committee vendor scans keyed by tracking_id."""
+    import json
+
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    init_db()
+    with get_connection() as connection:
+        _ensure_committee_vendor_scans_table(connection)
+        if tender_id is not None and str(tender_id).strip():
+            rows = connection.execute(
+                """
+                SELECT tracking_id, scanned_by, scanned_at, scan_payload_json, executive_summary
+                FROM committee_vendor_scans
+                WHERE tenant_slug = ? AND tender_id = ?
+                """,
+                (normalized_slug, str(tender_id).strip()),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                """
+                SELECT tracking_id, scanned_by, scanned_at, scan_payload_json, executive_summary
+                FROM committee_vendor_scans
+                WHERE tenant_slug = ?
+                """,
+                (normalized_slug,),
+            ).fetchall()
+
+    results: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        tid = str(row["tracking_id"])
+        try:
+            parsed = json.loads(row["scan_payload_json"] or "{}")
+            if not isinstance(parsed, dict):
+                parsed = {}
+        except Exception:
+            parsed = {}
+        parsed["checked"] = True
+        parsed.setdefault("scanned_at", str(row["scanned_at"]))
+        parsed.setdefault("scanned_by", str(row["scanned_by"]))
+        if row["executive_summary"] and not parsed.get("executive_summary"):
+            parsed["executive_summary"] = str(row["executive_summary"])
+        results[tid] = parsed
+    return results
+
+
 if __name__ == "__main__":
     init_db()
     print(f"SQLite schema initialized and verified at {DB_FILE}")
