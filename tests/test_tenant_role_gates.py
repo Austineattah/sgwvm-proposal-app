@@ -248,3 +248,45 @@ def test_admin_rotation_rejects_invalid_inputs(isolated_db: Path) -> None:
     assert (
         db_mod.verify_tenant_role_gate("guardrail-corp-admin", current_secret) is not None
     )
+
+def test_route_resolver_handles_unprovisioned_fallback_and_missing_suffix(
+    isolated_db: Path,
+) -> None:
+    _ = isolated_db
+    base_slug, effective_slug, err = _resolve_role_gate_route(
+        "gombe-south-desk",
+        "front_desk",
+    )
+    assert err is None
+    assert base_slug == "gombe-south"
+    assert effective_slug == "gombe-south-desk"
+
+    bad_base, bad_effective, bad_err = _resolve_role_gate_route(
+        "gombe-south",
+        "admin",
+    )
+    assert bad_base is None
+    assert bad_effective == "gombe-south-admin"
+    assert bad_err is not None and "Invalid role slug" in bad_err
+
+
+def test_suspended_tenant_blocks_admin_gate_rotation(isolated_db: Path) -> None:
+    _insert_tenant(
+        isolated_db,
+        "suspended-corp",
+        "Suspended Corp Ltd",
+        status="SUSPENDED",
+        is_deleted=0,
+    )
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with db_mod.get_connection() as connection:
+        db_mod._provision_default_role_gates(connection, "suspended-corp", now)
+
+    ok, msg = db_mod.rotate_admin_role_gate_password(
+        "suspended-corp",
+        db_mod._DEFAULT_ADMIN_GATE_PASSWORD,
+        "ValidRotatedPass#2026",
+        rotated_by="lead_architect",
+    )
+    assert ok is False
+    assert "unavailable" in msg.lower()

@@ -1120,9 +1120,28 @@ def _render_terminal_role_login(
             gate_verified_flag = True
             active_gate_slug = expected_gate_slug
         else:
-            st.error(
-                f"Invalid Role Gate Password for slug '{expected_gate_slug}'."
-            )
+            gate_meta = None
+            try:
+                gate_meta = db.resolve_role_gate_by_slug(expected_gate_slug)
+            except (sqlite3.Error, RuntimeError):
+                logging.exception(
+                    "Could not resolve role gate metadata for slug %s.",
+                    expected_gate_slug,
+                )
+            if gate_meta is None:
+                st.error(
+                    f"Role gate '{expected_gate_slug}' is not provisioned or the tenant is unavailable."
+                )
+            else:
+                gate_status = str(gate_meta.get("status") or "").strip().upper()
+                if gate_status and gate_status != "ACTIVE":
+                    st.error(
+                        f"Role gate '{expected_gate_slug}' is locked because tenant status is {gate_status}."
+                    )
+                else:
+                    st.error(
+                        f"Invalid Role Gate Password for slug '{expected_gate_slug}'."
+                    )
 
     if not gate_verified_flag or active_gate_slug != expected_gate_slug:
         st.info(
