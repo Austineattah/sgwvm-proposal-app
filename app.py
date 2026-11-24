@@ -6051,6 +6051,7 @@ def _render_home() -> None:
         """,
         unsafe_allow_html=True,
     )
+    _render_onboarding_developer_helper_panel()
     st.markdown("---")
     st.markdown(
         "<div style='color: #00FF66; font-weight: bold; text-align: center;'>NEXUSVAULT_TECH Sovereign Enterprise Engine • NITDA / NDPA Compliant</div>",
@@ -6126,6 +6127,191 @@ def _send_tenant_activation_notification(tenant: Mapping[str, Any]) -> bool:
     return bool(sent)
 
 
+def _render_onboarding_developer_helper_panel() -> None:
+    """Allow onboarding users to submit an issue, complaint, or suggestion to the developer."""
+    with st.expander(
+        "Onboarding Helper Desk — Report an Issue, Complaint, or Suggestion",
+        expanded=False,
+    ):
+        st.caption(
+            "Running into an onboarding snag, have a complaint, or want to suggest an improvement? "
+            "Send a direct note to the Developer Console."
+        )
+        default_org = str(st.session_state.get("corp_name") or "").strip()
+        default_email = str(
+            st.session_state.get("admin_email") or st.session_state.get("corp_email") or ""
+        ).strip()
+        active_slug = str(
+            st.session_state.get("onboarded_tenant_slug")
+            or st.session_state.get("tenant_slug")
+            or ""
+        ).strip()
+
+        with st.form(key="onboarding_developer_feedback_form", clear_on_submit=True):
+            col_cat, col_urg = st.columns([3, 1])
+            with col_cat:
+                category_label = st.selectbox(
+                    "Message type",
+                    options=[
+                        "Issue / Onboarding Help",
+                        "Complaint",
+                        "Suggestion",
+                    ],
+                    key="onb_help_category_select",
+                )
+            with col_urg:
+                st.write("")
+                is_urgent = st.checkbox(
+                    "Urgent attention",
+                    value=False,
+                    key="onb_help_urgent_checkbox",
+                )
+
+            col_name, col_email = st.columns(2)
+            with col_name:
+                sender_name = st.text_input(
+                    "Your name or organization (optional)",
+                    value=default_org,
+                    max_chars=160,
+                    key="onb_help_sender_name",
+                )
+            with col_email:
+                sender_email = st.text_input(
+                    "Contact email (optional)",
+                    value=default_email,
+                    max_chars=200,
+                    key="onb_help_sender_email",
+                )
+
+            message_body = st.text_area(
+                "Describe your issue, complaint, or suggestion",
+                max_chars=4000,
+                height=110,
+                placeholder="Share what happened, any complaint, or a feature/workflow suggestion...",
+                key="onb_help_message_input",
+            )
+            submitted_help = st.form_submit_button(
+                "Submit Onboarding Support Request",
+                type="primary",
+                use_container_width=True,
+            )
+
+        if submitted_help:
+            category_map = {
+                "Issue / Onboarding Help": "ISSUE",
+                "Complaint": "COMPLAINT",
+                "Suggestion": "SUGGESTION",
+            }
+            try:
+                created = db.create_onboarding_support_ticket(
+                    message=message_body,
+                    category=category_map.get(category_label, "ISSUE"),
+                    is_urgent=is_urgent,
+                    tenant_slug=active_slug,
+                    org_name=default_org or sender_name,
+                    sender_name=sender_name,
+                    sender_email=sender_email,
+                )
+            except (ValueError, sqlite3.Error, RuntimeError) as exc:
+                st.error(f"Could not send message: {exc}")
+            else:
+                st.session_state["last_onboarding_ticket_code"] = created.get("ticket_code", "")
+                st.rerun()
+
+        last_code = st.session_state.get("last_onboarding_ticket_code")
+        if isinstance(last_code, str) and last_code:
+            st.success(
+                f"Logged under reference **{html.escape(last_code)}**. "
+                "It is now queued in the Developer Console for review."
+            )
+
+
+def _render_developer_onboarding_envelope_panel() -> None:
+    """High-contrast calm envelope alert and acknowledgment queue in Developer Console."""
+    try:
+        summary = db.get_onboarding_support_summary()
+        tickets = db.list_onboarding_support_tickets(status_filter="OPEN", limit=25)
+    except (sqlite3.Error, RuntimeError, ValueError):
+        logging.exception("Failed to load onboarding support tickets for Developer Console.")
+        st.warning("Onboarding support queue is temporarily unavailable.")
+        return
+
+    urgent_open = summary["urgent_open_count"]
+    open_total = summary["open_count"]
+
+    if urgent_open > 0:
+        accent_border = "#ef4444"
+        badge_bg = "rgba(127, 29, 29, 0.45)"
+        envelope_icon = "✉️"
+        headline = f"URGENT ONBOARDING ALERT — {urgent_open} Urgent Open ({open_total} Total Open)"
+        status_color = "#fca5a5"
+    elif open_total > 0:
+        accent_border = "#f59e0b"
+        badge_bg = "rgba(120, 53, 15, 0.38)"
+        envelope_icon = "✉️"
+        headline = f"Onboarding Inbox — {open_total} Open Message(s)"
+        status_color = "#fcd34d"
+    else:
+        accent_border = "rgba(56, 189, 248, 0.35)"
+        badge_bg = "rgba(15, 23, 42, 0.85)"
+        envelope_icon = "📭"
+        headline = "Onboarding Inbox Clear — 0 Open Messages"
+        status_color = "#7dd3fc"
+
+    st.markdown(
+        f"""
+        <div style="
+            background: {badge_bg};
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1.5px solid {accent_border};
+            border-radius: 12px;
+            padding: 0.95rem 1.2rem;
+            margin: 0.5rem 0 1rem 0;
+        ">
+            <div style="display:flex;align-items:center;gap:0.65rem;font-weight:700;color:{status_color};font-size:1rem;">
+                <span style="font-size:1.3rem;line-height:1;">{envelope_icon}</span>
+                <span>{html.escape(headline)}</span>
+            </div>
+            <div style="color:#cbd5e1;font-size:0.85rem;margin-top:0.35rem;">
+                Total logged: {summary["total_count"]} · Open: {open_total} · Acknowledged: {summary["acknowledged_count"]}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if not tickets:
+        return
+
+    with st.expander(
+        f"Review & Acknowledge Open Onboarding Messages ({len(tickets)})",
+        expanded=urgent_open > 0,
+    ):
+        for item in tickets:
+            tid = int(item["id"])
+            code = html.escape(str(item.get("ticket_code") or ""))
+            cat = html.escape(str(item.get("category") or "ISSUE"))
+            is_urg = bool(item.get("is_urgent"))
+            urg_tag = " · **URGENT**" if is_urg else ""
+            sender = html.escape(
+                str(item.get("sender_name") or item.get("org_name") or "Onboarding User")
+            )
+            created = html.escape(str(item.get("created_at") or ""))
+            body = html.escape(str(item.get("message") or ""))
+
+            st.markdown(
+                f"**{code}** \u00b7 `{cat}`{urg_tag} - from **{sender}** ({created})\n\n> {body}"
+            )
+            if st.button(
+                f"Acknowledge {item.get('ticket_code')}",
+                key=f"ack_onboarding_ticket_{tid}",
+                type="primary" if is_urg else "secondary",
+            ):
+                if db.acknowledge_onboarding_support_ticket(tid, acknowledged_by="developer_console"):
+                    st.rerun()
+
+
 def _render_platform_developer_console() -> None:
     st.markdown("## Sovereign Developer Command Console")
     st.markdown("Client tenant, archive, and platform broadcast management.")
@@ -6160,6 +6346,10 @@ def _render_platform_developer_console() -> None:
         logging.exception("Developer console data failed to load.")
         st.error("Developer console data is unavailable. Please try again later.")
         return
+
+    _envelope_panel = globals().get("_render_developer_onboarding_envelope_panel")
+    if callable(_envelope_panel):
+        _envelope_panel()
 
     if section == "Platform Broadcasts" and "developer_broadcast_message" not in st.session_state:
         st.session_state["developer_broadcast_message"] = (

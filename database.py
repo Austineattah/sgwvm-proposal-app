@@ -5987,3 +5987,183 @@ def get_all_tenants():
     except Exception:
         logging.exception("Could not load tenants from %s.", DB_FILE)
         return pd.DataFrame()
+
+ONBOARDING_TICKET_CATEGORIES: tuple[str, ...] = ("ISSUE", "COMPLAINT", "SUGGESTION")
+ONBOARDING_TICKET_STATUSES: tuple[str, ...] = ("OPEN", "ACKNOWLEDGED")
+
+
+def _ensure_onboarding_support_tickets_table(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS onboarding_support_tickets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_code TEXT NOT NULL UNIQUE,
+            tenant_slug TEXT NOT NULL DEFAULT '',
+            org_name TEXT NOT NULL DEFAULT '',
+            sender_name TEXT NOT NULL DEFAULT '',
+            sender_email TEXT NOT NULL DEFAULT '',
+            category TEXT NOT NULL DEFAULT 'ISSUE'
+                CHECK (category IN ('ISSUE', 'COMPLAINT', 'SUGGESTION')),
+            is_urgent INTEGER NOT NULL DEFAULT 0 CHECK (is_urgent IN (0, 1)),
+            message TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'OPEN'
+                CHECK (status IN ('OPEN', 'ACKNOWLEDGED')),
+            created_at TEXT NOT NULL,
+            acknowledged_at TEXT,
+            acknowledged_by TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_onboarding_tickets_status_urgent
+        ON onboarding_support_tickets (status, is_urgent DESC, id DESC)
+        """
+    )
+
+
+def create_onboarding_support_ticket(
+    *,
+    message: str,
+    category: str = "ISSUE",
+    is_urgent: bool = False,
+    tenant_slug: str = "",
+    org_name: str = "",
+    sender_name: str = "",
+    sender_email: str = "",
+) -> dict[str, Any]:
+    cleaned_message = (message or "").strip()
+    if not cleaned_message:
+        raise ValueError("Support or feedback message cannot be empty.")
+    if len(cleaned_message) > 4000:
+        raise ValueError("Message exceeds maximum length of 4000 characters.")
+
+    normalized_category = (category or "ISSUE").strip().upper()
+    if normalized_category not in ONBOARDING_TICKET_CATEGORIES:
+        raise ValueError(f"Unsupported ticket category: {category!r}")
+
+    urgent_flag = 1 if bool(is_urgent) else 0
+    ticket_code = f"ONB-{uuid.uuid4().hex[:8].upper()}"
+    created_at = datetime.now(timezone.utc).isoformat()
+
+    with get_connection() as conn:
+        _ensure_onboarding_support_tickets_table(conn)
+        cur = conn.execute(
+            """
+            INSERT INTO onboarding_support_tickets (
+                ticket_code, tenant_slug, org_name, sender_name, sender_email,
+                category, is_urgent, message, status, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)
+            """,
+            (
+                ticket_code,
+                (tenant_slug or "").strip()[:120],
+                (org_name or "").strip()[:200],
+                (sender_name or "").strip()[:160],
+                (sender_email or "").strip()[:200],
+                normalized_category,
+                urgent_flag,
+                cleaned_message,
+                created_at,
+            ),
+        )
+        row = conn.execute(
+            "SELECT * FROM onboarding_support_tickets WHERE id = ?",
+            (cur.lastrowid,),
+        ).fetchone()
+        return dict(row) if row is not None else {
+            "id": cur.lastrowid,
+            "ticket_code": ticket_code,
+            "category": normalized_category,
+            "is_urgent": urgent_flag,
+            "status": "OPEN",
+            "created_at": created_at,
+        }
+
+
+def get_onboarding_support_summary() -> dict[str, int]:
+    with get_connection() as conn:
+        _ensure_onboarding_support_tickets_table(conn)
+        row = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS total_count,
+                SUM(CASE WHEN status = 'OPEN' THEN 1 ELSE 0 END) AS open_count,
+                SUM(CASE WHEN status = 'OPEN' AND is_urgent = 1 THEN 1 ELSE 0 END) AS urgent_open_count,
+                SUM(CASE WHEN status = 'ACKNOWLEDGED' THEN 1 ELSE 0 END) AS acknowledged_count
+            FROM onboarding_support_tickets
+            """
+        ).fetchone()
+    return {
+        "total_count": int((row["total_count"] if row else 0) or 0),
+        "open_count": int((row["open_count"] if row else 0) or 0),
+        "urgent_open_count": int((row["urgent_open_count"] if row else 0) or 0),
+        "acknowledged_count": int((row["acknowledged_count"] if row else 0) or 0),
+    }
+
+
+def list_onboarding_support_tickets(
+    *,
+    status_filter: str = "OPEN",
+    category_filter: str = "ALL",
+    urgent_only: bool = False,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+
+    norm_status = (status_filter or "ALL").strip().upper()
+    if norm_status in ONBOARDING_TICKET_STATUSES:
+        clauses.append("status = ?")
+        params.append(norm_status)
+
+    norm_cat = (category_filter or "ALL").strip().upper()
+    if norm_cat in ONBOARDING_TICKET_CATEGORIES:
+        clauses.append("category = ?")
+        params.append(norm_cat)
+
+    if urgent_only:
+        clauses.append("is_urgent = 1")
+
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, min(int(limit), 200))
+    params.append(safe_limit)
+
+    with get_connection() as conn:
+        _ensure_onboarding_support_tickets_table(conn)
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM onboarding_support_tickets
+            {where_sql}
+            ORDER BY
+                CASE WHEN status = 'OPEN' THEN 0 ELSE 1 END,
+                is_urgent DESC,
+                id DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def acknowledge_onboarding_support_ticket(
+    ticket_id: int,
+    acknowledged_by: str = "developer",
+) -> bool:
+    actor = (acknowledged_by or "developer").strip()[:120] or "developer"
+    ack_time = datetime.now(timezone.utc).isoformat()
+    with get_connection() as conn:
+        _ensure_onboarding_support_tickets_table(conn)
+        cur = conn.execute(
+            """
+            UPDATE onboarding_support_tickets
+            SET status = 'ACKNOWLEDGED',
+                acknowledged_at = ?,
+                acknowledged_by = ?
+            WHERE id = ?
+            """,
+            (ack_time, actor, int(ticket_id)),
+        )
+        return cur.rowcount > 0
