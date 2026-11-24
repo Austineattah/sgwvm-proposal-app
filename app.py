@@ -6130,7 +6130,7 @@ def _send_tenant_activation_notification(tenant: Mapping[str, Any]) -> bool:
 def _render_onboarding_developer_helper_panel() -> None:
     """Allow onboarding users to submit an issue, complaint, or suggestion to the developer."""
     with st.expander(
-        "Onboarding Helper Desk — Report an Issue, Complaint, or Suggestion",
+        "Onboarding Helper Desk — Report an Issue, Complaint, or Suggestion, such is invaluable to us @ NexusVault.",
         expanded=False,
     ):
         st.caption(
@@ -6222,7 +6222,7 @@ def _render_onboarding_developer_helper_panel() -> None:
         if isinstance(last_code, str) and last_code:
             st.success(
                 f"Logged under reference **{html.escape(last_code)}**. "
-                "It is now queued in the Developer Console for review."
+                "It is now queued in the Developer Console for review, thanks for your time."
             )
 
 
