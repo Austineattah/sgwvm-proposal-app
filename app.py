@@ -1042,6 +1042,37 @@ def _render_terminal_role_login(
         and identity.get("role") == role
         and identity.get("user_role") == role
     ):
+        gate_verified_key = _tenant_key(tenant_slug, role, "gate_verified")
+        active_gate_key = _tenant_key(tenant_slug, role, "active_gate_slug")
+        try:
+            current_tenant = db.get_tenant_by_slug(tenant_slug)
+        except (sqlite3.Error, RuntimeError):
+            logging.exception(
+                "Could not re-verify active session tenant %s for role %s.",
+                tenant_slug,
+                role,
+            )
+            st.session_state.pop(identity_key, None)
+            st.session_state.pop(gate_verified_key, None)
+            st.session_state.pop(active_gate_key, None)
+            st.error("Session security status could not be verified. Please sign in again.")
+            return None
+
+        tenant_status = str((current_tenant or {}).get("status") or "").strip().upper()
+        if (
+            current_tenant is None
+            or tenant_status != "ACTIVE"
+            or bool(current_tenant.get("is_deleted"))
+        ):
+            st.session_state.pop(identity_key, None)
+            st.session_state.pop(gate_verified_key, None)
+            st.session_state.pop(active_gate_key, None)
+            status_label = tenant_status or "UNAVAILABLE"
+            st.error(
+                f"Active session ended because tenant '{tenant_slug}' is {status_label}."
+            )
+            return None
+
         return dict(identity)
 
     users = _configured_staff_users()

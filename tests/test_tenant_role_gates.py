@@ -186,6 +186,16 @@ def test_rotate_admin_role_gate_password_revokes_initial_and_records_activity(
     assert gates["admin"]["rotated_by"] == "lead_architect"
     assert gates["admin"]["rotated_at"] is not None
 
+    activities = db_mod.get_tenant_activities("sgwvm-corp")
+    rotation_events = [
+        entry
+        for entry in activities
+        if entry.get("action_type") == "admin_gate_password_rotated"
+    ]
+    assert rotation_events
+    assert rotation_events[0]["actor"] == "lead_architect"
+    assert "rotated" in rotation_events[0]["details"].lower()
+
 
 def test_deleted_tenant_blocks_gate_and_rotation(isolated_db: Path) -> None:
     _insert_tenant(isolated_db, "deleted-corp", "Deleted Corp Ltd", status="ACTIVE", is_deleted=1)
@@ -290,3 +300,112 @@ def test_suspended_tenant_blocks_admin_gate_rotation(isolated_db: Path) -> None:
     )
     assert ok is False
     assert "unavailable" in msg.lower()
+
+def _load_terminal_role_login(
+    session_state: dict[str, object],
+    errors: list[str],
+    successes: list[str],
+) -> object:
+    """Extract _render_terminal_role_login with stubbed Streamlit UI/session primitives."""
+    app_path = Path(__file__).resolve().parents[1] / "app.py"
+    raw = app_path.read_text(encoding="utf-8-sig")
+    tree = ast.parse(raw, filename=str(app_path))
+    target_fn = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_render_terminal_role_login"
+    )
+
+    st_stub = types.SimpleNamespace(
+        session_state=session_state,
+        error=lambda msg: errors.append(str(msg)),
+        success=lambda msg: successes.append(str(msg)),
+    )
+
+    namespace: dict[str, object] = {
+        "sqlite3": sqlite3,
+        "logging": __import__("logging"),
+        "Mapping": __import__("collections.abc", fromlist=["Mapping"]).Mapping,
+        "st": st_stub,
+        "db": db_mod,
+        "_tenant_key": lambda slug, role, suffix: f"{slug}:{role}:{suffix}",
+        "_configured_staff_users": lambda: {},
+        "_TERMINAL_LOCKOUT_MESSAGE": "Terminal locked out.",
+    }
+    exec(compile(ast.Module(body=[target_fn], type_ignores=[]), str(app_path), "exec"), namespace)
+    return namespace["_render_terminal_role_login"]
+
+
+def test_mid_session_guard_revokes_session_when_tenant_inactive_or_deleted(
+    isolated_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_slug = "mid-session-corp"
+    role = "admin"
+    _insert_tenant(isolated_db, tenant_slug, "Mid Session Corp", status="ACTIVE", is_deleted=0)
+
+    monkeypatch.setattr(db_mod, "get_tenant_role_lockout", lambda slug, r: {"is_locked_out": False})
+
+    session_state: dict[str, object] = {}
+    errors: list[str] = []
+    successes: list[str] = []
+    render_login = _load_terminal_role_login(session_state, errors, successes)
+
+    identity_key = f"{tenant_slug}:{role}:identity"
+    gate_verified_key = f"{tenant_slug}:{role}:gate_verified"
+    active_gate_key = f"{tenant_slug}:{role}:active_gate_slug"
+
+    # Active tenant preserves session identity
+    session_state[identity_key] = {
+        "tenant_slug": tenant_slug,
+        "role": role,
+        "user_role": role,
+        "username": "admin_user",
+    }
+    session_state[gate_verified_key] = True
+    session_state[active_gate_key] = f"{tenant_slug}-{role}"
+
+    active_result = render_login(tenant_slug, role)
+    assert active_result is not None
+    assert active_result["username"] == "admin_user"
+    assert identity_key in session_state
+
+    # Suspended tenant revokes active session and clears gate keys
+    errors.clear()
+    with sqlite3.connect(isolated_db) as conn:
+        conn.execute(
+            "UPDATE tenants SET status = 'SUSPENDED' WHERE tenant_slug = ?",
+            (tenant_slug,),
+        )
+        conn.commit()
+
+    suspended_result = render_login(tenant_slug, role)
+    assert suspended_result is None
+    assert identity_key not in session_state
+    assert gate_verified_key not in session_state
+    assert active_gate_key not in session_state
+    assert any("SUSPENDED" in msg for msg in errors)
+
+    # Deleted tenant revokes active session even if status is ACTIVE
+    errors.clear()
+    session_state[identity_key] = {
+        "tenant_slug": tenant_slug,
+        "role": role,
+        "user_role": role,
+        "username": "admin_user",
+    }
+    session_state[gate_verified_key] = True
+    session_state[active_gate_key] = f"{tenant_slug}-{role}"
+    with sqlite3.connect(isolated_db) as conn:
+        conn.execute(
+            "UPDATE tenants SET status = 'ACTIVE', is_deleted = 1 WHERE tenant_slug = ?",
+            (tenant_slug,),
+        )
+        conn.commit()
+
+    deleted_result = render_login(tenant_slug, role)
+    assert deleted_result is None
+    assert identity_key not in session_state
+    assert gate_verified_key not in session_state
+    assert active_gate_key not in session_state
+    assert any(tenant_slug in msg for msg in errors)
