@@ -1,3 +1,9 @@
+
+try:
+    from onboarding_guides import get_help_text
+except Exception:  # pragma: no cover
+    def get_help_text(field_key: str) -> str:
+        return ""
 import base64
 import binascii
 import hashlib
@@ -1086,16 +1092,19 @@ def _render_solicited_vendor_portal(
                     f"{tenders_by_id[tender_id]['title']} · {tender_id}"
                 ),
                 key=_widget_key(key_prefix, "rfq_code"),
+            help=get_help_text("published_tender_window"),
             )
             vendor_name = st.text_input(
                 "Corporate vendor name*",
                 max_chars=200,
                 key=_widget_key(key_prefix, "vendor_name"),
+            help=get_help_text("organization_name"),
             )
             vendor_email = st.text_input(
                 "Official corporate email*",
                 max_chars=254,
                 key=_widget_key(key_prefix, "vendor_email"),
+            help=get_help_text("corporate_email"),
             )
             payment_reference = st.text_input(
                 (
@@ -1105,11 +1114,13 @@ def _render_solicited_vendor_portal(
                 ),
                 max_chars=150,
                 key=_widget_key(key_prefix, "payment_reference"),
+            help=get_help_text("vendor_payment_reference"),
             )
             proposal_title = st.text_input(
                 "Project / bid title*",
                 max_chars=250,
                 key=_widget_key(key_prefix, "proposal_title"),
+            help=get_help_text("vendor_proposal_title"),
             )
             submitted = st.form_submit_button(
                 (
@@ -1202,6 +1213,7 @@ def _render_solicited_vendor_portal(
             value=str(candidate_pass_id),
             key=verification_key,
             max_chars=100,
+        help=get_help_text("clearance_pass_id"),
         ).strip()
         if st.button(
             "Check clearance status",
@@ -1300,6 +1312,7 @@ def _render_solicited_vendor_portal(
                         key=_widget_key(key_prefix, "sealed_dossier"),
                         max_upload_size=25,
                         disabled=encryption_key is None,
+                    help=get_help_text("sealed_bid_dossier"),
                     )
                     submitted_dossier = st.form_submit_button(
                         "Encrypt and submit dossier",
@@ -1499,26 +1512,31 @@ def render_unsolicited_vendor_portal(
             "Organization / enterprise name*",
             max_chars=200,
             key=_widget_key(key_prefix, "unsolicited_organization"),
+        help=get_help_text("organization_name"),
         )
         st.text_input(
             "CAC registration number*",
             max_chars=100,
             key=_widget_key(key_prefix, "unsolicited_cac"),
+        help=get_help_text("cac_registration_number"),
         )
         st.text_input(
             "Tax identification number",
             max_chars=100,
             key=_widget_key(key_prefix, "unsolicited_tin"),
+        help=get_help_text("tin_number"),
         )
         st.text_input(
             "Proposal title*",
             max_chars=250,
             key=_widget_key(key_prefix, "unsolicited_title"),
+        help=get_help_text("vendor_proposal_title"),
         )
         st.text_area(
             "Executive summary / strategic objectives*",
             max_chars=10_000,
             key=_widget_key(key_prefix, "unsolicited_abstract"),
+        help=get_help_text("unsolicited_summary"),
         )
         dossier = st.file_uploader(
             "Proposal document (PDF or DOCX, up to 25 MB)*",
@@ -1526,6 +1544,7 @@ def render_unsolicited_vendor_portal(
             key=_widget_key(key_prefix, "unsolicited_dossier"),
             max_upload_size=25,
             disabled=encryption_key is None,
+        help=get_help_text("unsolicited_dossier"),
         )
         submitted = st.form_submit_button(
             "Encrypt and submit proposal",

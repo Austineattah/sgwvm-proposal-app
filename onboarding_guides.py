@@ -301,6 +301,141 @@ ONBOARDING_GUIDES: dict[str, dict[str, Any]] = {
             "Do not include credentials, private links, or secrets in public instructions.",
         ),
     },
+    "published_tender_window": {
+        "title": "Published tender or RFQ window",
+        "help": "Select the active procurement tender or Request for Quotation (RFQ) you are bidding for.",
+        "steps": (
+            "Confirm the tender title and reference ID match the official solicitation notice.",
+            "Only currently open tenders accept new vendor clearance passes.",
+        ),
+    },
+    "vendor_payment_reference": {
+        "title": "Payment or bank transfer reference",
+        "help": "Enter the exact Remita RRR, Paystack reference, or bank transfer slip/transaction ID for the tender fee.",
+        "steps": (
+            "Copy the reference exactly as shown on your payment receipt or bank alert.",
+            "Keep your receipt handy in case finance or procurement verifies the lodgment.",
+        ),
+    },
+    "vendor_proposal_title": {
+        "title": "Project or bid title",
+        "help": "Enter the clear title of your technical/commercial bid or proposed project.",
+        "steps": (
+            "Match the title to the tender notice or your official cover letter.",
+            "Avoid vague placeholders so evaluators can identify your submission easily.",
+        ),
+    },
+    "clearance_pass_id": {
+        "title": "QR clearance pass ID",
+        "help": "Enter the clearance pass code issued after fee verification or executive transfer approval.",
+        "steps": (
+            "Check that the pass ID is active and linked to the right organization workspace.",
+            "A verified pass is required before uploading your sealed bid dossier.",
+        ),
+    },
+    "sealed_bid_dossier": {
+        "title": "Sealed bid dossier (PDF or DOCX)",
+        "help": "Upload your complete bid document (PDF or DOCX, up to 25 MB) for encrypted submission.",
+        "steps": (
+            "Include all required technical, financial, and statutory compliance pages in one file.",
+            "Verify file size is 25 MB or less before submitting.",
+        ),
+    },
+    "cac_registration_number": {
+        "title": "CAC registration number",
+        "help": "Enter your Corporate Affairs Commission (CAC) registration number (e.g., RC or BN number).",
+        "steps": (
+            "Use the exact registration number on your CAC certificate or status report.",
+            "Ensure your company name matches CAC records.",
+        ),
+    },
+    "tin_number": {
+        "title": "Tax Identification Number (TIN)",
+        "help": "Enter your FIRS / state Tax Identification Number used on tax filings and clearance records.",
+        "steps": (
+            "Double-check digits before saving so compliance checks match your tax profile.",
+        ),
+    },
+    "unsolicited_summary": {
+        "title": "Executive summary and strategic objectives",
+        "help": "Summarize the problem your proposal solves, expected outcomes for the institution, and implementation plan.",
+        "steps": (
+            "Keep scope, deliverables, and value proposition clear and concise.",
+            "Avoid including confidential passwords or private keys.",
+        ),
+    },
+    "unsolicited_dossier": {
+        "title": "Unsolicited proposal document (PDF or DOCX)",
+        "help": "Upload your full proposal document (PDF or DOCX, up to 25 MB) for encrypted intake.",
+        "steps": (
+            "Attach supporting schedules, cost breakdown, and company profile inside the document.",
+        ),
+    },
+    "delete_target_ref": {
+        "title": "Proposal reference number or tenant slug",
+        "help": "Enter the exact proposal reference ID or organization tenant slug you want to move to the recycle bin.",
+        "steps": (
+            "Verify the identifier carefully before moving an item to the recycle bin.",
+            "Items in the recycle bin can be reviewed or purged permanently by authorized admins.",
+        ),
+    },
+    "delete_item_type": {
+        "title": "Target item type",
+        "help": "Choose whether the identifier belongs to a proposal record or a tenant organization.",
+        "steps": (
+            "Select 'proposal' for bid/proposal records or 'tenant' for an organization workspace.",
+        ),
+    },
+    "staff_member_name": {
+        "title": "Staff or committee member name and title",
+        "help": "Enter the full name and official designation/title of the staff or committee member.",
+        "steps": (
+            "Use the official name used on committee appointments or staff directories.",
+        ),
+    },
+    "assigned_directorate": {
+        "title": "Assigned directorate or unit",
+        "help": "Select the directorate, department, or evaluation committee this passkey belongs to.",
+        "steps": (
+            "Assign only the unit where the member has official review or desk duties.",
+        ),
+    },
+    "staff_passkey": {
+        "title": "Secure access passkey",
+        "help": "Enter a strong passkey for this user or committee role and share it only via an approved channel.",
+        "steps": (
+            "Do not reuse simple or shared default passwords.",
+            "Rotate passkeys immediately if a member leaves or credentials are exposed.",
+        ),
+    },
+    "delivery_mode": {
+        "title": "Physical delivery mode",
+        "help": "Select how the hard-copy submission arrived at the organization.",
+        "steps": (
+            "Choose Courier Delivery, Hand-Delivered / Registry, or Diplomatic Pouch accurately.",
+        ),
+    },
+    "courier_waybill_ref": {
+        "title": "Courier tracking or waybill reference",
+        "help": "Enter the courier waybill number, dispatch note ID, or registry log reference.",
+        "steps": (
+            "Record the exact waybill or seal/envelope reference for audit traceability.",
+        ),
+    },
+    "intake_officer_name": {
+        "title": "Receiving desk officer name",
+        "help": "Enter the name of the front-desk or registry officer logging this physical submission.",
+        "steps": (
+            "Confirm you are logged in under your own officer identity before saving.",
+        ),
+    },
+    "scanned_cover_file": {
+        "title": "Scanned cover letter or summary",
+        "help": "Upload a clear scan (PDF, PNG, or JPG) of the cover letter, payment receipt, or summary page.",
+        "steps": (
+            "Ensure stamps, signatures, and reference numbers are legible before uploading.",
+        ),
+    },
 }
 
 

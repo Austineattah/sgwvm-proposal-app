@@ -6211,3 +6211,154 @@ def delete_client_permanently(client_id: str) -> bool:
             try: return bool(fn(cid))
             except TypeError: continue
     return False
+
+
+def format_tenant_activity_nigerian(action_type: str, details: str = "") -> tuple[str, str]:
+    """Return (plain_label, nigerian_context_explanation) for first-time users."""
+    raw_code = str(action_type or "").strip()
+    key = raw_code.lower().replace(" ", "_")
+    detail_text = str(details or "").strip()
+    catalog = {
+        "physical_proposal_submitted": (
+            "Hard-Copy Bid / Proposal Logged at Registry",
+            "A contractor submitted a physical bid envelope at the front desk/registry, and a tamper-proof digital receipt was issued.",
+        ),
+        "unsolicited_proposal_submitted": (
+            "Unsolicited Proposal Submitted Online",
+            "A vendor or partner uploaded an independent project proposal directly through the public portal.",
+        ),
+        "gateway_configuration_updated": (
+            "Remita / TSA / Bank Payment Setup Updated",
+            "The organization updated how vendors pay processing or tender fees (Remita, Treasury Single Account, or corporate bank transfer).",
+        ),
+        "payment_provider_verified": (
+            "Vendor Fee Payment Confirmed",
+            "The payment gateway confirmed the vendor's Remita/bank transaction and cleared their bid pass for submission.",
+        ),
+        "tender_created": (
+            "New Tender / Procurement Notice Published",
+            "A new call for bids or Request for Quotation (RFQ) was created for eligible contractors to apply.",
+        ),
+        "tender_updated": (
+            "Tender / Procurement Notice Updated",
+            "The tender status or closing-time lock rule was updated by the procurement team.",
+        ),
+        "tender_auto_locked": (
+            "Tender Closed Automatically at Deadline",
+            "The bid submission window expired, so the system locked the tender box automatically to prevent late entries.",
+        ),
+        "committee_roster_replaced": (
+            "Tender Evaluation Committee Updated",
+            "The list of evaluation committee members was refreshed, and members must re-sign their Conflict of Interest (COI) forms.",
+        ),
+        "committee_coi_signoff_recorded": (
+            "Conflict of Interest (COI) Form Signed",
+            "A committee member formally declared they have no personal or financial interest in the bidding companies.",
+        ),
+        "committee_proposal_coi_signed": (
+            "Bid-Specific Conflict of Interest (COI) Signed",
+            "A committee member signed an impartiality declaration before opening and scoring a specific vendor's bid.",
+        ),
+        "committee_proposal_evaluation_saved": (
+            "Committee Member Scored a Bid",
+            "An evaluation committee member submitted their technical/commercial grading for a vendor's proposal.",
+        ),
+        "committee_workspace_accessed": (
+            "Committee Member Signed In to Review Bids",
+            "An authorized committee member logged into the restricted bid evaluation room.",
+        ),
+        "departmental_proposal_routed": (
+            "Proposal Sent to Relevant Department / Directorate",
+            "The registry forwarded the received proposal to the responsible technical department for review.",
+        ),
+        "departmental_compliance_screening_completed": (
+            "CAC, Tax & Statutory Compliance Check Done",
+            "The department verified statutory documents (such as CAC, Tax Clearance, PENCOM, ITF, NSITF, and BPP records).",
+        ),
+        "departmental_appraisal_updated": (
+            "Departmental Technical Review Saved",
+            "The reviewing department updated its internal assessment notes on the proposal.",
+        ),
+        "departmental_appraisal_pushed_to_apex": (
+            "Departmental Review Forwarded to Management / Apex",
+            "The department completed its review and escalated the file to top leadership or the Tenders Board for final decision.",
+        ),
+        "proposal_governance_override": (
+            "Executive / Management Decision Recorded",
+            "An authorized executive updated the approval stage or official status of the proposal.",
+        ),
+        "tenant_onboarded_pending_activation": (
+            "Organization Registered - Awaiting Activation",
+            "The institution submitted its onboarding profile and is awaiting final workspace activation.",
+        ),
+        "tenant_created": (
+            "Organization Workspace Created",
+            "A new institution workspace was registered on the platform.",
+        ),
+        "tenant_details_updated": (
+            "Organization Profile Updated",
+            "The institution's official profile, title, or logo details were updated.",
+        ),
+        "tenant_activated": (
+            "Organization Workspace Activated",
+            "The institution's portal is now live and open for staff, committee, and vendor operations.",
+        ),
+        "tenant_deactivated": (
+            "Organization Workspace Paused / Suspended",
+            "Portal access for this institution was temporarily suspended by the platform administrator.",
+        ),
+        "tenant_archived": (
+            "Organization Moved to Recycle Bin",
+            "The institution workspace was deactivated and placed in the recycle bin (can still be restored).",
+        ),
+        "tenant_soft_deleted": (
+            "Organization Moved to Recycle Bin",
+            "The institution workspace was moved to the recycle bin pending restoration or permanent removal.",
+        ),
+        "tenant_restored": (
+            "Organization Restored from Recycle Bin",
+            "A previously archived institution workspace was restored and made available again.",
+        ),
+        "tenant_permanently_purged": (
+            "Organization Permanently Deleted",
+            "All records for the archived institution were permanently cleared from the registry.",
+        ),
+        "admin_gate_password_rotated": (
+            "Organization Admin Password Changed",
+            "The institution administrator set a new private password, replacing the initial setup passkey.",
+        ),
+        "terminal_auth_lockout_reset": (
+            "Staff / Portal Login Lockout Cleared",
+            "An administrator unlocked a staff or portal login terminal after repeated failed password attempts.",
+        ),
+        "audit_log_opened": (
+            "Activity History Viewed",
+            "An authorized staff or executive user opened this organization's activity trail.",
+        ),
+        "audit_entry_opened": (
+            "Activity Record Inspected",
+            "An authorized user opened a specific activity record to view full details.",
+        ),
+        "tenant_activation_notification_sent": (
+            "Activation Email Sent to Organization",
+            "The welcome and activation notice was dispatched to the institution's official email.",
+        ),
+        "tenant_activation_notification_failed": (
+            "Activation Email Delivery Failed",
+            "The system could not deliver the activation email; check the institution's email configuration.",
+        ),
+    }
+    if key in catalog:
+        label, summary = catalog[key]
+    elif "access_key_accepted" in key:
+        label = "Authorized Staff / Executive Sign-In"
+        summary = "A staff or executive user signed in successfully using a valid portal access key."
+    elif "access_key_rejected" in key:
+        label = "Failed Portal Sign-In Attempt"
+        summary = "Someone entered an incorrect portal access key; access was blocked for security."
+    else:
+        label = raw_code.replace("_", " ").strip().title() or "Workspace Activity"
+        summary = detail_text or "An auditable action was recorded on this organization's workspace."
+    if detail_text:
+        summary = f"{summary} ({detail_text})"
+    return label, summary

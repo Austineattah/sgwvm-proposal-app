@@ -5103,9 +5103,13 @@ def _render_tenant_audit_drawer(tenant_slug: str) -> None:
 
             with st.container():
                 summary, open_column, delete_column = st.columns([6, 1, 1])
-                summary.write(
-                    f"{date_text} · {time_text} · {year_text}\n"
-                    f"{activity['action_type']} · {activity['actor']}"
+                plain_title, plain_desc = db.format_tenant_activity_nigerian(
+                    activity.get("action_type", ""),
+                    activity.get("details", ""),
+                )
+                summary.markdown(
+                    f"**{plain_title}** ? `{date_text} {time_text}`\n\n"
+                    f"{plain_desc} *(Recorded by: {activity['actor']})*"
                 )
                 open_column.button(
                     "Open",
@@ -5132,32 +5136,138 @@ def _render_tenant_audit_drawer(tenant_slug: str) -> None:
                     st.write("**Date:**", date_text)
                     st.write("**Time:**", time_text)
                     st.write("**Year:**", year_text)
-                    st.write("**Actor:**", activity["actor"])
-                    st.write("**Action:**", activity["action_type"])
-                    st.write("**Details:**", activity["details"])
+                    plain_title, plain_desc = db.format_tenant_activity_nigerian(
+                        activity.get("action_type", ""),
+                        activity.get("details", ""),
+                    )
+                    st.write("**Performed By:**", activity["actor"])
+                    st.write("**What Happened:**", plain_title)
+                    st.write("**Plain Explanation:**", plain_desc)
+                    st.caption(f"System Reference Code: {activity['action_type']}")
 
 
 def render_sovereign_tenant_header(tenant_data: Mapping[str, Any]) -> None:
+    import base64
+
     tenant_slug = str(tenant_data.get("tenant_slug") or "").strip().lower()
     institution_name = str(
         tenant_data.get("full_corporation_name") or tenant_slug or "Client Institution"
     ).strip()
     safe_name = html.escape(institution_name)
+    initials = (
+        "".join(part[0] for part in institution_name.split()[:3] if part and part[0].isalnum()).upper()
+        or "NV"
+    )
+    logo_html = (
+        f"<div class='sovereign-tenant-crest' title='{safe_name}'>{html.escape(initials)}</div>"
+    )
+    logo_filename = str(tenant_data.get("logo_path") or "").strip()
+    logo_b64_raw = str(tenant_data.get("logo_base64") or "").strip()
+    logo_directory = _tenant_logo_directory()
+    candidate_names = [logo_filename] if logo_filename else []
+    if tenant_slug:
+        candidate_names.extend(
+            [
+                f"{tenant_slug}.png",
+                f"{tenant_slug}.jpg",
+                f"{tenant_slug}.jpeg",
+                f"{tenant_slug}.webp",
+            ]
+        )
+    resolved_data_uri = ""
+    for cname in candidate_names:
+        if not cname or Path(cname).name != cname:
+            continue
+        logo_path = logo_directory / cname
+        try:
+            if not logo_path.is_symlink() and logo_path.is_file():
+                if logo_path.resolve().parent != logo_directory.resolve():
+                    raise RuntimeError("Tenant logo resolves outside its configured directory.")
+                ext = logo_path.suffix.lower().lstrip(".")
+                mime = (
+                    "image/jpeg"
+                    if ext in ("jpg", "jpeg")
+                    else ("image/webp" if ext == "webp" else "image/png")
+                )
+                b64_logo = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+                resolved_data_uri = f"data:{mime};base64,{b64_logo}"
+                break
+        except (OSError, RuntimeError):
+            logging.exception("Could not verify the tenant logo for %s.", tenant_slug)
+            st.warning("The institution logo could not be loaded.")
+            break
+    if not resolved_data_uri and logo_b64_raw:
+        resolved_data_uri = (
+            logo_b64_raw
+            if logo_b64_raw.startswith("data:image/")
+            else f"data:image/png;base64,{logo_b64_raw}"
+        )
+    if resolved_data_uri:
+        logo_html = (
+            f"<div class='sovereign-tenant-logo-box'>"
+            f"<img src='{resolved_data_uri}' alt='{safe_name} official logo' class='sovereign-tenant-logo' />"
+            f"</div>"
+        )
 
     st.markdown(
         """
         <style>
         .sovereign-tenant-banner {
-            background: linear-gradient(135deg, #0a192f 0%, #14283f 100%);
-            border: 1px solid rgba(255, 182, 193, 0.4);
-            border-radius: 16px;
-            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+            background: linear-gradient(135deg, #071426 0%, #0f2744 55%, #163458 100%);
+            border: 1px solid rgba(56, 189, 248, 0.38);
+            border-radius: 18px;
+            box-shadow: 0 14px 36px rgba(2, 12, 27, 0.34);
             margin: 0.5rem 0 1.5rem;
-            padding: 1.5rem 1.75rem;
+            padding: 1.5rem 1.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .sovereign-tenant-banner-main {
+            flex: 1 1 340px;
+            min-width: 0;
+        }
+        .sovereign-tenant-logo-box {
+            flex: 0 0 auto;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+            border: 2px solid rgba(56, 189, 248, 0.55);
+            border-radius: 14px;
+            box-shadow: 0 8px 22px rgba(2, 12, 27, 0.32);
+            padding: 0.65rem 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 112px;
+            min-height: 88px;
+        }
+        .sovereign-tenant-logo {
+            display: block;
+            max-width: 156px;
+            max-height: 86px;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+        }
+        .sovereign-tenant-crest {
+            flex: 0 0 auto;
+            width: 82px;
+            height: 82px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.22), rgba(250, 204, 21, 0.22));
+            border: 1.5px solid rgba(250, 204, 21, 0.55);
+            color: #FACC15;
+            font-size: 1.5rem;
+            font-weight: 850;
+            letter-spacing: 0.06em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         .sovereign-tenant-name {
-            color: #FFB6C1;
-            font-size: clamp(1.5rem, 3vw, 2.4rem);
+            color: #F8FAFC;
+            font-size: clamp(1.5rem, 3vw, 2.35rem);
             font-weight: 850;
             letter-spacing: 0.01em;
             line-height: 1.2;
@@ -5165,71 +5275,53 @@ def render_sovereign_tenant_header(tenant_data: Mapping[str, Any]) -> None:
             overflow-wrap: anywhere;
         }
         .sovereign-tenant-subtitle {
-            color: #FFB6C1;
+            color: #BAE6FD;
             font-size: 1rem;
             font-weight: 600;
             margin: 0 0 1rem;
         }
         .sovereign-compliance-badge {
-            border: 1px solid rgba(255, 182, 193, 0.65);
+            border: 1px solid rgba(250, 204, 21, 0.55);
+            background: rgba(15, 23, 42, 0.55);
             border-radius: 999px;
-            color: #FFB6C1;
+            color: #FDE68A;
             display: inline-block;
             font-size: 0.82rem;
             font-weight: 750;
             line-height: 1.4;
-            padding: 0.4rem 0.75rem;
+            padding: 0.4rem 0.85rem;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
-    left, right = st.columns([5, 1])
-    with left:
-        st.markdown(
-            f"""
-            <section class="sovereign-tenant-banner">
+    st.markdown(
+        f"""
+        <section class="sovereign-tenant-banner">
+            <div class="sovereign-tenant-banner-main">
                 <h1 class="sovereign-tenant-name">{safe_name}</h1>
                 <p class="sovereign-tenant-subtitle">
                     Sovereign Enterprise Intake &amp; Governance Portal
                 </p>
                 <span class="sovereign-compliance-badge">
-                    NEXUSVAULT_TECH Sovereign Enterprise Engine • NITDA / NDPA Compliant
+                    NEXUSVAULT_TECH Sovereign Enterprise Engine &bull; NITDA / NDPA Compliant
                 </span>
-            </section>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    logo_filename = tenant_data.get("logo_path")
-    if (
-        tenant_slug
-        and isinstance(logo_filename, str)
-        and logo_filename == f"{tenant_slug}.png"
-    ):
-        logo_directory = _tenant_logo_directory()
-        logo_path = logo_directory / logo_filename
-        try:
-            if not logo_path.is_symlink() and logo_path.is_file():
-                if logo_path.resolve().parent != logo_directory.resolve():
-                    raise RuntimeError(
-                        "Tenant logo resolves outside its configured directory."
-                    )
-                with right:
-                    st.image(str(logo_path), width=140)
-        except (OSError, RuntimeError):
-            logging.exception("Could not verify the tenant logo for %s.", tenant_slug)
-            st.warning("The institution logo could not be loaded.")
+            </div>
+            {logo_html}
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
 
     if not tenant_slug:
         return
     open_key = _tenant_key(tenant_slug, "audit", "open")
     st.button(
-        "Audit Log / Ctrl+H",
+        "Activity Log / Ctrl+H",
         key=_tenant_key(tenant_slug, "audit", "toggle"),
         on_click=_toggle_tenant_audit,
         args=(tenant_slug, open_key),
-        help="Open or close this tenant's activity log.",
+        help="Open or close this organization's plain-language activity record.",
     )
     st.markdown(
         """
@@ -5245,7 +5337,7 @@ def render_sovereign_tenant_header(tenant_data: Mapping[str, Any]) -> None:
                 const auditButton = Array.from(
                     parentDocument.querySelectorAll("button")
                 ).find((button) =>
-                    button.innerText.trim() === "Audit Log / Ctrl+H"
+                    button.innerText.trim() === "Activity Log / Ctrl+H"
                 );
                 if (auditButton) auditButton.click();
             }, true);
@@ -6821,9 +6913,13 @@ def _render_platform_developer_console() -> None:
             st.dataframe(
                 [
                     {
-                        "Tenant Slug": activity["tenant_slug"],
-                        "Activity Type": activity["activity_type"],
-                        "Description": activity["description"],
+                        "Organization Slug": activity["tenant_slug"],
+                        "Activity Summary": db.format_tenant_activity_nigerian(
+                            activity["activity_type"], activity["description"]
+                        )[0],
+                        "Plain-Language Explanation": db.format_tenant_activity_nigerian(
+                            activity["activity_type"], activity["description"]
+                        )[1],
                         "Performed By": activity["performed_by"],
                         "Date": activity["date"],
                         "Time": activity["time"],

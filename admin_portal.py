@@ -1,3 +1,9 @@
+
+try:
+    from onboarding_guides import get_help_text
+except Exception:  # pragma: no cover
+    def get_help_text(field_key: str) -> str:
+        return ""
 import time
 import streamlit as st
 from admin_logger import (
@@ -204,7 +210,9 @@ def render_recycle_bin_admin_section():
         target_ref = st.text_input(
             "Enter Proposal Reference No. or Tenant Slug to Delete:",
             placeholder="e.g. PROP-2026-001 or skincare_c34d5aea",
+        help=get_help_text("delete_target_ref"),
         )
+        help=get_help_text("delete_item_type"),
         target_type = st.selectbox("Select Item Type:", ["proposal", "tenant"])
         if st.button("Move to Recycle Bin", type="primary"):
             if target_ref:
@@ -255,6 +263,7 @@ def render_client_admin_panel(tenant_slug, db_conn):
     )
 
     with st.form("create_passkey_form"):
+        help=get_help_text("staff_member_name"),
         member_name = st.text_input("Staff and Committee Member Name & Title")
         assigned_dir = st.selectbox(
             "Assign to Directorate and Unit",
@@ -265,7 +274,9 @@ def render_client_admin_panel(tenant_slug, db_conn):
                 "Solicited Tender Evaluation Committee",
                 "Executive Registry and Minuting Desk",
             ],
+        help=get_help_text("assigned_directorate"),
         )
+        help=get_help_text("staff_passkey"),
         new_passkey = st.text_input("Assign Secure Passkey", type="password")
         submitted = st.form_submit_button("Provision / Update Passkey")
 
@@ -296,18 +307,24 @@ def render_physical_intake_console(tenant_slug):
     with st.form("physical_intake_form"):
         col1, col2 = st.columns(2)
         with col1:
+            help=get_help_text("organization_name"),
             vendor_name = st.text_input("Vendor and Organization Name")
+            help=get_help_text("vendor_proposal_title"),
             proposal_title = st.text_input("Proposal and Project Title")
             delivery_mode = st.selectbox(
                 "Delivery Mode",
                 ["Courier Delivery", "Hand-Delivered / Registry", "Diplomatic Pouch"],
+            help=get_help_text("delivery_mode"),
             )
         with col2:
+            help=get_help_text("courier_waybill_ref"),
             courier_ref = st.text_input("Courier Tracking and Waybill Reference No.")
+            help=get_help_text("intake_officer_name"),
             logged_by = st.text_input("Receiving Desk Officer Name")
             scanned_file = st.file_uploader(
                 "Upload Scanned Cover Letter / Summary (PDF/Image)",
                 type=["pdf", "png", "jpg"],
+            help=get_help_text("scanned_cover_file"),
             )
 
         submitted_physical = st.form_submit_button(
