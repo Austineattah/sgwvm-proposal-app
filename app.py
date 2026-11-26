@@ -5990,7 +5990,7 @@ def _render_home() -> None:
                         help=get_help_text("organization_address"),
                     )
                     admin_email = st.text_input(
-                        "Executive Chief Notification Node",
+                        "Executive Chief Notification Node (EG, Director, Perm Sec. etc.)",
                         value=str(_draft_seed.get("admin_email") or ""),
                         placeholder="executive-office@entity.org",
                         help=get_help_text("admin_email"),

@@ -133,7 +133,7 @@ def render_tenant_banner(
                     WORKSPACE ACTIVATION DEFERRED &bull; {html.escape(org_name.upper())}
                 </div>
                 <div style="font-size:1.12rem;font-weight:800;line-height:1.5;letter-spacing:0.03em;color:#FFFFFF;text-transform:uppercase;">
-                    YOUR ORGANIZATIONAL CREDENTIALS HAVE BEEN AWAITING ACTIVATION.
+                    YOUR ORGANIZATIONAL CREDENTIALS HAVE BEEN SUCCESSFULLY ONBOARDED, AWAITING ACTIVATION.
                 </div>
                 <div style="margin-top:0.8rem;font-size:0.85rem;color:#FDE68A;line-height:1.6;">
                     <strong>RETURNING TENANT LOGIN CREDENTIALS:</strong><br/>
