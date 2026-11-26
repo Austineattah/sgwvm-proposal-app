@@ -6167,3 +6167,36 @@ def acknowledge_onboarding_support_ticket(
             (ack_time, actor, int(ticket_id)),
         )
         return cur.rowcount > 0
+
+
+def get_all_clients() -> list[dict[str, Any]]:
+    """Compatibility wrapper returning tenant/client records normalized for developer_console."""
+    raw_rows = []
+    if "get_all_tenants" in globals() and callable(globals()["get_all_tenants"]):
+        res = get_all_tenants()
+        if hasattr(res, "to_dict"):
+            raw_rows = [] if res.empty else res.to_dict(orient="records")
+        elif res is not None:
+            raw_rows = list(res)
+    if not raw_rows and "list_tenants" in globals() and callable(globals()["list_tenants"]):
+        raw_rows = list_tenants() or []
+
+    normalized: list[dict[str, Any]] = []
+    for row in raw_rows:
+        if not isinstance(row, dict):
+            continue
+        item = dict(row)
+        slug = item.get("client_slug") or item.get("tenant_slug") or item.get("slug") or ""
+        cid = item.get("client_id") or item.get("tenant_id") or item.get("id") or slug
+        status_val = str(item.get("status") or "").strip().lower()
+        if "is_approved" not in item:
+            if "approved" in item:
+                item["is_approved"] = "True" if str(item["approved"]).lower() in ("1", "true", "yes") else "False"
+            else:
+                item["is_approved"] = "True" if status_val in ("active", "approved", "live") else "False"
+        item.setdefault("client_id", cid)
+        item.setdefault("client_slug", slug)
+        item.setdefault("lockout_status", "False")
+        item.setdefault("created_at", item.get("created") or "N/A")
+        normalized.append(item)
+    return normalized
