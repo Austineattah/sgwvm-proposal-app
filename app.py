@@ -1068,16 +1068,17 @@ def _resolve_role_gate_route(
     cleaned = str(route_slug or "").strip().lower()
     if not cleaned:
         return None, None, "A tenant slug is required."
-    suffix = "-desk" if role == "front_desk" else "-admin" if role == "admin" else ""
+    normalized_role = "front_desk" if str(role or "").strip().lower() in {"frontdesk", "front_desk", "desk_operator"} else str(role or "").strip().lower()
+    suffix = "-desk" if normalized_role == "front_desk" else "-admin" if normalized_role == "admin" else ""
     gate_record = db.resolve_role_gate_by_slug(cleaned)
     if gate_record is not None:
         resolved_role = str(gate_record.get("role_key") or "")
-        expected_gate_role = "desk_operator" if role == "front_desk" else "admin"
+        expected_gate_role = "desk_operator" if normalized_role == "front_desk" else "admin"
         if resolved_role != expected_gate_role:
             return (
                 None,
                 cleaned,
-                f"Slug '{cleaned}' is not authorized for {role.replace('_', ' ')}. "
+                f"Slug '{cleaned}' is not authorized for {normalized_role.replace('_', ' ')}. "
                 f"Use the dedicated '{suffix.lstrip('-')}' slug for this role.",
             )
         return str(gate_record["tenant_slug"]), cleaned, None
