@@ -5441,10 +5441,7 @@ def _render_home() -> None:
     st.session_state["_primary_workspace_selection"] = "Onboarding Portal"
 
     if "custom_portal_heading" not in st.session_state:
-        st.session_state["custom_portal_heading"] = (
-            'NEXUSVAULT TECHNOLOGIES "SUPER INTELLIGENCE - '
-            'AGENTIC AI PROPOSAL INTAKE PORTAL".'
-        )
+        st.session_state["custom_portal_heading"] = "AGENTIC AI PROPOSAL INTAKE PORTAL"
 
     if st.session_state.get("onboarding_submitted", False):
         st.session_state.pop("onboarding_success_message", None)
@@ -5632,58 +5629,55 @@ def _render_home() -> None:
         _banner_prefix = (
             f'<img src="data:{_mime};base64,{_logo_b64}" '
             f'alt="NexusVault Logo" '
-            f'class="nv-hero-logo" style="display: block; width: 100%; max-width: 610px; height: auto; max-height: 80px; '
+            f'class="nv-hero-logo" style="display: block; width: auto; max-width: 240px; height: auto; max-height: 44px; '
             f'object-fit: contain; background: transparent; border: none; padding: 0; '
-            f'border-radius: 0 0 42% 42% / 0 0 28px 28px; '
-            f'filter: drop-shadow(0 3px 12px rgba(56, 189, 248, 0.28));" />'
+            f'filter: drop-shadow(0 2px 8px rgba(56, 189, 248, 0.22));" />'
         )
     st.markdown(
         f"""
-        <div class="nv-hero-card" style="background: linear-gradient(135deg, rgba(10, 25, 47, 0.85) 0%, rgba(13, 33, 55, 0.85) 100%);
-                    backdrop-filter: blur(16px); padding: 32px 36px; border-radius: 16px;
-                    border: 1px solid rgba(56, 189, 248, 0.25);
-                    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(56, 189, 248, 0.1);
-                    margin-bottom: 20px;">
+        <div class="nv-hero-card" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.92) 0%, rgba(17, 24, 39, 0.92) 100%);
+                    backdrop-filter: blur(12px); padding: 14px 20px; border-radius: 12px;
+                    border: 1px solid rgba(56, 189, 248, 0.28);
+                    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+                    margin-bottom: 14px;">
             <div style="display: flex; justify-content: space-between; align-items: center;
-                        flex-wrap: wrap; gap: 20px; min-width: 0;">
-                <div class="nv-hero-main" style="flex: 1 1 320px; min-width: 0; max-width: 100%;">
-                    <div class="nv-hero-logo-wrap" style="display: block; width: 100%; max-width: 610px; margin-bottom: 12px; min-width: 0;">
-                        {_banner_prefix}
+                        flex-wrap: wrap; gap: 12px; min-width: 0;">
+                <div class="nv-hero-main" style="flex: 1 1 300px; min-width: 0; max-width: 100%;">
+                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px;">
+                        <div class="nv-hero-logo-wrap" style="display: inline-flex; align-items: center; max-width: 240px; min-width: 0;">
+                            {_banner_prefix}
+                        </div>
+                        <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
+                                     color: #38bdf8; background: rgba(56, 189, 248, 0.12);
+                                     border: 1px solid rgba(56, 189, 248, 0.32); border-radius: 999px; padding: 2px 9px;">
+                            NITDA / NDPA Aligned
+                        </span>
                     </div>
-                    <h1 class="nv-hero-title" style="color: #FF5C8A !important; margin: 0 0 10px 0; font-size: 25px;
-                               font-weight: 900; letter-spacing: 0.4px; line-height: 1.3;
+                    <h1 class="nv-hero-title" style="color: #f8fafc !important; margin: 0 0 3px 0; font-size: 18px;
+                               font-weight: 800; letter-spacing: 0.5px; line-height: 1.25;
                                font-family: 'Plus Jakarta Sans', sans-serif;
                                display: block !important;">
                         {safe_heading}
                     </h1>
-                    <p style="color: #cbd5e1 !important; margin: 0 0 14px 0; font-size: 15px;
-                              font-weight: 500; line-height: 1.5;
+                    <p style="color: #94a3b8 !important; margin: 0; font-size: 12.5px;
+                              font-weight: 400; line-height: 1.4;
                               font-family: 'Plus Jakarta Sans', sans-serif;">
-                        Initialize your secure organizational node, configure your domain scope,
-                        and deploy your sovereign enterprise proposal intake gateway.
+                        Configure organizational scope and deploy a transparent, auditable proposal intake gateway.
                     </p>
-                    <div class="nv-nitda-pill" style="display: inline-flex; align-items: center; flex-wrap: wrap; max-width: 100%; box-sizing: border-box;
-                                background: rgba(56, 189, 248, 0.12);
-                                border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 8px;
-                                padding: 6px 14px; gap: 8px;">
-                        <span style="color: #00FF66; font-size: inherit; font-weight: bold; text-align: left; min-width: 0; overflow-wrap: anywhere;">
-                            🔒 NEXUSVAULT_TECH Sovereign Enterprise Engine • NITDA / NDPA Compliant
-                        </span>
-                    </div>
                 </div>
                 <div style="display: flex; align-items: center;
-                            background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(10px);
-                            border: 1px solid rgba(0, 135, 81, 0.5); border-radius: 12px;
-                            padding: 12px 20px; gap: 14px;">
-                    <svg width="42" height="28" viewBox="0 0 3 2" style="border-radius: 4px;">
+                            background: rgba(15, 23, 42, 0.8);
+                            border: 1px solid rgba(16, 185, 129, 0.45); border-radius: 10px;
+                            padding: 7px 12px; gap: 9px;">
+                    <svg width="28" height="19" viewBox="0 0 3 2" style="border-radius: 3px; flex-shrink: 0;">
                         <rect width="1" height="2" x="0" fill="#008751"/>
                         <rect width="1" height="2" x="1" fill="#FFFFFF"/>
                         <rect width="1" height="2" x="2" fill="#008751"/>
                     </svg>
-                    <div>
-                        <div style="color: #FF5C8A; font-size: 12px; font-weight: 800;
+                    <div style="line-height: 1.15;">
+                        <div style="color: #f8fafc; font-size: 10px; font-weight: 700; letter-spacing: 0.3px;
                                     font-family: 'Plus Jakarta Sans', sans-serif;">FEDERAL REPUBLIC</div>
-                        <div style="color: #34d399; font-size: 10px; font-weight: 700;
+                        <div style="color: #34d399; font-size: 9px; font-weight: 700; letter-spacing: 0.4px;
                                     font-family: 'Plus Jakarta Sans', sans-serif;">OF NIGERIA</div>
                     </div>
                 </div>
