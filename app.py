@@ -4198,6 +4198,35 @@ def _render_committee_workspace(tenant_slug: str) -> None:
         st.error("Your saved evaluation could not be loaded.")
         return
     st.subheader("Evaluation matrix")
+    _eval_member_id = str(identity["member_id"])
+    _eval_draft_name = f"committee_eval_{tenant_slug}_{_eval_member_id}_{tracking_id}"
+    _eval_ws_key = f"eval_draft::{tenant_slug}::{_eval_member_id}::{tracking_id}"
+    _eval_scope = f"committee_eval::{tenant_slug}"
+
+    def _load_eval_draft() -> dict[str, Any] | None:
+        ws_data = _db_load_working_state(_eval_ws_key)
+        if isinstance(ws_data, dict):
+            return ws_data
+        dm_data = _dm_get_draft(_eval_draft_name, scope_id=_eval_scope)
+        if isinstance(dm_data, dict):
+            return dm_data
+        return None
+
+    def _save_eval_draft(payload: dict[str, Any]) -> None:
+        _dm_save_draft(_eval_draft_name, dict(payload), scope_id=_eval_scope)
+        _db_save_working_state(_eval_ws_key, dict(payload), scope_id=_eval_scope)
+
+    def _clear_eval_draft() -> None:
+        _dm_clear_draft(_eval_draft_name, scope_id=_eval_scope)
+        _db_clear_working_state(_eval_ws_key)
+
+    _draft_eval = _load_eval_draft()
+    _draft_notice_key = _tenant_key(
+        tenant_slug,
+        "committee",
+        f"eval_draft_status_{tracking_id}",
+    )
+
     with st.container():
         score_keys = {}
         score_values = (
@@ -4205,32 +4234,65 @@ def _render_committee_workspace(tenant_slug: str) -> None:
             ("financial", "Financial Capability", "financial_score"),
             ("compliance", "Regulatory Compliance", "compliance_score"),
         )
+        notes_key = _tenant_key(
+            tenant_slug,
+            "committee",
+            f"evaluation_notes_{tracking_id}",
+        )
+
+        def _on_eval_draft_change() -> None:
+            draft_snapshot = {
+                "technical": int(st.session_state.get(score_keys["technical"], 50)),
+                "financial": int(st.session_state.get(score_keys["financial"], 50)),
+                "compliance": int(st.session_state.get(score_keys["compliance"], 50)),
+                "notes": str(st.session_state.get(notes_key, "")),
+                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            _save_eval_draft(draft_snapshot)
+            st.session_state[_draft_notice_key] = f"Draft auto-saved ({draft_snapshot['updated_at']})"
+
         for score_name, label, db_field in score_values:
             key = _tenant_key(
                 tenant_slug,
                 "committee",
                 f"{score_name}_score_{tracking_id}",
             )
-            st.session_state.setdefault(
-                key,
-                int(saved_evaluation[db_field]) if saved_evaluation else 50,
+            if key not in st.session_state:
+                if _draft_eval and score_name in _draft_eval:
+                    initial_val = int(_draft_eval[score_name])
+                    st.session_state.setdefault(_draft_notice_key, "Restored unsaved draft")
+                elif saved_evaluation:
+                    initial_val = int(saved_evaluation[db_field])
+                else:
+                    initial_val = 50
+                st.session_state[key] = initial_val
+            st.slider(
+                label,
+                min_value=0,
+                max_value=100,
+                key=key,
+                on_change=_on_eval_draft_change,
             )
-            st.slider(label, min_value=0, max_value=100, key=key)
             score_keys[score_name] = key
-        notes_key = _tenant_key(
-            tenant_slug,
-            "committee",
-            f"evaluation_notes_{tracking_id}",
-        )
-        st.session_state.setdefault(
-            notes_key,
-            str(saved_evaluation["notes"]) if saved_evaluation else "",
-        )
+
+        if notes_key not in st.session_state:
+            if _draft_eval and "notes" in _draft_eval:
+                st.session_state[notes_key] = str(_draft_eval["notes"])
+                st.session_state.setdefault(_draft_notice_key, "Restored unsaved draft")
+            elif saved_evaluation:
+                st.session_state[notes_key] = str(saved_evaluation["notes"])
+            else:
+                st.session_state[notes_key] = ""
+
         st.text_area(
             "Appraisal notes",
             max_chars=8_000,
             key=notes_key,
+            on_change=_on_eval_draft_change,
         )
+        if st.session_state.get(_draft_notice_key):
+            st.caption(str(st.session_state[_draft_notice_key]))
+
         submitted = st.button(
             "Save proposal evaluation",
             key=_tenant_key(
@@ -4245,7 +4307,7 @@ def _render_committee_workspace(tenant_slug: str) -> None:
         try:
             db.save_committee_proposal_evaluation(
                 tenant_slug=tenant_slug,
-                member_id=str(identity["member_id"]),
+                member_id=_eval_member_id,
                 tracking_id=tracking_id,
                 scores_dict=scores,
                 notes=str(st.session_state.get(notes_key, "")),
@@ -4257,6 +4319,8 @@ def _render_committee_workspace(tenant_slug: str) -> None:
             )
             st.error("The evaluation could not be saved.")
         else:
+            _clear_eval_draft()
+            st.session_state.pop(_draft_notice_key, None)
             st.session_state[feedback_key] = "Your evaluation has been saved."
             st.rerun()
 
