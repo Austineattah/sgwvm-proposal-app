@@ -5692,21 +5692,112 @@ def _render_home() -> None:
         """,
         unsafe_allow_html=True,
     )
-    st.markdown(
-        textwrap.dedent(
-            """
-            <div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); border-left: 4px solid #38bdf8; border-radius: 12px; padding: 24px; color: #f8fafc; margin-bottom: 24px;">
-                <h3 style="color: #f8fafc; margin: 0 0 12px 0;">About NexusVault Digital Technology.</h3>
-                <p style="color: #f8fafc; margin: 0; line-height: 1.7;">
-                    <strong>NexusVault Digital Technology Company</strong> is a pioneering enterprise software and GovTech engineering firm, and the creator of the <strong>NexusVault Sovereign GovTech Portal</strong>—the world’s first Agentic AI Proposal Intake and Bid-Evaluation System. Purpose-built to modernize public-sector and institutional procurement lifecycles, the platform unifies solicited tender workflows and unsolicited proposal intake within a single, sovereign digital architecture governed by strict Bureau of Public Procurement (BPP) statutory compliance and end-to-end cryptographic auditability.<br><br>
-                    Across public institutions and large enterprises, procurement processes are frequently slowed by fragmented submissions, manual registry checks, and paper-heavy administrative bottlenecks. NexusVault solves this by standardizing how solicited bids and unsolicited proposals are received, structured, validated, and evaluated across every administrative tier—replacing ad-hoc workflows with institutional precision, transparency, and accountability.<br><br>
-                    At the core of the portal is an intelligent network of autonomous AI vetting agents engineered specifically for regulatory due diligence. The platform automatically ingests and parses critical vendor compliance credentials—including CAC, Tax Clearance, PENCOM, ITF, NSITF, and BPP IRR—while cross-referencing records and flagging statutory discrepancies in real time. Simultaneously, it synthesizes technical and commercial submissions into objective, audit-ready scoring matrices for evaluation committees. Complementing these workflows with deterministic bid-integrity controls, the system evaluates certificate expiry and documented exemptions, detects cross-bid beneficial ownership and director overlaps, and audits spreadsheet and presentation bill-of-quantities figures for arithmetic mismatches and unit-price outliers before any bid advances.
-                </p>
-            </div>
-            """
-        ).strip(),
-        unsafe_allow_html=True,
-    )
+    st.session_state.setdefault("onboarding_showcase_tab", None)
+
+    def _toggle_onboarding_showcase(target_tab: str) -> None:
+        current = st.session_state.get("onboarding_showcase_tab")
+        st.session_state["onboarding_showcase_tab"] = None if current == target_tab else target_tab
+
+    def _close_onboarding_showcase() -> None:
+        st.session_state["onboarding_showcase_tab"] = None
+
+    _active_showcase = st.session_state.get("onboarding_showcase_tab")
+    _c_ben, _c_org, _c_clr = st.columns([2, 2, 1])
+    with _c_ben:
+        st.button(
+            "Potential Institutional Benefits"
+            + (" [Active]" if _active_showcase == "benefits" else ""),
+            key="btn_showcase_benefits",
+            use_container_width=True,
+            on_click=_toggle_onboarding_showcase,
+            args=("benefits",),
+        )
+    with _c_org:
+        st.button(
+            "About the Organisation"
+            + (" [Active]" if _active_showcase == "about_org" else ""),
+            key="btn_showcase_about_org",
+            use_container_width=True,
+            on_click=_toggle_onboarding_showcase,
+            args=("about_org",),
+        )
+    with _c_clr:
+        st.button(
+            "Hide Panel",
+            key="btn_showcase_close",
+            use_container_width=True,
+            disabled=_active_showcase is None,
+            on_click=_close_onboarding_showcase,
+        )
+
+    if _active_showcase == "benefits":
+        st.markdown(
+            textwrap.dedent(
+                """
+                <div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); border-left: 4px solid #38bdf8; border-radius: 12px; padding: 24px; color: #f8fafc; margin: 12px 0 20px 0;">
+                    <h3 style="color: #f8fafc; margin: 0 0 12px 0;">Potential Benefits of the NexusVault Platform to Institutions</h3>
+                    <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
+                        <strong>Expanded Vendor Volume &amp; Revenue Generation Potential:</strong> By simplifying digital submission and removing geographic barriers, heavy courier costs, and physical access hurdles, the portal enables broader vendor participation from anywhere-increasing bidding volume, competitive tension, and revenue generation potential for the institution.
+                    </p>
+                    <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
+                        <strong>Enhanced Organizational Reputation &amp; Digital Leadership:</strong> Launching an innovative, transparent digital bidding and proposal portal elevates institutional credibility, signals modern governance reform, and builds public and vendor trust.
+                    </p>
+                    <p style="color: #f8fafc; margin: 0; line-height: 1.7;">
+                        <strong>Streamlined Operations, Compliance &amp; Auditability:</strong> Automated statutory document checks, anti-tampering controls, and structured evaluation workflows cut manual paperwork delays while creating a defensible audit trail across every stage.
+                    </p>
+                </div>
+                """
+            ).strip(),
+            unsafe_allow_html=True,
+        )
+        _nav_left, _nav_right = st.columns(2)
+        with _nav_left:
+            st.button(
+                "Switch to: About the Organisation",
+                key="nav_to_about_org",
+                use_container_width=True,
+                on_click=_toggle_onboarding_showcase,
+                args=("about_org",),
+            )
+        with _nav_right:
+            st.button(
+                "Back to Onboarding View",
+                key="nav_hide_from_benefits",
+                use_container_width=True,
+                on_click=_close_onboarding_showcase,
+            )
+    elif _active_showcase == "about_org":
+        st.markdown(
+            textwrap.dedent(
+                """
+                <div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); border-left: 4px solid #38bdf8; border-radius: 12px; padding: 24px; color: #f8fafc; margin: 12px 0 20px 0;">
+                    <h3 style="color: #f8fafc; margin: 0 0 12px 0;">About NexusVault Digital Technology</h3>
+                    <p style="color: #f8fafc; margin: 0; line-height: 1.7;">
+                        <strong>NexusVault Digital Technology Company</strong> is a pioneering enterprise software and GovTech engineering firm, and the creator of the <strong>NexusVault Sovereign GovTech Portal</strong>-an Agentic AI Proposal Intake and Bid-Evaluation System. Purpose-built to modernize public-sector and institutional procurement lifecycles, the platform unifies solicited tender workflows and unsolicited proposal intake within a single, sovereign digital architecture governed by strict Bureau of Public Procurement (BPP) statutory compliance and end-to-end cryptographic auditability.<br><br>
+                        Across public institutions and large enterprises, procurement processes are frequently slowed by fragmented submissions, manual registry checks, and paper-heavy administrative bottlenecks. NexusVault solves this by standardizing how solicited bids and unsolicited proposals are received, structured, validated, and evaluated across every administrative tier-replacing ad-hoc workflows with institutional precision, transparency, and accountability.<br><br>
+                        At the core of the portal is an intelligent network of autonomous AI vetting agents engineered specifically for regulatory due diligence. The platform automatically ingests and parses critical vendor compliance credentials-including CAC, Tax Clearance, PENCOM, ITF, NSITF, and BPP IRR-while cross-referencing records and flagging statutory discrepancies in real time. Simultaneously, it synthesizes technical and commercial submissions into objective, audit-ready scoring matrices for evaluation committees. Complementing these workflows with deterministic bid-integrity controls, the system evaluates certificate expiry and documented exemptions, detects cross-bid beneficial ownership and director overlaps, and audits spreadsheet and presentation bill-of-quantities figures for arithmetic mismatches and unit-price outliers before any bid advances.
+                    </p>
+                </div>
+                """
+            ).strip(),
+            unsafe_allow_html=True,
+        )
+        _nav_left, _nav_right = st.columns(2)
+        with _nav_left:
+            st.button(
+                "Switch to: Potential Institutional Benefits",
+                key="nav_to_benefits",
+                use_container_width=True,
+                on_click=_toggle_onboarding_showcase,
+                args=("benefits",),
+            )
+        with _nav_right:
+            st.button(
+                "Back to Onboarding View",
+                key="nav_hide_from_about",
+                use_container_width=True,
+                on_click=_close_onboarding_showcase,
+            )
     st.markdown(
         """
         <style>
