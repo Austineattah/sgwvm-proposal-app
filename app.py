@@ -61,6 +61,91 @@ from src.nexus_db_adapter import NexusDatabaseAdapter
 from src.nexus_tenant_engine import NexusTenantLifecycleEngine
 from src.tenant_banner import render_tenant_banner
 
+try:
+    from draft_manager import clear_draft as _dm_clear_draft, get_draft as _dm_get_draft, save_draft as _dm_save_draft
+except Exception:
+    def _dm_save_draft(*args, **kwargs): return False
+    def _dm_get_draft(*args, **kwargs): return None
+    def _dm_clear_draft(*args, **kwargs): return False
+
+try:
+    from persistence import (
+        clear_working_state as _db_clear_working_state,
+        load_working_state as _db_load_working_state,
+        save_working_state as _db_save_working_state,
+    )
+except Exception:
+    def _db_save_working_state(*args, **kwargs): return False
+    def _db_load_working_state(*args, **kwargs): return None
+    def _db_clear_working_state(*args, **kwargs): return False
+
+try:
+    from session_resume import SessionResumeManager as _SessionResumeManager
+except Exception:
+    _SessionResumeManager = None
+
+_PERSISTED_WORKSPACE_KEYS = (
+    "_primary_workspace",
+    "onboarded_tenant_id",
+    "onboarded_tenant_slug",
+    "onboarded_desk_slug",
+    "onboarded_admin_slug",
+    "current_client_id",
+    "entity_type",
+    "corp_name",
+    "corp_email",
+    "corp_phone",
+    "corp_address",
+    "sub_package",
+    "admin_email",
+    "custom_portal_heading",
+    "onboarding_submitted",
+)
+
+
+def _restore_client_working_environment() -> None:
+    if st.session_state.get("_working_env_hydrated"):
+        return
+    st.session_state["_working_env_hydrated"] = True
+    try:
+        saved_ws = _db_load_working_state("workspace::active_client")
+        if isinstance(saved_ws, dict):
+            for key in _PERSISTED_WORKSPACE_KEYS:
+                if key in saved_ws and saved_ws[key] is not None and not st.session_state.get(key):
+                    st.session_state[key] = saved_ws[key]
+        if not st.session_state.get("onboarding_draft_payload"):
+            saved_draft = _dm_get_draft("corporate_onboarding", scope_id="onboarding_portal")
+            if isinstance(saved_draft, dict):
+                st.session_state["onboarding_draft_payload"] = saved_draft
+                st.session_state["_draft_last_saved"] = saved_draft.get("last_saved", "")
+    except Exception as exc:
+        logging.warning("Working environment restore skipped due to transient error: %s", exc)
+
+
+def _persist_client_working_environment(draft_payload: dict | None = None) -> None:
+    try:
+        ws_snapshot = {
+            key: st.session_state.get(key)
+            for key in _PERSISTED_WORKSPACE_KEYS
+            if st.session_state.get(key) is not None
+        }
+        if ws_snapshot:
+            _db_save_working_state("workspace::active_client", ws_snapshot, scope_id="client_session")
+            slug = str(st.session_state.get("onboarded_tenant_slug") or "").strip()
+            if slug:
+                _db_save_working_state(f"workspace::{slug}", ws_snapshot, scope_id=slug)
+        if isinstance(draft_payload, dict):
+            has_content = any(
+                str(draft_payload.get(f) or "").strip()
+                for f in ("org", "email", "phone", "address", "admin_email")
+            )
+            if has_content:
+                _dm_save_draft("corporate_onboarding", dict(draft_payload), scope_id="onboarding_portal")
+                _db_save_working_state("draft::corporate_onboarding", dict(draft_payload), scope_id="onboarding_portal")
+                st.session_state["_draft_last_saved"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    except Exception as exc:
+        logging.warning("Auto-save kept changes in session state during transient error: %s", exc)
+
 
 try:
     from src.committee_auth import CommitteeTokenManager
@@ -6040,6 +6125,18 @@ def _render_home() -> None:
                     "Submit Organizational Node for Approval and Activation",
                     use_container_width=True,
                 )
+                _live_draft_snapshot = {
+                    "entity_type": entity_type,
+                    "org": corp_name.strip(),
+                    "email": corp_email.strip(),
+                    "phone": corp_phone.strip(),
+                    "address": corp_address.strip(),
+                    "admin_email": admin_email.strip(),
+                    "custom_title": custom_title_input.strip(),
+                    "sub_package": sub_package,
+                }
+                st.session_state["onboarding_draft_payload"] = _live_draft_snapshot
+                _persist_client_working_environment(_live_draft_snapshot)
 
         if submitted or confirm_final_onboard:
             if confirm_final_onboard and st.session_state.get("onboarding_draft_payload"):
@@ -6131,6 +6228,11 @@ def _render_home() -> None:
                     st.session_state["onboarded_admin_slug"] = f"{_onboard_base_slug}-admin"
                     st.session_state["onboarded_tenant_id"] = lifecycle_tenant["tenant_id"]
                     st.session_state["onboarding_submitted"] = True
+                    st.session_state.pop("onboarding_draft_payload", None)
+                    st.session_state.pop("_draft_last_saved", None)
+                    _dm_clear_draft("corporate_onboarding", scope_id="onboarding_portal")
+                    _db_clear_working_state("draft::corporate_onboarding")
+                    _persist_client_working_environment()
                     st.rerun()
 
     st.markdown(
