@@ -33,6 +33,28 @@ from streamlit.errors import StreamlitSecretNotFoundError
 
 import database as db
 
+try:
+    from draft_manager import (
+        clear_draft as _sl_clear_draft,
+        get_draft as _sl_get_draft,
+        save_draft as _sl_save_draft,
+    )
+except Exception:
+    def _sl_save_draft(*args, **kwargs): return False
+    def _sl_get_draft(*args, **kwargs): return None
+    def _sl_clear_draft(*args, **kwargs): return False
+
+try:
+    from persistence import (
+        clear_working_state as _sl_clear_working_state,
+        load_working_state as _sl_load_working_state,
+        save_working_state as _sl_save_working_state,
+    )
+except Exception:
+    def _sl_save_working_state(*args, **kwargs): return False
+    def _sl_load_working_state(*args, **kwargs): return None
+    def _sl_clear_working_state(*args, **kwargs): return False
+
 
 MAX_DOSSIER_SIZE_BYTES = 25 * 1024 * 1024
 PAYSTACK_VERIFY_URL = "https://api.paystack.co/transaction/verify"
@@ -1084,6 +1106,34 @@ def _render_solicited_vendor_portal(
         tenders_by_id = {
             str(tender["tender_id"]): tender for tender in active_tenders
         }
+        _step1_scope = f"solicited_step1::{tenant_slug}"
+        _step1_draft_name = f"solicited_step1_{tenant_slug}_{key_prefix or 'default'}"
+        _step1_ws_key = f"draft::solicited_step1::{tenant_slug}::{key_prefix or 'default'}"
+        _step1_keys = {
+            "rfq_code": _widget_key(key_prefix, "rfq_code"),
+            "vendor_name": _widget_key(key_prefix, "vendor_name"),
+            "vendor_email": _widget_key(key_prefix, "vendor_email"),
+            "payment_reference": _widget_key(key_prefix, "payment_reference"),
+            "proposal_title": _widget_key(key_prefix, "proposal_title"),
+        }
+        _step1_saved = _sl_load_working_state(_step1_ws_key)
+        if not isinstance(_step1_saved, dict):
+            _step1_saved = _sl_get_draft(_step1_draft_name, scope_id=_step1_scope)
+        if isinstance(_step1_saved, dict):
+            _allowed_rfqs = set(tenders_by_id)
+            if _step1_keys["rfq_code"] not in st.session_state and _step1_saved.get("rfq_code") in _allowed_rfqs:
+                st.session_state[_step1_keys["rfq_code"]] = _step1_saved["rfq_code"]
+            for _field in ("vendor_name", "vendor_email", "payment_reference", "proposal_title"):
+                _wkey = _step1_keys[_field]
+                if _wkey not in st.session_state and _step1_saved.get(_field):
+                    st.session_state[_wkey] = str(_step1_saved[_field])
+
+        def _clear_step1_draft() -> None:
+            _sl_clear_draft(_step1_draft_name, scope_id=_step1_scope)
+            _sl_clear_working_state(_step1_ws_key)
+            for _wkey in _step1_keys.values():
+                st.session_state.pop(_wkey, None)
+
         with st.form(key=_widget_key(key_prefix, "solicited_step1_form")):
             rfq_code = st.selectbox(
                 "Published tender window*",
@@ -1091,19 +1141,19 @@ def _render_solicited_vendor_portal(
                 format_func=lambda tender_id: (
                     f"{tenders_by_id[tender_id]['title']} · {tender_id}"
                 ),
-                key=_widget_key(key_prefix, "rfq_code"),
+                key=_step1_keys["rfq_code"],
             help=get_help_text("published_tender_window"),
             )
             vendor_name = st.text_input(
                 "Corporate vendor name*",
                 max_chars=200,
-                key=_widget_key(key_prefix, "vendor_name"),
+                key=_step1_keys["vendor_name"],
             help=get_help_text("organization_name"),
             )
             vendor_email = st.text_input(
                 "Official corporate email*",
                 max_chars=254,
-                key=_widget_key(key_prefix, "vendor_email"),
+                key=_step1_keys["vendor_email"],
             help=get_help_text("corporate_email"),
             )
             payment_reference = st.text_input(
@@ -1113,13 +1163,13 @@ def _render_solicited_vendor_portal(
                     else "Paystack / Remita payment reference*"
                 ),
                 max_chars=150,
-                key=_widget_key(key_prefix, "payment_reference"),
+                key=_step1_keys["payment_reference"],
             help=get_help_text("vendor_payment_reference"),
             )
             proposal_title = st.text_input(
                 "Project / bid title*",
                 max_chars=250,
-                key=_widget_key(key_prefix, "proposal_title"),
+                key=_step1_keys["proposal_title"],
             help=get_help_text("vendor_proposal_title"),
             )
             submitted = st.form_submit_button(
@@ -1133,6 +1183,13 @@ def _render_solicited_vendor_portal(
             )
 
         if submitted:
+            _step1_snapshot = {
+                _field: str(st.session_state.get(_wkey, ""))
+                for _field, _wkey in _step1_keys.items()
+            }
+            if any(str(v).strip() for v in _step1_snapshot.values()):
+                _sl_save_draft(_step1_draft_name, dict(_step1_snapshot), scope_id=_step1_scope)
+                _sl_save_working_state(_step1_ws_key, dict(_step1_snapshot), scope_id=_step1_scope)
             normalized_values = (
                 rfq_code.strip(),
                 vendor_name.strip(),
@@ -1165,6 +1222,7 @@ def _render_solicited_vendor_portal(
                 except (sqlite3.Error, RuntimeError, TypeError, ValueError) as exc:
                     st.error(str(exc))
                 else:
+                    _clear_step1_draft()
                     st.session_state[pass_key] = created_pass_id
                     st.success(
                         "Bank transfer reference submitted for executive review."
@@ -1200,6 +1258,7 @@ def _render_solicited_vendor_portal(
                     logging.exception("Could not save verified clearance pass.")
                     st.error("The verified payment could not be recorded. Please contact support.")
                 else:
+                    _clear_step1_draft()
                     st.session_state[pass_key] = created_pass_id
                     st.success("Payment verified and clearance pass recorded.")
                     st.code(created_pass_id, language="text")
@@ -1502,6 +1561,30 @@ def render_unsolicited_vendor_portal(
             "NEXUSVAULT_DOSSIER_ENCRYPTION_KEY before accepting submissions."
         )
 
+    _unsol_scope = f"unsolicited::{tenant_slug}"
+    _unsol_draft_name = f"unsolicited_{tenant_slug}_{key_prefix or 'default'}"
+    _unsol_ws_key = f"draft::unsolicited::{tenant_slug}::{key_prefix or 'default'}"
+    _unsol_keys = {
+        "organization": _widget_key(key_prefix, "unsolicited_organization"),
+        "cac_number": _widget_key(key_prefix, "unsolicited_cac"),
+        "tax_id": _widget_key(key_prefix, "unsolicited_tin"),
+        "proposal_title": _widget_key(key_prefix, "unsolicited_title"),
+        "executive_summary": _widget_key(key_prefix, "unsolicited_abstract"),
+    }
+    _unsol_saved = _sl_load_working_state(_unsol_ws_key)
+    if not isinstance(_unsol_saved, dict):
+        _unsol_saved = _sl_get_draft(_unsol_draft_name, scope_id=_unsol_scope)
+    if isinstance(_unsol_saved, dict):
+        for _field, _wkey in _unsol_keys.items():
+            if _wkey not in st.session_state and _unsol_saved.get(_field):
+                st.session_state[_wkey] = str(_unsol_saved[_field])
+
+    def _clear_unsol_draft() -> None:
+        _sl_clear_draft(_unsol_draft_name, scope_id=_unsol_scope)
+        _sl_clear_working_state(_unsol_ws_key)
+        for _wkey in _unsol_keys.values():
+            st.session_state.pop(_wkey, None)
+
     with st.form(
         key=_widget_key(
             key_prefix,
@@ -1511,31 +1594,31 @@ def render_unsolicited_vendor_portal(
         st.text_input(
             "Organization / enterprise name*",
             max_chars=200,
-            key=_widget_key(key_prefix, "unsolicited_organization"),
+            key=_unsol_keys["organization"],
         help=get_help_text("organization_name"),
         )
         st.text_input(
             "CAC registration number*",
             max_chars=100,
-            key=_widget_key(key_prefix, "unsolicited_cac"),
+            key=_unsol_keys["cac_number"],
         help=get_help_text("cac_registration_number"),
         )
         st.text_input(
             "Tax identification number",
             max_chars=100,
-            key=_widget_key(key_prefix, "unsolicited_tin"),
+            key=_unsol_keys["tax_id"],
         help=get_help_text("tin_number"),
         )
         st.text_input(
             "Proposal title*",
             max_chars=250,
-            key=_widget_key(key_prefix, "unsolicited_title"),
+            key=_unsol_keys["proposal_title"],
         help=get_help_text("vendor_proposal_title"),
         )
         st.text_area(
             "Executive summary / strategic objectives*",
             max_chars=10_000,
-            key=_widget_key(key_prefix, "unsolicited_abstract"),
+            key=_unsol_keys["executive_summary"],
         help=get_help_text("unsolicited_summary"),
         )
         dossier = st.file_uploader(
@@ -1554,6 +1637,13 @@ def render_unsolicited_vendor_portal(
         )
 
     if submitted:
+        _unsol_snapshot = {
+            _field: str(st.session_state.get(_wkey, ""))
+            for _field, _wkey in _unsol_keys.items()
+        }
+        if any(v.strip() for v in _unsol_snapshot.values()):
+            _sl_save_draft(_unsol_draft_name, dict(_unsol_snapshot), scope_id=_unsol_scope)
+            _sl_save_working_state(_unsol_ws_key, dict(_unsol_snapshot), scope_id=_unsol_scope)
         organization = str(
             st.session_state.get(
                 _widget_key(key_prefix, "unsolicited_organization"), ""
@@ -1620,6 +1710,7 @@ def render_unsolicited_vendor_portal(
                         document_sha256=hashlib.sha256(dossier_bytes).hexdigest(),
                         tax_identification_number=tax_id,
                     )
+                    _clear_unsol_draft()
                 except (sqlite3.Error, RuntimeError, ValueError):
                     encrypted_path.unlink(missing_ok=True)
                     raise
