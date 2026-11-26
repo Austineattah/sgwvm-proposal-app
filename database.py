@@ -6200,3 +6200,14 @@ def get_all_clients() -> list[dict[str, Any]]:
         item.setdefault("created_at", item.get("created") or "N/A")
         normalized.append(item)
     return normalized
+
+
+def delete_client_permanently(client_id: str) -> bool:
+    cid = str(client_id or "").strip()
+    if not cid: return False
+    for fn_name in ("purge_tenant_permanently", "delete_tenant", "purge_archived_tenant"):
+        fn = globals().get(fn_name)
+        if callable(fn):
+            try: return bool(fn(cid))
+            except TypeError: continue
+    return False
