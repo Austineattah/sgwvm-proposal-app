@@ -1278,10 +1278,99 @@ def _render_terminal_role_login(
     return None
 
 
+def _render_role_pan_banner(
+    role_badge: str,
+    title_text: str,
+    subtitle_text: str,
+    tenant_slug: str,
+) -> None:
+    safe_badge = html.escape(role_badge)
+    safe_title = html.escape(title_text)
+    safe_sub = html.escape(subtitle_text)
+    safe_slug = html.escape(tenant_slug)
+    st.markdown(
+        f"""
+        <style>
+            @keyframes nv-banner-pan {{
+                0% {{ transform: translateX(-115%) skewX(-22deg); opacity: 0; }}
+                18% {{ opacity: 0.9; }}
+                82% {{ opacity: 0.9; }}
+                100% {{ transform: translateX(240%) skewX(-22deg); opacity: 0; }}
+            }}
+            .nv-role-pan-card {{
+                position: relative;
+                overflow: hidden;
+                background:
+                    linear-gradient(120deg, rgba(56, 189, 248, 0.14) 0%, transparent 38%),
+                    linear-gradient(135deg, #091322 0%, #0f1c30 58%, #070e1a 100%);
+                padding: 14px 20px 14px 22px;
+                border-radius: 3px 14px 3px 14px;
+                border: 1px solid rgba(56, 189, 248, 0.45);
+                border-left: 4px solid #38bdf8;
+                box-shadow: 0 10px 28px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(125, 211, 252, 0.25);
+                margin: 0.4rem 0 1rem 0;
+            }}
+            .nv-role-pan-card::after {{
+                content: "";
+                position: absolute;
+                top: -20%;
+                bottom: -20%;
+                left: 0;
+                width: 34%;
+                background: linear-gradient(
+                    90deg,
+                    transparent 0%,
+                    rgba(56, 189, 248, 0.06) 25%,
+                    rgba(125, 211, 252, 0.24) 50%,
+                    rgba(56, 189, 248, 0.06) 75%,
+                    transparent 100%
+                );
+                animation: nv-banner-pan 5.5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+                pointer-events: none;
+            }}
+            @media (prefers-reduced-motion: reduce) {{
+                .nv-role-pan-card::after {{
+                    animation: none !important;
+                    display: none !important;
+                }}
+            }}
+        </style>
+        <div class="nv-role-pan-card">
+            <div style="position: relative; z-index: 1; display: flex; flex-direction: column; gap: 4px;">
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <span style="font-size: 10.5px; font-weight: 800; letter-spacing: 0.9px; text-transform: uppercase;
+                                 color: #7dd3fc; background: rgba(14, 165, 233, 0.16);
+                                 border: 1px solid rgba(56, 189, 248, 0.5); border-radius: 4px; padding: 2px 9px;">
+                        {safe_badge}
+                    </span>
+                    <code style="font-size: 0.78rem; color: #bae6fd;">{safe_slug}</code>
+                </div>
+                <div style="color: #f8fafc; margin: 2px 0 1px 0; font-size: 18px; font-weight: 900;
+                            letter-spacing: 0.7px; line-height: 1.25; font-family: 'Plus Jakarta Sans', sans-serif;
+                            text-shadow: 0 2px 12px rgba(56, 189, 248, 0.25);">
+                    {safe_title}
+                </div>
+                <div style="color: #cbd5e1; margin: 0; font-size: 12.5px; font-weight: 500; line-height: 1.4;
+                            font-family: 'Plus Jakarta Sans', sans-serif;">
+                    {safe_sub}
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _render_frontdesk_portal(
     tenant: Mapping[str, Any],
     tenant_slug: str,
 ) -> None:
+    _render_role_pan_banner(
+        "Desk Operator Terminal",
+        "AGENTIC AI PROPOSAL & KYC INTAKE PORTAL ? DESK OPERATIONS",
+        "Log physical submissions, verify front-desk intake records, and route dossiers cleanly.",
+        tenant_slug,
+    )
     identity = _render_terminal_role_login(tenant_slug, "front_desk")
     if identity is None:
         return
@@ -1304,6 +1393,12 @@ def _render_master_admin_portal(
     tenant: Mapping[str, Any],
     tenant_slug: str,
 ) -> None:
+    _render_role_pan_banner(
+        "Tenant Admin Control",
+        "AGENTIC AI PROPOSAL & KYC INTAKE PORTAL ? TENANT ADMINISTRATION",
+        "Manage workspace governance, gate credentials, and institutional intake controls.",
+        tenant_slug,
+    )
     identity = _render_terminal_role_login(tenant_slug, "admin")
     if identity is None:
         return
@@ -5362,11 +5457,22 @@ def render_sovereign_tenant_header(tenant_data: Mapping[str, Any]) -> None:
     st.markdown(
         """
         <style>
+        @keyframes nv-banner-pan {
+            0% { transform: translateX(-115%) skewX(-22deg); opacity: 0; }
+            18% { opacity: 0.9; }
+            82% { opacity: 0.9; }
+            100% { transform: translateX(240%) skewX(-22deg); opacity: 0; }
+        }
         .sovereign-tenant-banner {
-            background: linear-gradient(135deg, #071426 0%, #0f2744 55%, #163458 100%);
-            border: 1px solid rgba(56, 189, 248, 0.38);
-            border-radius: 18px;
-            box-shadow: 0 14px 36px rgba(2, 12, 27, 0.34);
+            position: relative;
+            overflow: hidden;
+            background:
+                linear-gradient(120deg, rgba(56, 189, 248, 0.14) 0%, transparent 38%),
+                linear-gradient(135deg, #071426 0%, #0f2744 55%, #163458 100%);
+            border: 1px solid rgba(56, 189, 248, 0.45);
+            border-left: 4px solid #38bdf8;
+            border-radius: 3px 14px 3px 14px;
+            box-shadow: 0 14px 36px rgba(2, 12, 27, 0.42), inset 0 1px 0 rgba(125, 211, 252, 0.25);
             margin: 0.5rem 0 1.5rem;
             padding: 1.5rem 1.85rem;
             display: flex;
@@ -5375,11 +5481,39 @@ def render_sovereign_tenant_header(tenant_data: Mapping[str, Any]) -> None:
             gap: 1.5rem;
             flex-wrap: wrap;
         }
+        .sovereign-tenant-banner::after {
+            content: "";
+            position: absolute;
+            top: -20%;
+            bottom: -20%;
+            left: 0;
+            width: 34%;
+            background: linear-gradient(
+                90deg,
+                transparent 0%,
+                rgba(56, 189, 248, 0.06) 25%,
+                rgba(125, 211, 252, 0.24) 50%,
+                rgba(56, 189, 248, 0.06) 75%,
+                transparent 100%
+            );
+            animation: nv-banner-pan 5.5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+            pointer-events: none;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .sovereign-tenant-banner::after {
+                animation: none !important;
+                display: none !important;
+            }
+        }
         .sovereign-tenant-banner-main {
+            position: relative;
+            z-index: 1;
             flex: 1 1 340px;
             min-width: 0;
         }
         .sovereign-tenant-logo-box {
+            position: relative;
+            z-index: 1;
             flex: 0 0 auto;
             background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
             border: 2px solid rgba(56, 189, 248, 0.55);
