@@ -5505,7 +5505,7 @@ def _render_home() -> None:
     st.session_state["_primary_workspace_selection"] = "Onboarding Portal"
 
     if "custom_portal_heading" not in st.session_state:
-        st.session_state["custom_portal_heading"] = "AGENTIC AI PROPOSAL INTAKE PORTAL"
+        st.session_state["custom_portal_heading"] = "AGENTIC AI PROPOSAL & KYC INTAKE PORTAL"
 
     if st.session_state.get("onboarding_submitted", False):
         st.session_state.pop("onboarding_success_message", None)
@@ -5699,34 +5699,77 @@ def _render_home() -> None:
         )
     st.markdown(
         f"""
-        <div class="nv-hero-card" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.92) 0%, rgba(17, 24, 39, 0.92) 100%);
-                    backdrop-filter: blur(12px); padding: 14px 20px; border-radius: 12px;
-                    border: 1px solid rgba(56, 189, 248, 0.28);
-                    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-                    margin-bottom: 14px;">
-            <div style="display: flex; justify-content: space-between; align-items: center;
+        <style>
+            @keyframes nv-banner-pan {{
+                0% {{ transform: translateX(-115%) skewX(-22deg); opacity: 0; }}
+                18% {{ opacity: 0.9; }}
+                82% {{ opacity: 0.9; }}
+                100% {{ transform: translateX(240%) skewX(-22deg); opacity: 0; }}
+            }}
+            .nv-hero-card {{
+                position: relative;
+                overflow: hidden;
+                background:
+                    linear-gradient(120deg, rgba(56, 189, 248, 0.14) 0%, transparent 38%),
+                    linear-gradient(135deg, #091322 0%, #0f1c30 58%, #070e1a 100%) !important;
+                backdrop-filter: blur(14px);
+                padding: 15px 22px 15px 24px;
+                border-radius: 3px 14px 3px 14px;
+                border: 1px solid rgba(56, 189, 248, 0.45);
+                border-left: 4px solid #38bdf8;
+                box-shadow: 0 10px 28px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(125, 211, 252, 0.25);
+                margin-bottom: 14px;
+            }}
+            .nv-hero-card::after {{
+                content: "";
+                position: absolute;
+                top: -20%;
+                bottom: -20%;
+                left: 0;
+                width: 34%;
+                background: linear-gradient(
+                    90deg,
+                    transparent 0%,
+                    rgba(56, 189, 248, 0.06) 25%,
+                    rgba(125, 211, 252, 0.24) 50%,
+                    rgba(56, 189, 248, 0.06) 75%,
+                    transparent 100%
+                );
+                animation: nv-banner-pan 5.5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+                pointer-events: none;
+            }}
+            @media (prefers-reduced-motion: reduce) {{
+                .nv-hero-card::after {{
+                    animation: none !important;
+                    display: none !important;
+                }}
+            }}
+        </style>
+        <div class="nv-hero-card">
+            <div style="position: relative; z-index: 1; display: flex; justify-content: space-between; align-items: center;
                         flex-wrap: wrap; gap: 12px; min-width: 0;">
                 <div class="nv-hero-main" style="flex: 1 1 300px; min-width: 0; max-width: 100%;">
-                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px;">
+                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 5px;">
                         <div class="nv-hero-logo-wrap" style="display: inline-flex; align-items: center; max-width: 240px; min-width: 0;">
                             {_banner_prefix}
                         </div>
-                        <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
-                                     color: #38bdf8; background: rgba(56, 189, 248, 0.12);
-                                     border: 1px solid rgba(56, 189, 248, 0.32); border-radius: 999px; padding: 2px 9px;">
+                        <span style="font-size: 10.5px; font-weight: 800; letter-spacing: 0.9px; text-transform: uppercase;
+                                     color: #7dd3fc; background: rgba(14, 165, 233, 0.16);
+                                     border: 1px solid rgba(56, 189, 248, 0.5); border-radius: 4px; padding: 2px 9px;">
                             NITDA / NDPA Aligned
                         </span>
                     </div>
-                    <h1 class="nv-hero-title" style="color: #f8fafc !important; margin: 0 0 3px 0; font-size: 18px;
-                               font-weight: 800; letter-spacing: 0.5px; line-height: 1.25;
+                    <h1 class="nv-hero-title" style="color: #f8fafc !important; margin: 0 0 3px 0; font-size: 19.5px;
+                               font-weight: 900; letter-spacing: 0.8px; line-height: 1.22;
                                font-family: 'Plus Jakarta Sans', sans-serif;
+                               text-shadow: 0 2px 12px rgba(56, 189, 248, 0.25);
                                display: block !important;">
                         {safe_heading}
                     </h1>
-                    <p style="color: #94a3b8 !important; margin: 0; font-size: 12.5px;
-                              font-weight: 400; line-height: 1.4;
+                    <p style="color: #cbd5e1 !important; margin: 0; font-size: 12.5px;
+                              font-weight: 500; line-height: 1.4;
                               font-family: 'Plus Jakarta Sans', sans-serif;">
-                        Configure organizational scope and deploy a transparent, auditable proposal intake gateway.
+                        Configure organizational scope and deploy a transparent, auditable proposal and KYC intake gateway.
                     </p>
                 </div>
                 <div style="display: flex; align-items: center;
