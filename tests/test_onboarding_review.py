@@ -28,7 +28,7 @@ class OnboardingReviewTests(unittest.TestCase):
                     "Official Dispatch Email*": "contact@example.gov",
                     "Official Phone / SMS Gateway Contact*": "123456",
                     "Institutional Headquarters Address*": "Abuja",
-                    "Executive Chief Notification Node": "admin@example.gov",
+                    "Executive Chief Notification Node (EG, Director, Perm Sec. etc.)": "admin@example.gov",
                     "Custom Portal Banner Title": "Example Portal",
                 }.items():
                     next(item for item in app.text_input if item.label == label).set_value(value)
