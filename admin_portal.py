@@ -14,6 +14,28 @@ from admin_logger import (
 )
 import database as db
 
+try:
+    from draft_manager import (
+        clear_draft as _ap_clear_draft,
+        get_draft as _ap_get_draft,
+        save_draft as _ap_save_draft,
+    )
+except Exception:
+    def _ap_save_draft(*args, **kwargs): return False
+    def _ap_get_draft(*args, **kwargs): return None
+    def _ap_clear_draft(*args, **kwargs): return False
+
+try:
+    from persistence import (
+        clear_working_state as _ap_clear_working_state,
+        load_working_state as _ap_load_working_state,
+        save_working_state as _ap_save_working_state,
+    )
+except Exception:
+    def _ap_save_working_state(*args, **kwargs): return False
+    def _ap_load_working_state(*args, **kwargs): return None
+    def _ap_clear_working_state(*args, **kwargs): return False
+
 
 def render_admin_login():
     # Check if already authenticated in session state
@@ -304,23 +326,64 @@ def render_physical_intake_console(tenant_slug):
         "Log courier and hand-delivered hard-copy submissions, capture metadata, and generate secure digital twin records."
     )
 
+    _phys_scope = f"physical_intake::{tenant_slug}"
+    _phys_draft_name = f"physical_intake_{tenant_slug}"
+    _phys_ws_key = f"draft::physical_intake::{tenant_slug}"
+    _phys_modes = ["Courier Delivery", "Hand-Delivered / Registry", "Diplomatic Pouch"]
+    _phys_keys = {
+        "vendor_name": f"phys_vendor_name_{tenant_slug}",
+        "proposal_title": f"phys_proposal_title_{tenant_slug}",
+        "delivery_mode": f"phys_delivery_mode_{tenant_slug}",
+        "courier_ref": f"phys_courier_ref_{tenant_slug}",
+        "logged_by": f"phys_logged_by_{tenant_slug}",
+    }
+    _phys_saved = _ap_load_working_state(_phys_ws_key)
+    if not isinstance(_phys_saved, dict):
+        _phys_saved = _ap_get_draft(_phys_draft_name, scope_id=_phys_scope)
+    if isinstance(_phys_saved, dict):
+        if _phys_keys["delivery_mode"] not in st.session_state and _phys_saved.get("delivery_mode") in _phys_modes:
+            st.session_state[_phys_keys["delivery_mode"]] = _phys_saved["delivery_mode"]
+        for _field in ("vendor_name", "proposal_title", "courier_ref", "logged_by"):
+            _wkey = _phys_keys[_field]
+            if _wkey not in st.session_state and _phys_saved.get(_field):
+                st.session_state[_wkey] = str(_phys_saved[_field])
+
+    def _clear_phys_draft() -> None:
+        _ap_clear_draft(_phys_draft_name, scope_id=_phys_scope)
+        _ap_clear_working_state(_phys_ws_key)
+        for _wkey in _phys_keys.values():
+            st.session_state.pop(_wkey, None)
+
     with st.form("physical_intake_form"):
         col1, col2 = st.columns(2)
         with col1:
             help=get_help_text("organization_name"),
-            vendor_name = st.text_input("Vendor and Organization Name")
+            vendor_name = st.text_input(
+                "Vendor and Organization Name",
+                key=_phys_keys["vendor_name"],
+            )
             help=get_help_text("vendor_proposal_title"),
-            proposal_title = st.text_input("Proposal and Project Title")
+            proposal_title = st.text_input(
+                "Proposal and Project Title",
+                key=_phys_keys["proposal_title"],
+            )
             delivery_mode = st.selectbox(
                 "Delivery Mode",
-                ["Courier Delivery", "Hand-Delivered / Registry", "Diplomatic Pouch"],
+                _phys_modes,
+                key=_phys_keys["delivery_mode"],
             help=get_help_text("delivery_mode"),
             )
         with col2:
             help=get_help_text("courier_waybill_ref"),
-            courier_ref = st.text_input("Courier Tracking and Waybill Reference No.")
+            courier_ref = st.text_input(
+                "Courier Tracking and Waybill Reference No.",
+                key=_phys_keys["courier_ref"],
+            )
             help=get_help_text("intake_officer_name"),
-            logged_by = st.text_input("Receiving Desk Officer Name")
+            logged_by = st.text_input(
+                "Receiving Desk Officer Name",
+                key=_phys_keys["logged_by"],
+            )
             scanned_file = st.file_uploader(
                 "Upload Scanned Cover Letter / Summary (PDF/Image)",
                 type=["pdf", "png", "jpg"],
@@ -330,6 +393,15 @@ def render_physical_intake_console(tenant_slug):
         submitted_physical = st.form_submit_button(
             "Log Physical Intake and Generate Digital Twin"
         )
+
+        if submitted_physical:
+            _phys_snapshot = {
+                _field: str(st.session_state.get(_wkey, ""))
+                for _field, _wkey in _phys_keys.items()
+            }
+            if any(v.strip() for v in _phys_snapshot.values()):
+                _ap_save_draft(_phys_draft_name, dict(_phys_snapshot), scope_id=_phys_scope)
+                _ap_save_working_state(_phys_ws_key, dict(_phys_snapshot), scope_id=_phys_scope)
 
         if submitted_physical and vendor_name and proposal_title:
             import sqlite3, os
@@ -360,6 +432,7 @@ def render_physical_intake_console(tenant_slug):
             )
             conn.commit()
             conn.close()
+            _clear_phys_draft()
             st.success(
                 f"Physical proposal from {vendor_name} successfully logged! Digital twin record created with status: PENDING_MINUTES."
             )
@@ -416,6 +489,21 @@ def render_tender_committee_portal(tenant_slug):
 
                 if proposals:
                     for prop in proposals:
+                        _prop_id = prop[0]
+                        _eval_scope = f"admin_dossier_eval::{tenant_slug}"
+                        _eval_draft_name = f"admin_eval_{tenant_slug}_{_prop_id}"
+                        _eval_ws_key = f"draft::admin_eval::{tenant_slug}::{_prop_id}"
+                        _score_key = f"score_{_prop_id}"
+                        _comm_key = f"comm_{_prop_id}"
+                        _eval_saved = _ap_load_working_state(_eval_ws_key)
+                        if not isinstance(_eval_saved, dict):
+                            _eval_saved = _ap_get_draft(_eval_draft_name, scope_id=_eval_scope)
+                        if isinstance(_eval_saved, dict):
+                            if _score_key not in st.session_state and "score" in _eval_saved:
+                                st.session_state[_score_key] = int(_eval_saved["score"])
+                            if _comm_key not in st.session_state and _eval_saved.get("comments"):
+                                st.session_state[_comm_key] = str(_eval_saved["comments"])
+
                         with st.expander(f"Bidder {prop[3]}: {prop[1]} - {prop[2]}"):
                             st.write(f"**QR Reference ID:** {prop[4]}")
                             score = st.slider(
@@ -423,16 +511,28 @@ def render_tender_committee_portal(tenant_slug):
                                 0,
                                 100,
                                 75,
-                                key=f"score_{prop[0]}",
+                                key=_score_key,
                             )
                             comments = st.text_area(
                                 f"Committee Evaluation Remarks for {prop[3]}",
-                                key=f"comm_{prop[0]}",
+                                key=_comm_key,
                             )
+                            _eval_snapshot = {
+                                "score": int(score),
+                                "comments": str(comments),
+                            }
+                            if str(comments).strip() or int(score) != 75:
+                                _ap_save_draft(_eval_draft_name, dict(_eval_snapshot), scope_id=_eval_scope)
+                                _ap_save_working_state(_eval_ws_key, dict(_eval_snapshot), scope_id=_eval_scope)
+
                             if st.button(
                                 f"Submit Evaluation for {prop[3]}",
-                                key=f"sub_eval_{prop[0]}",
+                                key=f"sub_eval_{_prop_id}",
                             ):
+                                _ap_clear_draft(_eval_draft_name, scope_id=_eval_scope)
+                                _ap_clear_working_state(_eval_ws_key)
+                                st.session_state.pop(_score_key, None)
+                                st.session_state.pop(_comm_key, None)
                                 st.success(
                                     f"? Score of {score}/100 and remarks successfully recorded for Bidder {prop[3]}."
                                 )
