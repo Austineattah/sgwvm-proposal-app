@@ -21,3 +21,4 @@ security_logs.db
 nexusvault.db
 *.db
 
+nexusvault_form_drafts.json
