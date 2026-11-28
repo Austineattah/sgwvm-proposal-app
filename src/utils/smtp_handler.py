@@ -112,3 +112,56 @@ def send_tenant_activation_email(
             "Activation email delivery failed; check SMTP configuration and connectivity.",
         )
     return True, "Activation email accepted by the SMTP server."
+
+
+def send_tender_summary_email(
+    recipient_email: str,
+    subject: str,
+    body: str,
+) -> tuple[bool, str]:
+    """Send a tender summary and award notification to a participating vendor."""
+    try:
+        valid, error = validate_smtp_configuration()
+        if not valid:
+            return False, error
+        config = get_smtp_config()
+        if not isinstance(recipient_email, str) or not recipient_email.strip():
+            return False, "The participant email address is missing."
+        if not isinstance(subject, str) or not subject.strip():
+            return False, "The tender summary email subject is missing."
+        if not isinstance(body, str) or not body.strip():
+            return False, "The tender summary email body is missing."
+        message = EmailMessage()
+        message["Subject"] = subject.strip()
+        message["From"] = config["sender"]
+        message["To"] = recipient_email.strip()
+        message.set_content(body.strip())
+        context = ssl.create_default_context()
+        if config["port"] == 465:
+            connection = smtplib.SMTP_SSL(
+                config["server"], config["port"], timeout=15, context=context
+            )
+        else:
+            connection = smtplib.SMTP(config["server"], config["port"], timeout=15)
+        with connection as server:
+            if config["port"] != 465:
+                server.ehlo()
+                server.starttls(context=context)
+                server.ehlo()
+            server.login(config["user"], config["password"])
+            refused = server.send_message(message)
+            if refused:
+                return False, "The SMTP server refused the tender summary recipient."
+    except smtplib.SMTPAuthenticationError:
+        logger.warning("SMTP authentication failed during tender summary dispatch.")
+        return False, "SMTP authentication failed."
+    except smtplib.SMTPConnectError:
+        logger.warning("SMTP connection failed during tender summary dispatch.")
+        return False, "SMTP connection failed."
+    except Exception:
+        logger.warning("Tender summary email delivery failed.")
+        return (
+            False,
+            "Tender summary email delivery failed; check SMTP configuration and connectivity.",
+        )
+    return True, "Tender summary email accepted by the SMTP server."

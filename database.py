@@ -647,6 +647,19 @@ _TABLE_COLUMNS = {
         ("auto_lock", "INTEGER", 0, None),
         ("created_at", "TEXT", 0, None),
         ("created_by", "TEXT", 0, None),
+        ("selection_criteria", "TEXT", 0, ""),
+    ),
+    "tenant_tender_awards": (
+        ("tenant_slug", "TEXT", 1, None),
+        ("tender_id", "TEXT", 2, None),
+        ("winning_tracking_id", "TEXT", 0, None),
+        ("winning_vendor_name", "TEXT", 0, None),
+        ("winning_email", "TEXT", 0, ""),
+        ("justification", "TEXT", 0, None),
+        ("decided_by", "TEXT", 0, None),
+        ("decided_at", "TEXT", 0, None),
+        ("summary_sent_at", "TEXT", 0, None),
+        ("summary_recipients_count", "INTEGER", 0, "0"),
     ),
     "tenant_committee_members": (
         ("member_id", "TEXT", 1, None),
@@ -1008,7 +1021,8 @@ _CREATE_TABLES = (
         expiration_at TEXT NOT NULL,
         auto_lock INTEGER NOT NULL CHECK (auto_lock IN (0, 1)),
         created_at TEXT NOT NULL,
-        created_by TEXT NOT NULL
+        created_by TEXT NOT NULL,
+        selection_criteria TEXT NOT NULL DEFAULT ''
     )
     """,
     """
@@ -1144,6 +1158,21 @@ _CREATE_TABLES = (
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS tenant_tender_awards (
+        tenant_slug TEXT NOT NULL,
+        tender_id TEXT NOT NULL,
+        winning_tracking_id TEXT NOT NULL,
+        winning_vendor_name TEXT NOT NULL,
+        winning_email TEXT NOT NULL DEFAULT '',
+        justification TEXT NOT NULL,
+        decided_by TEXT NOT NULL,
+        decided_at TEXT NOT NULL,
+        summary_sent_at TEXT,
+        summary_recipients_count INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (tenant_slug, tender_id)
+    )
+    """,
 )
 
 
@@ -1167,7 +1196,7 @@ def get_connection() -> Iterator[sqlite3.Connection]:
 
 
 _ORDER_INSENSITIVE_TABLES = frozenset(
-    {"tenant_gateway_configs", "tenant_corporate_lodgments"}
+    {"tenant_gateway_configs", "tenant_corporate_lodgments", "tenant_tenders"}
 )
 
 
@@ -1474,6 +1503,16 @@ def _migrate_database_schema(connection: sqlite3.Connection) -> None:
             SELECT RAISE(ABORT, 'security audit records are immutable');
         END
         """)
+
+
+    tender_columns = {
+        row["name"]
+        for row in connection.execute('PRAGMA table_info("tenant_tenders")').fetchall()
+    }
+    if "selection_criteria" not in tender_columns:
+        connection.execute(
+            "ALTER TABLE tenant_tenders ADD COLUMN selection_criteria TEXT NOT NULL DEFAULT ''"
+        )
 
 
 def init_db() -> None:
@@ -2716,11 +2755,13 @@ def create_tenant_tender(
     auto_lock: bool,
     created_by: str,
     publish_now: bool = False,
+    selection_criteria: str = "",
 ) -> dict[str, Any]:
     """Create a tender with a timezone-aware hard expiration timestamp."""
     normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
     normalized_title = _required_text(title, "title")
     normalized_description = str(description or "").strip()
+    normalized_criteria = str(selection_criteria or "").strip()
     normalized_actor = _required_text(created_by, "created_by")
     if not isinstance(auto_lock, bool) or not isinstance(publish_now, bool):
         raise TypeError("auto_lock and publish_now must be booleans.")
@@ -2753,8 +2794,8 @@ def create_tenant_tender(
             """
             INSERT INTO tenant_tenders (
                 tender_id, tenant_slug, title, description, publishing_status,
-                expiration_at, auto_lock, created_at, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                expiration_at, auto_lock, created_at, created_by, selection_criteria
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 tender_id,
@@ -2766,6 +2807,7 @@ def create_tenant_tender(
                 int(auto_lock),
                 timestamp,
                 normalized_actor,
+                normalized_criteria,
             ),
         )
         _insert_tenant_activity(
@@ -2785,6 +2827,7 @@ def create_tenant_tender(
         "auto_lock": auto_lock,
         "created_at": timestamp,
         "created_by": normalized_actor,
+        "selection_criteria": normalized_criteria,
     }
 
 
@@ -2821,7 +2864,7 @@ def get_tenant_tenders(tenant_slug: str) -> list[dict[str, Any]]:
         rows = connection.execute(
             """
             SELECT tender_id, tenant_slug, title, description, publishing_status,
-                   expiration_at, auto_lock, created_at, created_by
+                   expiration_at, auto_lock, created_at, created_by, selection_criteria
             FROM tenant_tenders
             WHERE tenant_slug = ?
             ORDER BY created_at DESC, tender_id
@@ -4518,6 +4561,9 @@ def purge_archived_tenant(tenant_slug: str) -> bool:
         connection.execute(
             "DELETE FROM tenant_gateway_configs WHERE tenant_slug = ?",
             (normalized_slug,),
+        )
+        connection.execute(
+            "DELETE FROM tenant_tender_awards WHERE tenant_slug = ?", (normalized_slug,)
         )
         connection.execute(
             "DELETE FROM tenant_tenders WHERE tenant_slug = ?", (normalized_slug,)
@@ -6362,3 +6408,160 @@ def format_tenant_activity_nigerian(action_type: str, details: str = "") -> tupl
     if detail_text:
         summary = f"{summary} ({detail_text})"
     return label, summary
+
+
+def record_tender_award(
+    tenant_slug: str,
+    tender_id: str,
+    winning_tracking_id: str,
+    winning_vendor_name: str,
+    winning_email: str,
+    justification: str,
+    decided_by: str,
+) -> dict[str, Any]:
+    """Record or update a tender award with a mandatory written justification."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    normalized_tender = _required_text(tender_id, "tender_id")
+    normalized_tracking = _required_text(winning_tracking_id, "winning_tracking_id")
+    normalized_vendor = _required_text(winning_vendor_name, "winning_vendor_name")
+    normalized_email = str(winning_email or "").strip()
+    normalized_justification = _required_text(justification, "justification")
+    normalized_actor = _required_text(decided_by, "decided_by")
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    init_db()
+    with get_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        tender = connection.execute(
+            """
+            SELECT tender_id FROM tenant_tenders
+            WHERE tenant_slug = ? AND tender_id = ?
+            """,
+            (normalized_slug, normalized_tender),
+        ).fetchone()
+        if tender is None:
+            raise ValueError("Selected tender was not found for this tenant.")
+        connection.execute(
+            """
+            INSERT INTO tenant_tender_awards (
+                tenant_slug, tender_id, winning_tracking_id, winning_vendor_name,
+                winning_email, justification, decided_by, decided_at,
+                summary_sent_at, summary_recipients_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)
+            ON CONFLICT(tenant_slug, tender_id) DO UPDATE SET
+                winning_tracking_id = excluded.winning_tracking_id,
+                winning_vendor_name = excluded.winning_vendor_name,
+                winning_email = excluded.winning_email,
+                justification = excluded.justification,
+                decided_by = excluded.decided_by,
+                decided_at = excluded.decided_at,
+                summary_sent_at = NULL,
+                summary_recipients_count = 0
+            """,
+            (
+                normalized_slug,
+                normalized_tender,
+                normalized_tracking,
+                normalized_vendor,
+                normalized_email,
+                normalized_justification,
+                normalized_actor,
+                timestamp,
+            ),
+        )
+        _insert_tenant_activity(
+            connection,
+            normalized_slug,
+            "tender_award_recorded",
+            (
+                f"Tender {normalized_tender} awarded to {normalized_vendor} "
+                f"({normalized_tracking}) with justification."
+            ),
+            normalized_actor,
+        )
+    return get_tender_award(normalized_slug, normalized_tender) or {}
+
+
+def get_tender_award(tenant_slug: str, tender_id: str) -> dict[str, Any] | None:
+    """Return the recorded award and justification for a tender if present."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    normalized_tender = _required_text(tender_id, "tender_id")
+    init_db()
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT tenant_slug, tender_id, winning_tracking_id, winning_vendor_name,
+                   winning_email, justification, decided_by, decided_at,
+                   summary_sent_at, summary_recipients_count
+            FROM tenant_tender_awards
+            WHERE tenant_slug = ? AND tender_id = ?
+            """,
+            (normalized_slug, normalized_tender),
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def get_tender_participants(tenant_slug: str, tender_id: str) -> list[dict[str, Any]]:
+    """Return distinct participating vendors/emails linked to a tender."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    normalized_tender = _required_text(tender_id, "tender_id")
+    init_db()
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT qr_pass_id, vendor_name, email, proposal_title, clearance_status
+            FROM clearance_passes
+            WHERE tenant_slug = ? AND rfq_code = ?
+            ORDER BY qr_pass_id
+            """,
+            (normalized_slug, normalized_tender),
+        ).fetchall()
+    seen_emails: set[str] = set()
+    participants: list[dict[str, Any]] = []
+    for row in rows:
+        email = str(row["email"] or "").strip()
+        key = email.casefold() if email else f"pass:{row['qr_pass_id']}"
+        if key in seen_emails:
+            continue
+        seen_emails.add(key)
+        participants.append(
+            {
+                "qr_pass_id": str(row["qr_pass_id"] or ""),
+                "vendor_name": str(row["vendor_name"] or "Participant"),
+                "email": email,
+                "proposal_title": str(row["proposal_title"] or ""),
+                "clearance_status": str(row["clearance_status"] or ""),
+            }
+        )
+    return participants
+
+
+def mark_tender_summary_sent(
+    tenant_slug: str,
+    tender_id: str,
+    recipients_count: int,
+    actor: str = "system",
+) -> None:
+    """Record when participant summary emails were dispatched for a tender."""
+    normalized_slug = _required_text(tenant_slug, "tenant_slug").lower()
+    normalized_tender = _required_text(tender_id, "tender_id")
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    init_db()
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE tenant_tender_awards
+            SET summary_sent_at = ?, summary_recipients_count = ?
+            WHERE tenant_slug = ? AND tender_id = ?
+            """,
+            (timestamp, max(0, int(recipients_count)), normalized_slug, normalized_tender),
+        )
+        _insert_tenant_activity(
+            connection,
+            normalized_slug,
+            "tender_summary_emailed",
+            (
+                f"Sent tender summary for {normalized_tender} to "
+                f"{max(0, int(recipients_count))} participant(s)."
+            ),
+            str(actor or "system").strip() or "system",
+        )

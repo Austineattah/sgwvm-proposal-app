@@ -1106,6 +1106,13 @@ def _render_solicited_vendor_portal(
         tenders_by_id = {
             str(tender["tender_id"]): tender for tender in active_tenders
         }
+        _preview_rfq = str(st.session_state.get(_widget_key(key_prefix, "rfq_code")) or "")
+        _selected_tender = tenders_by_id.get(_preview_rfq) or (active_tenders[0] if active_tenders else None)
+        if _selected_tender and str(_selected_tender.get("selection_criteria") or "").strip():
+            st.info(
+                f"**Published Selection Criteria ({_selected_tender.get('title') or _selected_tender.get('tender_id')}):**\n\n"
+                f"{str(_selected_tender.get('selection_criteria') or '').strip()}"
+            )
         _step1_scope = f"solicited_step1::{tenant_slug}"
         _step1_draft_name = f"solicited_step1_{tenant_slug}_{key_prefix or 'default'}"
         _step1_ws_key = f"draft::solicited_step1::{tenant_slug}::{key_prefix or 'default'}"

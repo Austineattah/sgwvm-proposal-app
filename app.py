@@ -3049,6 +3049,11 @@ def _render_executive_tenders_tab(tenant_slug: str, actor: str) -> None:
             max_chars=4_000,
             key=_tenant_key(tenant_slug, "executive", "tender_description"),
         )
+        selection_criteria = st.text_area(
+            "Selection criteria (published upfront to applicants)",
+            max_chars=4_000,
+            key=_tenant_key(tenant_slug, "executive", "tender_selection_criteria"),
+        )
         expiration = st.datetime_input(
             "Hard expiration date and time",
             value=datetime.now().astimezone() + timedelta(days=30),
@@ -3081,6 +3086,7 @@ def _render_executive_tenders_tab(tenant_slug: str, actor: str) -> None:
                 auto_lock=auto_lock,
                 created_by=actor,
                 publish_now=publish_now,
+                selection_criteria=selection_criteria,
             )
         except (sqlite3.Error, RuntimeError, TypeError, ValueError) as exc:
             logging.exception("Could not create tender for tenant %s.", tenant_slug)
@@ -3530,6 +3536,187 @@ def _render_committee_leaderboard(tenant_slug: str) -> None:
         "recommendation is advisory, not an award decision."
     )
     st.dataframe(leaderboard, use_container_width=True, hide_index=True)
+
+    st.divider()
+    st.subheader("Tender Award Justification & Participant Summary Broadcast")
+    try:
+        all_tenders = db.get_tenant_tenders(tenant_slug)
+    except (sqlite3.Error, RuntimeError, TypeError, ValueError):
+        all_tenders = []
+
+    if not all_tenders:
+        st.info("No tenders found for this tenant to record an award or broadcast a summary.")
+    else:
+        tender_choices = {
+            str(t["tender_id"]): f"{t.get('title') or t['tender_id']} ({t['tender_id']})"
+            for t in all_tenders
+        }
+        selected_tender_id = st.selectbox(
+            "Select tender for award justification & summary email",
+            options=list(tender_choices.keys()),
+            format_func=lambda tid: tender_choices.get(tid, tid),
+            key=_tenant_key(tenant_slug, "committee", "award_tender_select"),
+        )
+        selected_tender_obj = next(
+            (t for t in all_tenders if str(t.get("tender_id")) == str(selected_tender_id)),
+            {},
+        )
+        participants = db.get_tender_participants(tenant_slug, str(selected_tender_id))
+        existing_award = db.get_tender_award(tenant_slug, str(selected_tender_id))
+
+        criteria_text = str(selected_tender_obj.get("selection_criteria") or "").strip()
+        if criteria_text:
+            st.markdown(f"**Published Selection Criteria:** {criteria_text}")
+        else:
+            st.caption("No selection criteria text was recorded on this tender.")
+
+        candidate_options: list[tuple[str, str, str]] = []
+        for p in participants:
+            candidate_options.append(
+                (
+                    str(p.get("qr_pass_id") or ""),
+                    str(p.get("vendor_name") or "Participant"),
+                    str(p.get("email") or ""),
+                )
+            )
+        for item in leaderboard:
+            tid_val = str(item.get("Tracking ID") or "")
+            prop_val = str(item.get("Proposal") or "Bidder")
+            if all(existing_id != tid_val for existing_id, _, _ in candidate_options):
+                candidate_options.append((tid_val, prop_val, ""))
+
+        if existing_award:
+            st.success(
+                f"Recorded Winner: **{existing_award.get('winning_vendor_name')}** "
+                f"(`{existing_award.get('winning_tracking_id')}`) — "
+                f"Decided by `{existing_award.get('decided_by')}` on `{existing_award.get('decided_at')}`."
+            )
+            st.markdown(f"**Award Justification:** {existing_award.get('justification')}")
+            if existing_award.get("summary_sent_at"):
+                st.caption(
+                    f"Summary last emailed to {existing_award.get('summary_recipients_count', 0)} "
+                    f"participant(s) at {existing_award.get('summary_sent_at')}."
+                )
+
+        if candidate_options:
+            winner_labels = {
+                f"{vid} | {vname}": (vid, vname, vemail)
+                for vid, vname, vemail in candidate_options
+            }
+            default_label = next(
+                (
+                    lbl
+                    for lbl, (vid, vname, _) in winner_labels.items()
+                    if existing_award
+                    and (
+                        vid == existing_award.get("winning_tracking_id")
+                        or vname == existing_award.get("winning_vendor_name")
+                    )
+                ),
+                next(iter(winner_labels.keys())),
+            )
+            chosen_winner_label = st.selectbox(
+                "Winning company / bid",
+                options=list(winner_labels.keys()),
+                index=list(winner_labels.keys()).index(default_label),
+                key=_tenant_key(tenant_slug, "committee", "winner_select"),
+            )
+            winner_id, winner_name, winner_email = winner_labels[chosen_winner_label]
+            justification_input = st.text_area(
+                "Justification for selecting the winning company",
+                value=str(existing_award.get("justification") or "") if existing_award else "",
+                max_chars=4_000,
+                key=_tenant_key(tenant_slug, "committee", "winner_justification"),
+            )
+            actor_name = str(
+                (st.session_state.get("committee_payload") or {}).get("email")
+                or st.session_state.get(_tenant_key(tenant_slug, "committee", "identity"))
+                or "tender_committee"
+            )
+            if st.button(
+                "Save tender award & justification",
+                key=_tenant_key(tenant_slug, "committee", "save_award_btn"),
+            ):
+                try:
+                    saved_award = db.record_tender_award(
+                        tenant_slug=tenant_slug,
+                        tender_id=str(selected_tender_id),
+                        winning_tracking_id=winner_id,
+                        winning_vendor_name=winner_name,
+                        winning_email=winner_email,
+                        justification=justification_input,
+                        decided_by=actor_name,
+                    )
+                except (sqlite3.Error, RuntimeError, TypeError, ValueError) as exc:
+                    st.error(f"Could not save award justification: {exc}")
+                else:
+                    existing_award = saved_award
+                    st.success(
+                        f"Award and justification recorded for **{saved_award['winning_vendor_name']}**."
+                    )
+
+            active_award = existing_award or db.get_tender_award(tenant_slug, str(selected_tender_id))
+            participant_emails = [
+                str(p.get("email") or "").strip()
+                for p in participants
+                if str(p.get("email") or "").strip()
+            ]
+            st.caption(
+                f"Participating entries found: {len(participants)} "
+                f"({len(participant_emails)} with email addresses)."
+            )
+            if st.button(
+                "Email tender summary to all participants",
+                key=_tenant_key(tenant_slug, "committee", "email_summary_btn"),
+            ):
+                if not active_award:
+                    st.warning("Record a tender award and justification before emailing the summary.")
+                elif not participant_emails:
+                    st.warning("No participant email addresses were found for this tender.")
+                else:
+                    from src.utils.smtp_handler import send_tender_summary_email
+
+                    subject = (
+                        f"Tender Summary & Award Notice: "
+                        f"{selected_tender_obj.get('title') or selected_tender_id}"
+                    )
+                    participant_lines = [
+                        f"- {p.get('vendor_name') or 'Participant'} ({p.get('clearance_status') or 'Registered'})"
+                        for p in participants
+                    ] or ["- Participating tender applicants"]
+                    body = (
+                        f"Tender: {selected_tender_obj.get('title') or selected_tender_id} "
+                        f"({selected_tender_id})\n"
+                        f"Total Participating Entries: {len(participants)}\n"
+                        f"Participants:\n" + "\n".join(participant_lines) + "\n\n"
+                        f"Published Selection Criteria:\n"
+                        f"{criteria_text or 'Standard evaluation criteria'}\n\n"
+                        f"Selected Winning Company: {active_award.get('winning_vendor_name')} "
+                        f"({active_award.get('winning_tracking_id')})\n"
+                        f"Justification for Selection:\n{active_award.get('justification')}\n"
+                    )
+                    sent_count = 0
+                    failed_msgs: list[str] = []
+                    for addr in participant_emails:
+                        ok, err_msg = send_tender_summary_email(addr, subject, body)
+                        if ok:
+                            sent_count += 1
+                        else:
+                            failed_msgs.append(f"{addr}: {err_msg}")
+                    if sent_count > 0:
+                        db.mark_tender_summary_sent(
+                            tenant_slug=tenant_slug,
+                            tender_id=str(selected_tender_id),
+                            recipients_count=sent_count,
+                            actor=actor_name,
+                        )
+                        st.success(
+                            f"Tender summary emailed to {sent_count} of {len(participant_emails)} participant(s)."
+                        )
+                    if failed_msgs:
+                        st.warning("Some summary emails could not be delivered: " + "; ".join(failed_msgs))
+        else:
+            st.info("No participating vendors or scored proposals are available yet for this tender.")
     for proposal, scores in reviewer_details:
         with st.expander(
             f"Individual scores · {proposal['tracking_id']} · "
