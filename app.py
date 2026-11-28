@@ -6346,18 +6346,40 @@ def _render_home() -> None:
             _active_showcase = st.session_state.get("onboarding_showcase_tab")
 
     if _active_showcase == "benefits":
+        _benefit_compliance_title = _sc_txt(
+            "benefit_compliance_title",
+            "KYC &amp; Anti-Duplication Safeguards:",
+        )
+        _benefit_compliance_body = _sc_txt(
+            "benefit_compliance_body",
+            "Automated entity checks and structured documentation help prevent duplicate submissions and compliance gaps.",
+        )
+        _benefit_transparency_title = _sc_txt(
+            "benefit_transparency_title",
+            "Elimination of Collusion, Bid-Rigging &amp; Off-Channel Leakage:",
+        )
+        _benefit_transparency_body = _sc_txt(
+            "benefit_transparency_body",
+            "Standardized intake, timestamped submissions, and upfront published selection criteria reduce discretionary back-channeling and procurement leakage.",
+        )
         st.markdown(
             f"""
             <div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); border-left: 4px solid #38bdf8; border-radius: 12px; padding: 24px; color: #f8fafc; margin: 12px 0 20px 0;">
                 <h3 style="color: #f8fafc; margin: 0 0 12px 0;">{_sc_txt("benefits_heading", "Potential Benefits of the NexusVault Platform to Institutions")}</h3>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    <strong>{_sc_txt("benefit_volume_title", "Expanded Vendor Volume &amp; Revenue Generation Potential:")}</strong> {_sc_txt("benefit_volume_body", "By simplifying digital submission and removing geographic barriers, heavy courier costs, and physical access hurdles, the portal enables broader vendor participation from anywhere-increasing bidding volume, competitive tension, and revenue generation potential for the institution.")}
+                    <strong>{_sc_txt("benefit_volume_title", "Expanded Vendor Volume &amp; Revenue Generation Potential:")}</strong> {_sc_txt("benefit_volume_body", "By simplifying digital submission and removing geographic barriers, heavy courier costs, and physical access hurdles, the portal enables broader vendor participation from anywhere—increasing bidding volume, competitive tension, and revenue generation potential for the institution.")}
                 </p>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
                     <strong>{_sc_txt("benefit_reputation_title", "Enhanced Organizational Reputation &amp; Digital Leadership:")}</strong> {_sc_txt("benefit_reputation_body", "Launching an innovative, transparent digital bidding and proposal portal elevates institutional credibility, signals modern governance reform, and builds public and vendor trust.")}
                 </p>
-                <p style="color: #f8fafc; margin: 0; line-height: 1.7;">
+                <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
                     <strong>{_sc_txt("benefit_governance_title", "Streamlined Operations, Compliance &amp; Auditability:")}</strong> {_sc_txt("benefit_governance_body", "Automated statutory document checks, anti-tampering controls, and structured evaluation workflows cut manual paperwork delays while creating a defensible audit trail across every stage.")}
+                </p>
+                <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
+                    <strong>{_benefit_compliance_title}</strong> {_benefit_compliance_body}
+                </p>
+                <p style="color: #f8fafc; margin: 0; line-height: 1.7;">
+                    <strong>{_benefit_transparency_title}</strong> {_benefit_transparency_body}
                 </p>
             </div>
             """,
