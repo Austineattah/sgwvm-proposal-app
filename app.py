@@ -122,6 +122,13 @@ def _restore_client_working_environment() -> None:
         logging.warning("Working environment restore skipped due to transient error: %s", exc)
 
 
+def _current_session_locale() -> tuple[str, str, str]:
+    cc = str(st.session_state.get("active_country_code") or "NG").strip().upper() or "NG"
+    cur = str(st.session_state.get("active_currency_code") or "NGN").strip().upper() or "NGN"
+    lang = str(st.session_state.get("active_language_code") or "en").strip().lower() or "en"
+    return cc, cur, lang
+
+
 def _persist_client_working_environment(draft_payload: dict | None = None) -> None:
     try:
         ws_snapshot = {
@@ -130,10 +137,12 @@ def _persist_client_working_environment(draft_payload: dict | None = None) -> No
             if st.session_state.get(key) is not None
         }
         if ws_snapshot:
-            _db_save_working_state("workspace::active_client", ws_snapshot, scope_id="client_session")
+            _cc, _cur, _lang = _current_session_locale()
+            _db_save_working_state("workspace::active_client", ws_snapshot, scope_id="client_session", country_code=_cc, currency_code=_cur, language_code=_lang)
             slug = str(st.session_state.get("onboarded_tenant_slug") or "").strip()
             if slug:
-                _db_save_working_state(f"workspace::{slug}", ws_snapshot, scope_id=slug)
+                _cc, _cur, _lang = _current_session_locale()
+                _db_save_working_state(f"workspace::{slug}", ws_snapshot, scope_id=slug, country_code=_cc, currency_code=_cur, language_code=_lang)
         if isinstance(draft_payload, dict):
             has_content = any(
                 str(draft_payload.get(f) or "").strip()
@@ -141,7 +150,8 @@ def _persist_client_working_environment(draft_payload: dict | None = None) -> No
             )
             if has_content:
                 _dm_save_draft("corporate_onboarding", dict(draft_payload), scope_id="onboarding_portal")
-                _db_save_working_state("draft::corporate_onboarding", dict(draft_payload), scope_id="onboarding_portal")
+                _cc, _cur, _lang = _current_session_locale()
+                _db_save_working_state("draft::corporate_onboarding", dict(draft_payload), scope_id="onboarding_portal", country_code=_cc, currency_code=_cur, language_code=_lang)
                 st.session_state["_draft_last_saved"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     except Exception as exc:
         logging.warning("Auto-save kept changes in session state during transient error: %s", exc)
@@ -4309,7 +4319,8 @@ def _render_committee_workspace(tenant_slug: str) -> None:
 
     def _save_eval_draft(payload: dict[str, Any]) -> None:
         _dm_save_draft(_eval_draft_name, dict(payload), scope_id=_eval_scope)
-        _db_save_working_state(_eval_ws_key, dict(payload), scope_id=_eval_scope)
+        _cc, _cur, _lang = _current_session_locale()
+        _db_save_working_state(_eval_ws_key, dict(payload), scope_id=_eval_scope, country_code=_cc, currency_code=_cur, language_code=_lang)
 
     def _clear_eval_draft() -> None:
         _dm_clear_draft(_eval_draft_name, scope_id=_eval_scope)
@@ -5819,6 +5830,36 @@ def _render_home() -> None:
     _logo_path = Path("assets/nexusvault_logo.png")
     if not _logo_path.is_file():
         _logo_path = Path.home() / "Desktop" / "MY LOGO.JPG"
+    try:
+        from src.international_staging import COUNTRY_PROFILES, get_country_profile, normalize_country_code
+        _query_country = ""
+        try:
+            _qp = getattr(st, "query_params", None)
+            if _qp is not None:
+                _query_country = str(_qp.get("country") or "")
+        except Exception:
+            _query_country = ""
+        _default_cc = normalize_country_code(st.session_state.get("active_country_code") or _query_country or "NG", fallback="NG")
+        _country_codes = list(COUNTRY_PROFILES.keys())
+        _col_spacer, _col_country = st.columns([3.3, 1.45])
+        with _col_country:
+            _selected_cc = st.selectbox(
+                "Country Reference",
+                options=_country_codes,
+                index=_country_codes.index(_default_cc),
+                format_func=lambda code: f"{COUNTRY_PROFILES[code].name} ({code} | {COUNTRY_PROFILES[code].currency_code})",
+                key="nv_onboarding_country_select",
+                help="Select jurisdiction to pull currency, default language, statutory IDs, and procurement stage profile.",
+            )
+        _prev_cc = st.session_state.get("active_country_code")
+        _country_profile = get_country_profile(_selected_cc, fallback="NG")
+        st.session_state["active_country_code"] = _country_profile.code
+        st.session_state["active_currency_code"] = _country_profile.currency_code
+        st.session_state["active_procurement_regime"] = _country_profile.procurement_regime
+        if _prev_cc != _country_profile.code or "active_language_code" not in st.session_state:
+            st.session_state["active_language_code"] = _country_profile.default_language
+    except Exception:
+        _country_profile = None
     _banner_prefix = "🛡️"
     if _logo_path.is_file():
         import base64 as _b64_mod
@@ -5890,7 +5931,7 @@ def _render_home() -> None:
                         <span style="font-size: 10.5px; font-weight: 800; letter-spacing: 0.9px; text-transform: uppercase;
                                      color: #7dd3fc; background: rgba(14, 165, 233, 0.16);
                                      border: 1px solid rgba(56, 189, 248, 0.5); border-radius: 4px; padding: 2px 9px;">
-                            NITDA / NDPA Aligned
+                            {html.escape(_country_profile.compliance_badge if _country_profile is not None else "NITDA / NDPA Aligned")}
                         </span>
                     </div>
                     <h1 class="nv-hero-title" style="color: #f8fafc !important; margin: 0 0 3px 0; font-size: 19.5px;
@@ -5927,6 +5968,51 @@ def _render_home() -> None:
         """,
         unsafe_allow_html=True,
     )
+    if _country_profile is not None:
+        try:
+            from src.i18n_staging import get_text as _i18n_text, is_rtl_language as _i18n_rtl
+        except Exception:
+            _i18n_text = None
+            _i18n_rtl = None
+        try:
+            from src.procurement_staging import summarize_thresholds as _proc_thresholds
+        except Exception:
+            _proc_thresholds = None
+
+        _raw_lang = str(st.session_state.get("active_language_code") or _country_profile.default_language).lower()
+        _lang_now = html.escape(_raw_lang.upper())
+        _dir_attr = ' dir="rtl"' if (_i18n_rtl is not None and _i18n_rtl(_raw_lang)) else ""
+
+        def _lbl(key: str, default_en: str) -> str:
+            if _i18n_text is not None:
+                return html.escape(_i18n_text(key, _raw_lang))
+            return html.escape(default_en)
+
+        _stages_preview = html.escape(" -> ".join(_country_profile.intake_stages))
+        _thresh_info = ""
+        if _proc_thresholds is not None:
+            _t = _proc_thresholds(_country_profile.code)
+            _thresh_info = f" &nbsp;|&nbsp; <strong style='color:#38bdf8;'>Thresholds:</strong> {html.escape(_t['direct_limit'])} / {html.escape(_t['competitive_limit'])}"
+
+        st.markdown(
+            f"""
+            <div{_dir_attr} style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;
+                        background:rgba(15,23,42,0.72);border:1px solid rgba(56,189,248,0.28);
+                        border-left:4px solid #38bdf8;border-radius:3px 10px 3px 10px;
+                        padding:9px 14px;margin:0 0 12px 0;font-size:12px;color:#cbd5e1;">
+                <div>
+                    <strong style="color:#7dd3fc;">{_lbl("jurisdiction_label", "Jurisdiction")}:</strong> {html.escape(_country_profile.name)} ({html.escape(_country_profile.code)}) &nbsp;|&nbsp;
+                    <strong style="color:#7dd3fc;">{_lbl("currency_label", "Currency")}:</strong> {html.escape(_country_profile.currency_code)} ({html.escape(_country_profile.currency_symbol.strip())}) &nbsp;|&nbsp;
+                    <strong style="color:#7dd3fc;">{_lbl("language_label", "Language")}:</strong> {_lang_now} &nbsp;|&nbsp;
+                    <strong style="color:#7dd3fc;">{_lbl("ids_label", "IDs")}:</strong> {html.escape(_country_profile.corporate_id_label)} / {html.escape(_country_profile.tax_id_label)}
+                </div>
+                <div style="color:#94a3b8;font-size:11px;">
+                    <strong style="color:#38bdf8;">{_lbl("stage_gate_label", "Stage Gate")}:</strong> {_stages_preview}{_thresh_info}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
     st.session_state.setdefault("onboarding_showcase_tab", None)
 
     def _toggle_onboarding_showcase(target_tab: str) -> None:
