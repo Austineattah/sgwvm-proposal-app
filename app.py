@@ -6316,155 +6316,84 @@ def _render_home() -> None:
         _sc_get_text = globals().get("get_text") if callable(globals().get("get_text")) else None
     _sc_txt = lambda k, fb: html.escape(str(_sc_get_text(k, _sc_lang))) if callable(_sc_get_text) else html.escape(fb)
     _sc_raw = lambda k, fb: str(_sc_get_text(k, _sc_lang)) if callable(_sc_get_text) else fb
-    _c_clr = None
-    if _active_showcase is not None:
-        _c_purp, _c_ben, _c_gd, _c_clr = st.columns([2, 2, 2, 1])
-    else:
-        _c_purp, _c_ben, _c_gd = st.columns([2, 2, 2])
-    with _c_purp:
-        if st.button(
-            _sc_raw("about_org_button_label", "The Core Purpose of this Portal")
-            + (" [Active]" if _active_showcase == "about_org" else ""),
-            key="btn_showcase_about_org",
-            use_container_width=True,
-        ):
-            _toggle_onboarding_showcase("about_org")
-            _active_showcase = st.session_state.get("onboarding_showcase_tab")
-    with _c_ben:
-        if st.button(
-            _sc_raw("benefits_button_label", "Potential Institutional Benefits")
-            + (" [Active]" if _active_showcase == "benefits" else ""),
-            key="btn_showcase_benefits",
-            use_container_width=True,
-        ):
-            _toggle_onboarding_showcase("benefits")
-            _active_showcase = st.session_state.get("onboarding_showcase_tab")
-    with _c_gd:
-        if st.button(
-            _sc_raw("onboarding_guide_button_label", "Guide To Onboarding Your Institution")
-            + (" [Active]" if _active_showcase == "onboarding_guide" else ""),
-            key="btn_showcase_guide",
-            use_container_width=True,
-        ):
-            _toggle_onboarding_showcase("onboarding_guide")
-            _active_showcase = st.session_state.get("onboarding_showcase_tab")
-    if _active_showcase is not None and _c_clr is not None:
-        with _c_clr:
-            if st.button(
-                _sc_raw("hide_panel_label", "Hide Panel"),
-                key="btn_showcase_close",
-                use_container_width=True,
-            ):
-                _close_onboarding_showcase()
-                _active_showcase = st.session_state.get("onboarding_showcase_tab")
+    _tab_purpose, _tab_benefits, _tab_guide, _tab_security = st.tabs([
+        _sc_raw("about_org_button_label", "Core Purpose"),
+        _sc_raw("benefits_button_label", "Institutional Benefits"),
+        _sc_raw("onboarding_guide_button_label", "Onboarding Guide"),
+        _sc_raw("security_tab_button_label", "Security & Anti-Spoofing"),
+    ])
 
-    if _active_showcase == "about_org":
-        _about_mission_title = _sc_txt(
-            "about_org_mission_title",
-            "Sovereign Procurement &amp; Agentic AI Intelligence:",
-        )
-        _about_mission_body = _sc_txt(
-            "about_org_mission_body",
-            "Replaces manual, paper-heavy intake and evaluation workflows with autonomous AI due diligence, structured compliance vetting, and objective committee scoring matrices.",
-        )
-        _about_arch_title = _sc_txt(
-            "about_org_architecture_title",
-            "Sovereign Architecture &amp; Multi-Tenant Isolation:",
-        )
-        _about_arch_body = _sc_txt(
-            "about_org_architecture_body",
-            "Designed for government ministries, statutory agencies, public utilities, and enterprise tenants with isolated workspaces, localized statutory profiles, and role-gated execution.",
-        )
-        _about_gov_title = _sc_txt(
-            "about_org_governance_title",
-            "Cryptographic Auditability &amp; Transparent Awards:",
-        )
-        _about_gov_body = _sc_txt(
-            "about_org_governance_body",
-            "Enforces upfront selection criteria, anti-tampering controls, documented committee award justifications, and end-to-end audit trails across every procurement stage.",
-        )
+    with _tab_purpose:
+        _about_heading = _sc_txt("about_org_heading", "The Core Essence Of NexusVault AGENTIC AI PROPOSAL & KYC INTAKE PORTAL")
+        _about_body = _sc_raw("about_org_body", "<strong>NexusVault: Agentic AI Proposal &amp; KYC Intake Portal</strong> is a first-of-its-kind global portal designed to streamline how institutions receive solicited tenders and unsolicited proposals, verify entity identity and compliance (KYC), and conduct transparent evaluation from intake to award within a single, sovereign, and auditable gateway. Built with international governance standards and engineered with deep roots in Nigeria's public and institutional procurement landscape, the portal replaces what often takes weeks of manual review and heavy paperwork with a streamlined, verifiable digital workflow-simplified with automated intake, guided compliance checks, and clear audit trails.<br><br>Across both global and Nigerian operating environments, institutions face familiar vulnerabilities when proposal intake and vendor vetting rely on scattered emails, physical files, and disconnected spreadsheets: weeks lost to sorting documents and chasing missing records, inconsistent compliance checks, hidden conflicts of interest, and difficulty reconstructing how decisions were made. In Nigeria, where public and institutional stewardship demands strict alignment with Bureau of Public Procurement (BPP) principles, statutory entity credentials, and digital data-protection expectations, credibility depends on clear rules and verifiable proof at every stage. At the same time, cross-border agencies, donor-backed initiatives, and multi-jurisdictional enterprises require adaptable country profiles, clear multi-language interfaces, and standardized integrity controls that travel across borders without losing local compliance.<br><br>At the heart of the portal is an agentic AI and deterministic integrity workflow designed to streamline complex reviews while strengthening-never bypassing-institutional oversight. As proposals and KYC records enter the system, structured validation helps organize statutory and corporate credentials, flag missing items or expiries, surface potential beneficial-ownership or director overlaps across submissions, and highlight arithmetic or unit-price anomalies in commercial schedules. Evaluation committees and authorized administrators retain full decision authority, reviewing clear evidence, documented criteria, conflict-of-interest attestations, and immutable audit trails that protect fair competition, deter procurement leakage, and build lasting public and partner trust.<br><br>Institutions can participate directly by subscribing through the portal's structured onboarding lay-down process-configuring their jurisdiction, entity category, governance rules, and dedicated workspace step by step before going live. Whether used by a Nigerian ministry, agency, legislative body, or university-or adapted for international partners and multi-country deployments-the core purpose of this portal remains constant: to streamline what once took weeks of heavy paperwork and fragmented review into a transparent, defensible process where every proposal, every KYC check, and every evaluation milestone earns institutional trust.")
+        _about_mission_title = _sc_txt("about_org_mission_title", "Sovereign Procurement &amp; Agentic AI Intelligence:")
+        _about_mission_body = _sc_txt("about_org_mission_body", "Replaces manual, paper-heavy intake and evaluation workflows with autonomous AI due diligence, structured compliance vetting, and objective committee scoring matrices.")
+        _about_arch_title = _sc_txt("about_org_architecture_title", "Sovereign Architecture &amp; Multi-Tenant Isolation:")
+        _about_arch_body = _sc_txt("about_org_architecture_body", "Designed for government ministries, statutory agencies, public utilities, and enterprise tenants with isolated workspaces, localized statutory profiles, and role-gated execution.")
+        _about_gov_title = _sc_txt("about_org_governance_title", "Cryptographic Auditability &amp; Transparent Awards:")
+        _about_gov_body = _sc_txt("about_org_governance_body", "Enforces upfront selection criteria, anti-tampering controls, documented committee award justifications, and end-to-end audit trails across every procurement stage.")
         st.markdown(
-            f"""
+            """
             <div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); border-left: 4px solid #38bdf8; border-radius: 12px; padding: 24px; color: #f8fafc; margin: 12px 0 20px 0;">
-                <h3 style="color: #f8fafc; margin: 0 0 12px 0;">{_sc_txt("about_org_heading", "The Core Essence Of NexusVault AGENTIC AI PROPOSAL & KYC INTAKE PORTAL")}</h3>
+                <h3 style="color: #f8fafc; margin: 0 0 12px 0;">__ABOUT_HEADING__</h3>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    {_sc_raw("about_org_body", "<strong>NexusVault: Agentic AI Proposal &amp; KYC Intake Portal</strong> is a first-of-its-kind global portal designed to streamline how institutions receive solicited tenders and unsolicited proposals, verify entity identity and compliance (KYC), and conduct transparent evaluation from intake to award within a single, sovereign, and auditable gateway. Built with international governance standards and engineered with deep roots in Nigeria\x27s public and institutional procurement landscape, the portal replaces what often takes weeks of manual review and heavy paperwork with a streamlined, verifiable digital workflow—simplified with automated intake, guided compliance checks, and clear audit trails.<br><br>Across both global and Nigerian operating environments, institutions face familiar vulnerabilities when proposal intake and vendor vetting rely on scattered emails, physical files, and disconnected spreadsheets: weeks lost to sorting documents and chasing missing records, inconsistent compliance checks, hidden conflicts of interest, and difficulty reconstructing how decisions were made. In Nigeria, where public and institutional stewardship demands strict alignment with Bureau of Public Procurement (BPP) principles, statutory entity credentials, and digital data-protection expectations, credibility depends on clear rules and verifiable proof at every stage. At the same time, cross-border agencies, donor-backed initiatives, and multi-jurisdictional enterprises require adaptable country profiles, clear multi-language interfaces, and standardized integrity controls that travel across borders without losing local compliance.<br><br>At the heart of the portal is an agentic AI and deterministic integrity workflow designed to streamline complex reviews while strengthening—never bypassing—institutional oversight. As proposals and KYC records enter the system, structured validation helps organize statutory and corporate credentials, flag missing items or expiries, surface potential beneficial-ownership or director overlaps across submissions, and highlight arithmetic or unit-price anomalies in commercial schedules. Evaluation committees and authorized administrators retain full decision authority, reviewing clear evidence, documented criteria, conflict-of-interest attestations, and immutable audit trails that protect fair competition, deter procurement leakage, and build lasting public and partner trust.<br><br>Institutions can participate directly by subscribing through the portal\x27s structured onboarding lay-down process—configuring their jurisdiction, entity category, governance rules, and dedicated workspace step by step before going live. Whether used by a Nigerian ministry, agency, legislative body, or university—or adapted for international partners and multi-country deployments—the core purpose of this portal remains constant: to streamline what once took weeks of heavy paperwork and fragmented review into a transparent, defensible process where every proposal, every KYC check, and every evaluation milestone earns institutional trust.")}
+                    __ABOUT_BODY__
                 </p>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    <strong>{_about_mission_title}</strong> {_about_mission_body}
+                    <strong>__ABOUT_MISSION_TITLE__</strong> __ABOUT_MISSION_BODY__
                 </p>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    <strong>{_about_arch_title}</strong> {_about_arch_body}
+                    <strong>__ABOUT_ARCH_TITLE__</strong> __ABOUT_ARCH_BODY__
                 </p>
                 <p style="color: #f8fafc; margin: 0; line-height: 1.7;">
-                    <strong>{_about_gov_title}</strong> {_about_gov_body}
+                    <strong>__ABOUT_GOV_TITLE__</strong> __ABOUT_GOV_BODY__
                 </p>
             </div>
-            """,
+            """
+            .replace("__ABOUT_HEADING__", _about_heading)
+            .replace("__ABOUT_BODY__", _about_body)
+            .replace("__ABOUT_MISSION_TITLE__", _about_mission_title)
+            .replace("__ABOUT_MISSION_BODY__", _about_mission_body)
+            .replace("__ABOUT_ARCH_TITLE__", _about_arch_title)
+            .replace("__ABOUT_ARCH_BODY__", _about_arch_body)
+            .replace("__ABOUT_GOV_TITLE__", _about_gov_title)
+            .replace("__ABOUT_GOV_BODY__", _about_gov_body),
             unsafe_allow_html=True,
         )
-        _nav_1, _nav_2, _nav_3 = st.columns(3)
-        with _nav_1:
-            st.button(
-                _sc_raw("switch_to_benefits", "Switch to: Potential Institutional Benefits"),
-                key="nav_to_benefits",
-                use_container_width=True,
-                on_click=_toggle_onboarding_showcase,
-                args=("benefits",),
-            )
-        with _nav_2:
-            st.button(
-                "Switch to: Guide To Onboarding Your Institution",
-                key="nav_to_guide_from_purpose",
-                use_container_width=True,
-                on_click=_toggle_onboarding_showcase,
-                args=("onboarding_guide",),
-            )
-        with _nav_3:
-            st.button(
-                _sc_raw("back_to_onboarding", "Back to Onboarding View"),
-                key="nav_hide_from_about",
-                use_container_width=True,
-                on_click=_close_onboarding_showcase,
-            )
-    elif _active_showcase == "benefits":
-        _benefit_compliance_title = _sc_txt(
-            "benefit_compliance_title",
-            "KYC &amp; Anti-Duplication Safeguards:",
-        )
-        _benefit_compliance_body = _sc_txt(
-            "benefit_compliance_body",
-            "Automated entity checks and structured documentation help prevent duplicate submissions and compliance gaps.",
-        )
-        _benefit_transparency_title = _sc_txt(
-            "benefit_transparency_title",
-            "Elimination of Collusion, Bid-Rigging &amp; Off-Channel Leakage:",
-        )
-        _benefit_transparency_body = _sc_txt(
-            "benefit_transparency_body",
-            "Standardized intake, timestamped submissions, and upfront published selection criteria reduce discretionary back-channeling and procurement leakage.",
-        )
+
+    with _tab_benefits:
+        _benefits_heading = _sc_txt("benefits_heading", "Potential Benefits of the NexusVault Platform to Institutions")
+        _benefit_volume_title = _sc_txt("benefit_volume_title", "Expanded Vendor Volume &amp; Revenue Generation Potential:")
+        _benefit_volume_body = _sc_txt("benefit_volume_body", "By simplifying digital submission and removing geographic barriers, heavy courier costs, and physical access hurdles, the portal enables broader vendor participation from anywhere-increasing bidding volume, competitive tension, and revenue generation potential for the institution.")
+        _benefit_reputation_title = _sc_txt("benefit_reputation_title", "Enhanced Organizational Reputation &amp; Digital Leadership:")
+        _benefit_reputation_body = _sc_txt("benefit_reputation_body", "Launching an innovative, transparent digital bidding and proposal portal elevates institutional credibility, signals modern governance reform, and builds public and vendor trust.")
+        _benefit_governance_title = _sc_txt("benefit_governance_title", "Streamlined Operations, Compliance &amp; Auditability:")
+        _benefit_governance_body = _sc_txt("benefit_governance_body", "Automated statutory document checks, anti-tampering controls, and structured evaluation workflows cut manual paperwork delays while creating a defensible audit trail across every stage.")
+        _benefit_compliance_title = _sc_txt("benefit_compliance_title", "KYC &amp; Anti-Duplication Safeguards:")
+        _benefit_compliance_body = _sc_txt("benefit_compliance_body", "Automated entity checks and structured documentation help prevent duplicate submissions and compliance gaps.")
+        _benefit_transparency_title = _sc_txt("benefit_transparency_title", "Elimination of Collusion, Bid-Rigging &amp; Off-Channel Leakage:")
+        _benefit_transparency_body = _sc_txt("benefit_transparency_body", "Standardized intake, timestamped submissions, and upfront published selection criteria reduce discretionary back-channeling and procurement leakage.")
         st.markdown(
-            f"""
+            """
             <div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); border-left: 4px solid #38bdf8; border-radius: 12px; padding: 24px; color: #f8fafc; margin: 12px 0 20px 0;">
-                <h3 style="color: #f8fafc; margin: 0 0 12px 0;">{_sc_txt("benefits_heading", "Potential Benefits of the NexusVault Platform to Institutions")}</h3>
+                <h3 style="color: #f8fafc; margin: 0 0 12px 0;">__BENEFITS_HEADING__</h3>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    <strong>{_sc_txt("benefit_volume_title", "Expanded Vendor Volume &amp; Revenue Generation Potential:")}</strong> {_sc_txt("benefit_volume_body", "By simplifying digital submission and removing geographic barriers, heavy courier costs, and physical access hurdles, the portal enables broader vendor participation from anywhere—increasing bidding volume, competitive tension, and revenue generation potential for the institution.")}
+                    <strong>__BENEFIT_VOLUME_TITLE__</strong> __BENEFIT_VOLUME_BODY__
                 </p>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    <strong>{_sc_txt("benefit_reputation_title", "Enhanced Organizational Reputation &amp; Digital Leadership:")}</strong> {_sc_txt("benefit_reputation_body", "Launching an innovative, transparent digital bidding and proposal portal elevates institutional credibility, signals modern governance reform, and builds public and vendor trust.")}
+                    <strong>__BENEFIT_REPUTATION_TITLE__</strong> __BENEFIT_REPUTATION_BODY__
                 </p>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    <strong>{_sc_txt("benefit_governance_title", "Streamlined Operations, Compliance &amp; Auditability:")}</strong> {_sc_txt("benefit_governance_body", "Automated statutory document checks, anti-tampering controls, and structured evaluation workflows cut manual paperwork delays while creating a defensible audit trail across every stage.")}
+                    <strong>__BENEFIT_GOVERNANCE_TITLE__</strong> __BENEFIT_GOVERNANCE_BODY__
                 </p>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    <strong>{_benefit_compliance_title}</strong> {_benefit_compliance_body}
+                    <strong>__BENEFIT_COMPLIANCE_TITLE__</strong> __BENEFIT_COMPLIANCE_BODY__
                 </p>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    <strong>{_benefit_transparency_title}</strong> {_benefit_transparency_body}
+                    <strong>__BENEFIT_TRANSPARENCY_TITLE__</strong> __BENEFIT_TRANSPARENCY_BODY__
                 </p>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    <strong>Agentic AI Departmental Routing by Subject Heading:</strong> Automatically classifies and routes incoming proposals across the institution\x27s departmental hierarchy based on subject headings—eliminating manual registry sorting, misdirected files, and administrative dispatch delays.
+                    <strong>Agentic AI Departmental Routing by Subject Heading:</strong> Automatically classifies and routes incoming proposals across the institution's departmental hierarchy based on subject headings-eliminating manual registry sorting, misdirected files, and administrative dispatch delays.
                 </p>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
                     <strong>Deterministic Bid-Integrity &amp; Commercial Schedule Auditing:</strong> Flags missing or expired compliance certificates, surfaces cross-bid beneficial-ownership or director overlaps, and audits Bill of Quantities (BoQ) figures for arithmetic mismatches and unit-price outliers before committee evaluation.
@@ -6476,145 +6405,74 @@ def _render_home() -> None:
                     <strong>Multi-Jurisdictional &amp; Multi-Language Global Readiness:</strong> Supports Nigerian statutory and public-procurement alignment alongside adaptable country profiles, currencies, and multi-language interfaces for cross-border agencies, donor-backed programs, and international deployments.
                 </p>
             </div>
-            """,
+            """
+            .replace("__BENEFITS_HEADING__", _benefits_heading)
+            .replace("__BENEFIT_VOLUME_TITLE__", _benefit_volume_title)
+            .replace("__BENEFIT_VOLUME_BODY__", _benefit_volume_body)
+            .replace("__BENEFIT_REPUTATION_TITLE__", _benefit_reputation_title)
+            .replace("__BENEFIT_REPUTATION_BODY__", _benefit_reputation_body)
+            .replace("__BENEFIT_GOVERNANCE_TITLE__", _benefit_governance_title)
+            .replace("__BENEFIT_GOVERNANCE_BODY__", _benefit_governance_body)
+            .replace("__BENEFIT_COMPLIANCE_TITLE__", _benefit_compliance_title)
+            .replace("__BENEFIT_COMPLIANCE_BODY__", _benefit_compliance_body)
+            .replace("__BENEFIT_TRANSPARENCY_TITLE__", _benefit_transparency_title)
+            .replace("__BENEFIT_TRANSPARENCY_BODY__", _benefit_transparency_body),
             unsafe_allow_html=True,
         )
-        _nav_1, _nav_2, _nav_3 = st.columns(3)
-        with _nav_1:
-            st.button(
-                _sc_raw("switch_to_about_org", "Switch to: The Core Purpose of this Portal"),
-                key="nav_to_about_org",
-                use_container_width=True,
-                on_click=_toggle_onboarding_showcase,
-                args=("about_org",),
-            )
-        with _nav_2:
-            st.button(
-                "Switch to: Guide To Onboarding Your Institution",
-                key="nav_to_guide_from_benefits",
-                use_container_width=True,
-                on_click=_toggle_onboarding_showcase,
-                args=("onboarding_guide",),
-            )
-        with _nav_3:
-            st.button(
-                _sc_raw("back_to_onboarding", "Back to Onboarding View"),
-                key="nav_hide_from_benefits",
-                use_container_width=True,
-                on_click=_close_onboarding_showcase,
-            )
-    elif _active_showcase == "onboarding_guide":
+
+    with _tab_guide:
         st.markdown(
             """
             <div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); border-left: 4px solid #38bdf8; border-radius: 12px; padding: 24px; color: #f8fafc; margin: 12px 0 20px 0;">
                 <h3 style="color: #f8fafc; margin: 0 0 12px 0;">Guide To Onboarding Your Institution</h3>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    <strong>1. Structured Onboarding Lay-Down &amp; Workspace Setup:</strong> Complete the onboarding form below by selecting your country/jurisdiction profile, institutional classification (such as Ministry, Statutory Agency, Legislative Body, University, NGO, or Enterprise), governance/statutory rules, custom branding, and portal title—with draft saving and review verification before submission.
+                    <strong>1. Structured Onboarding Lay-Down &amp; Workspace Setup:</strong> Complete the onboarding form below by selecting your country/jurisdiction profile, institutional classification (such as Ministry, Statutory Agency, Legislative Body, University, NGO, or Enterprise), governance/statutory rules, custom branding, and portal title-with draft saving and review verification before submission.
                 </p>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    <strong>2. Dedicated Internal Admin Setup:</strong> Once activated, your institution receives a sovereign Internal Admin command center to configure procurement rules, publish solicited tenders, define evaluation committees, assign departmental structures, and oversee governance policies.
+                    <strong>2. Institutional Branding, Logo &amp; Non-Interference with <code>www</code> Domain:</strong> Your workspace reflects your institution's identity including its official logo. This portal does not and will not in any way interfere with your <code>www</code> institutional domain, website hosting, or existing web presence-it is not a general website, but a specially built platform engineered specifically to handle and streamline proposal intake, KYC verification, and evaluation workflows.
                 </p>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    <strong>3. Agentic AI Automatic Departmental Routing by Subject Heading:</strong> Rather than relying on manual desk dispatch, the portal\x27s Agentic AI automatically reads each incoming proposal\x27s subject heading and routes it straight to the matching level across your institution\x27s departmental hierarchy for structured review.
+                    <strong>3. Dedicated Internal Admin Setup:</strong> Once activated, your institution receives a sovereign Internal Admin command center to configure procurement rules, publish solicited tenders, define evaluation committees, assign departmental structures, and oversee governance policies.
                 </p>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    <strong>4. Scoped Desk Operator Intake (NV-PHY-):</strong> Desk Operators operate strictly within a bounded front-desk intake role—logging physical/walk-in submissions (NV-PHY-), verifying intake completeness, and issuing intake acknowledgments without routing authority, policy-edit rights, or evaluation/scoring access.
+                    <strong>4. Agentic AI Automatic Departmental Routing by Subject Heading:</strong> Rather than relying on manual desk dispatch, the portal's Agentic AI automatically reads each incoming proposal's subject heading and routes it straight to the matching level across your institution's departmental hierarchy for structured review.
                 </p>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    <strong>5. Solicited &amp; Unsolicited Vendor Gateways (NV-TND- &amp; NV-UNSOL-):</strong> Vendors submit through dedicated, structured gateways separating formal solicited tenders from unsolicited proposals, while enforcing entity KYC validation, conflict-of-interest attestations, and integrity checks before committee evaluation.
+                    <strong>5. Solicited Tenant Links vs. Desk Operator Unsolicited Intake:</strong> Desk Operators have nothing to do with solicited vendors-solicited bidders must route exclusively through the client's official tenant links published in newspapers or other media platforms. Desk Officers only receive <strong>unsolicited proposals</strong> (digitizing them via scanner, phone/mobile capture, or walk-in intake). When a Desk Officer clicks <strong>Submit</strong>, the system automatically generates a tracking reference ID number, sends an automatic SMS and email acknowledgment to the vendor, and cross-references that tracking ID to the stored proposal file-without manual routing authority, policy-edit rights, or evaluation/scoring access.
                 </p>
                 <p style="color: #f8fafc; margin: 0; line-height: 1.7;">
-                    <strong>6. Absolute Institutional Ownership &amp; Sovereign Isolation:</strong> Upon activation, your institution holds 100% sovereign ownership of its isolated tenant workspace, branding, vendor registry, evaluation records, award justifications, and immutable audit trails—completely separated from other tenants.
+                    <strong>6. Absolute Institutional Ownership &amp; Sovereign Isolation:</strong> Upon activation, your institution holds 100% sovereign ownership of its isolated tenant workspace, branding, vendor registry, evaluation records, award justifications, and immutable audit trails-completely separated from other tenants.
                 </p>
             </div>
             """,
             unsafe_allow_html=True,
         )
-        _nav_1, _nav_2, _nav_3 = st.columns(3)
-        with _nav_1:
-            st.button(
-                _sc_raw("switch_to_about_org", "Switch to: The Core Purpose of this Portal"),
-                key="nav_to_about_from_guide",
-                use_container_width=True,
-                on_click=_toggle_onboarding_showcase,
-                args=("about_org",),
-            )
-        with _nav_2:
-            st.button(
-                _sc_raw("switch_to_benefits", "Switch to: Potential Institutional Benefits"),
-                key="nav_to_benefits_from_guide",
-                use_container_width=True,
-                on_click=_toggle_onboarding_showcase,
-                args=("benefits",),
-            )
-        with _nav_3:
-            st.button(
-                _sc_raw("back_to_onboarding", "Back to Onboarding View"),
-                key="nav_hide_from_guide",
-                use_container_width=True,
-                on_click=_close_onboarding_showcase,
-            )
-    elif _active_showcase == "about_org":
-        _about_mission_title = _sc_txt(
-            "about_org_mission_title",
-            "Sovereign Procurement &amp; Agentic AI Intelligence:",
-        )
-        _about_mission_body = _sc_txt(
-            "about_org_mission_body",
-            "Replaces manual, paper-heavy intake and evaluation workflows with autonomous AI due diligence, structured compliance vetting, and objective committee scoring matrices.",
-        )
-        _about_arch_title = _sc_txt(
-            "about_org_architecture_title",
-            "Sovereign Architecture &amp; Multi-Tenant Isolation:",
-        )
-        _about_arch_body = _sc_txt(
-            "about_org_architecture_body",
-            "Designed for government ministries, statutory agencies, public utilities, and enterprise tenants with isolated workspaces, localized statutory profiles, and role-gated execution.",
-        )
-        _about_gov_title = _sc_txt(
-            "about_org_governance_title",
-            "Cryptographic Auditability &amp; Transparent Awards:",
-        )
-        _about_gov_body = _sc_txt(
-            "about_org_governance_body",
-            "Enforces upfront selection criteria, anti-tampering controls, documented committee award justifications, and end-to-end audit trails across every procurement stage.",
-        )
+
+    with _tab_security:
         st.markdown(
-            f"""
+            """
             <div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); border-left: 4px solid #38bdf8; border-radius: 12px; padding: 24px; color: #f8fafc; margin: 12px 0 20px 0;">
-                <h3 style="color: #f8fafc; margin: 0 0 12px 0;">{_sc_txt("about_org_heading", "The Core Essence Of NexusVault AGENTIC AI PROPOSAL & KYC INTAKE PORTAL")}</h3>
+                <h3 style="color: #f8fafc; margin: 0 0 12px 0;">Security &amp; Anti-Spoofing Controls for Online Proposals &amp; Bids</h3>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    {_sc_raw("about_org_body", "<strong>NexusVault: Agentic AI Proposal &amp; KYC Intake Portal</strong> is a first-of-its-kind global portal designed to streamline how institutions receive solicited tenders and unsolicited proposals, verify entity identity and compliance (KYC), and conduct transparent evaluation from intake to award within a single, sovereign, and auditable gateway. Built with international governance standards and engineered with deep roots in Nigeria's public and institutional procurement landscape, the portal replaces what often takes weeks of manual review and heavy paperwork with a streamlined, verifiable digital workflow—simplified with automated intake, guided compliance checks, and clear audit trails.<br><br>Across both global and Nigerian operating environments, institutions face familiar vulnerabilities when proposal intake and vendor vetting rely on scattered emails, physical files, and disconnected spreadsheets: weeks lost to sorting documents and chasing missing records, inconsistent compliance checks, hidden conflicts of interest, and difficulty reconstructing how decisions were made. In Nigeria, where public and institutional stewardship demands strict alignment with Bureau of Public Procurement (BPP) principles, statutory entity credentials, and digital data-protection expectations, credibility depends on clear rules and verifiable proof at every stage. At the same time, cross-border agencies, donor-backed initiatives, and multi-jurisdictional enterprises require adaptable country profiles, clear multi-language interfaces, and standardized integrity controls that travel across borders without losing local compliance.<br><br>At the heart of the portal is an agentic AI and deterministic integrity workflow designed to streamline complex reviews while strengthening—never bypassing—institutional oversight. As proposals and KYC records enter the system, structured validation helps organize statutory and corporate credentials, flag missing items or expiries, surface potential beneficial-ownership or director overlaps across submissions, and highlight arithmetic or unit-price anomalies in commercial schedules. Evaluation committees and authorized administrators retain full decision authority, reviewing clear evidence, documented criteria, conflict-of-interest attestations, and immutable audit trails that protect fair competition, deter procurement leakage, and build lasting public and partner trust.<br><br>Institutions can participate directly by subscribing through the portal's structured onboarding lay-down process—configuring their jurisdiction, entity category, governance rules, and dedicated workspace step by step before going live. Whether used by a Nigerian ministry, agency, legislative body, or university—or adapted for international partners and multi-country deployments—the core purpose of this portal remains constant: to streamline what once took weeks of heavy paperwork and fragmented review into a transparent, defensible process where every proposal, every KYC check, and every evaluation milestone earns institutional trust.")}
+                    <strong>1. Anti-Spoofing, Official Tenant Link Binding &amp; Domain Protection:</strong> Online solicited bids route through dedicated client tenant links published in newspapers and official media rather than unverified endpoints. Request/tenant context checks and strict host/origin validation guard against spoofed submissions and cross-site request forgery, while keeping your existing <code>www</code> institutional domain untouched.
                 </p>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    <strong>{_about_mission_title}</strong> {_about_mission_body}
+                    <strong>2. Brute-Force, Credential Stuffing &amp; Automated Bot Defenses:</strong> Rate limiting, request throttling, progressive backoff/lockout controls, and session/state checks neutralize automated brute-force guessing, credential stuffing, and scripted flood attempts against intake or verification endpoints.
                 </p>
                 <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                    <strong>{_about_arch_title}</strong> {_about_arch_body}
+                    <strong>3. Bid Integrity, Replay Resistance &amp; Commercial Schedule Audits:</strong> Unique tracking reference IDs, timestamped intake logs, and deterministic integrity checks-flagging missing/expired statutory records, cross-bid beneficial-ownership/director overlaps, and BoQ arithmetic or unit-price outliers-protect submitted bids against silent tampering or post-hoc alteration.
+                </p>
+                <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
+                    <strong>4. Input Sanitization, Upload Validation &amp; Injection Hardening:</strong> HTML/script escaping, field/schema checks, and controlled file handling defend against cross-site scripting (XSS), malformed payloads, and injection tactics across proposal titles, vendor metadata, and schedules.
                 </p>
                 <p style="color: #f8fafc; margin: 0; line-height: 1.7;">
-                    <strong>{_about_gov_title}</strong> {_about_gov_body}
+                    <strong>5. Zero-Trust Tenant Isolation &amp; Role Separation:</strong> Strict multi-tenant isolation separates institutional workspaces, while least-privilege boundaries separate Internal Admin governance, Desk Officer unsolicited physical/scanned intake, Agentic AI subject-heading routing, and Evaluation Committee scoring-preventing unauthorized access or single-point manipulation.
                 </p>
             </div>
             """,
             unsafe_allow_html=True,
         )
-        _nav_left, _nav_right = st.columns(2)
-        with _nav_left:
-            st.button(
-                _sc_raw("switch_to_benefits", "Switch to: Potential Institutional Benefits"),
-                key="nav_to_benefits",
-                use_container_width=True,
-                on_click=_toggle_onboarding_showcase,
-                args=("benefits",),
-            )
-        with _nav_right:
-            st.button(
-                _sc_raw("back_to_onboarding", "Back to Onboarding View"),
-                key="nav_hide_from_about",
-                use_container_width=True,
-                on_click=_close_onboarding_showcase,
-            )
+
     st.markdown(
         """
         <style>
