@@ -6380,12 +6380,45 @@ def _render_home() -> None:
                 on_click=_close_onboarding_showcase,
             )
     elif _active_showcase == "about_org":
+        _about_mission_title = _sc_txt(
+            "about_org_mission_title",
+            "Sovereign Procurement &amp; Agentic AI Intelligence:",
+        )
+        _about_mission_body = _sc_txt(
+            "about_org_mission_body",
+            "Replaces manual, paper-heavy intake and evaluation workflows with autonomous AI due diligence, structured compliance vetting, and objective committee scoring matrices.",
+        )
+        _about_arch_title = _sc_txt(
+            "about_org_architecture_title",
+            "Sovereign Architecture &amp; Multi-Tenant Isolation:",
+        )
+        _about_arch_body = _sc_txt(
+            "about_org_architecture_body",
+            "Designed for government ministries, statutory agencies, public utilities, and enterprise tenants with isolated workspaces, localized statutory profiles, and role-gated execution.",
+        )
+        _about_gov_title = _sc_txt(
+            "about_org_governance_title",
+            "Cryptographic Auditability &amp; Transparent Awards:",
+        )
+        _about_gov_body = _sc_txt(
+            "about_org_governance_body",
+            "Enforces upfront selection criteria, anti-tampering controls, documented committee award justifications, and end-to-end audit trails across every procurement stage.",
+        )
         st.markdown(
             f"""
             <div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); border-left: 4px solid #38bdf8; border-radius: 12px; padding: 24px; color: #f8fafc; margin: 12px 0 20px 0;">
                 <h3 style="color: #f8fafc; margin: 0 0 12px 0;">{_sc_txt("about_org_heading", "About NexusVault Digital Technology")}</h3>
+                <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
+                    {_sc_raw("about_org_body", "<strong>NexusVault Digital Technology Company</strong> is an enterprise software and GovTech engineering firm building the NexusVault Sovereign GovTech Portal—an Agentic AI Proposal Intake and Bid-Evaluation System that modernizes public-sector and institutional procurement lifecycles.")}
+                </p>
+                <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
+                    <strong>{_about_mission_title}</strong> {_about_mission_body}
+                </p>
+                <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
+                    <strong>{_about_arch_title}</strong> {_about_arch_body}
+                </p>
                 <p style="color: #f8fafc; margin: 0; line-height: 1.7;">
-                    {_sc_raw("about_org_body", "<strong>NexusVault Digital Technology Company</strong> delivers sovereign proposal intake, compliance vetting, and bid-evaluation workflows with structured governance and auditability.")}
+                    <strong>{_about_gov_title}</strong> {_about_gov_body}
                 </p>
             </div>
             """,
