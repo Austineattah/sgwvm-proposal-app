@@ -74,3 +74,19 @@ def test_persistence_locale_defaults_and_migration(tmp_path, monkeypatch):
 
         click_row = conn.execute("SELECT country_code, currency_code, language_code FROM link_click_analytics LIMIT 1").fetchone()
         assert tuple(click_row) == ("NG", "NGN", "en")
+
+def test_country_jurisdiction_entity_tiers_and_domain_defaults():
+    fr = get_country_profile("FR")
+    assert fr.default_language == "fr"
+    assert len(fr.entity_categories) >= 5
+    assert any("Minist" in item or "tablissement" in item or "Collectivit" in item for item in fr.entity_categories)
+    assert len(fr.admin_tiers) >= 3
+    assert ".gouv.fr" in fr.example_email
+    assert fr.example_phone.startswith("+33")
+    assert "Paris" in fr.example_address
+
+    ng = get_country_profile("NG")
+    assert ng.default_language == "en"
+    assert ".gov.ng" in ng.example_email
+    assert ng.example_phone.startswith("+234")
+    assert "Abuja" in ng.example_address

@@ -6399,36 +6399,68 @@ def _render_home() -> None:
 
         if not review_active:
             _draft_seed = st.session_state.get("onboarding_draft_payload") or {}
-            _entity_options = [
-                "Public University / Polytechnic / Research Institute (Academic Sector)",
-                "Multinational Funder / UN Agency / International NGO (Humanitarian Sector)",
-                "National Assembly / Parliament / Legislative Directorate",
-                "Federal Ministry, Department, or Agency (MDA)",
-                "State Ministry, Department, or Agency (MDA)",
-                "Private Limited Company / Enterprise (Commercial Sector)",
-                "Non-Profit Foundation / Civil Society Organization",
-            ]
+            _onboard_profile = _country_profile if "_country_profile" in locals() and _country_profile is not None else get_country_profile(st.session_state.get("active_country_code") or "NG", fallback="NG")
+            _onboard_lang = str(st.session_state.get("active_language_code") or _onboard_profile.default_language or "en").lower()
+
+            def _otxt(key: str, fallback_en: str) -> str:
+                if "_i18n_text" in globals() and callable(globals()["_i18n_text"]):
+                    return str(globals()["_i18n_text"](key, _onboard_lang))
+                try:
+                    from src.i18n_staging import get_text as _staging_get_text
+                    return str(_staging_get_text(key, _onboard_lang))
+                except Exception:
+                    return fallback_en
+
+            _entity_options = list(getattr(_onboard_profile, "entity_categories", ()) or ())
+            if not _entity_options:
+                _entity_options = [
+                    "Public University / Polytechnic / Research Institute (Academic Sector)",
+                    "Multinational Funder / UN Agency / International NGO (Humanitarian Sector)",
+                    "National Assembly / Parliament / Legislative Directorate",
+                    "Federal Ministry, Department, or Agency (MDA)",
+                    "State Ministry, Department, or Agency (MDA)",
+                    "Private Limited Company / Enterprise (Commercial Sector)",
+                    "Non-Profit Foundation / Civil Society Organization",
+                ]
             _entity_idx = (
                 _entity_options.index(_draft_seed["entity_type"])
                 if _draft_seed.get("entity_type") in _entity_options
                 else 0
             )
-            _tier_options = [
-                "Sovereign Legislative & Statutory Node",
-                "Custom Government Parastatal Node",
-                "Enterprise Commercial Node",
-                "NGO & Donor Grant Node",
-                "Sovereign Academic Research Node",
-            ]
+            _tier_options = list(getattr(_onboard_profile, "admin_tiers", ()) or ())
+            if not _tier_options:
+                _tier_options = [
+                    "Sovereign Legislative & Statutory Node",
+                    "Custom Government Parastatal Node",
+                    "Enterprise Commercial Node",
+                    "NGO & Donor Grant Node",
+                    "Sovereign Academic Research Node",
+                ]
             _tier_idx = (
                 _tier_options.index(_draft_seed["sub_package"])
                 if _draft_seed.get("sub_package") in _tier_options
                 else 0
             )
+            _step1_title = _otxt("onboarding_step1_heading", "Step 1: Organizational Classification & Domain Setup")
+            _entity_cat_label = _otxt("entity_category_label", "Select Organization / Entity Category*")
+            _org_name_label = _otxt("org_name_label", "Organizational Entity Name*")
+            _dispatch_email_label = _otxt("dispatch_email_label", "Official Dispatch Email*")
+            _phone_contact_label = _otxt("phone_contact_label", "Official Phone / SMS Gateway Contact*")
+            _hq_address_label = _otxt("hq_address_label", "Institutional Headquarters Address*")
+            _admin_email_label = _otxt("admin_email_label", "Executive Chief Notification Node (EG, Director, Perm Sec. etc.)")
+            _step2_title = _otxt("onboarding_step2_heading", "Step 2: Branding & Custom Portal Heading")
+            _custom_title_label = _otxt("custom_title_label", "Custom Portal Banner Title")
+            _tier_label = _otxt("tier_label", "SaaS Sovereign Tier*")
+            _logo_upload_label = _otxt("logo_upload_label", "Upload Official Institutional Branding Logo (PNG/JPG)")
+
+            _example_org = str(getattr(_onboard_profile, "example_org", "") or "Federal Ministry of Technology")
+            _example_email = str(getattr(_onboard_profile, "example_email", "") or "contact@entity.gov.ng")
+            _example_phone = str(getattr(_onboard_profile, "example_phone", "") or "+234 803 000 0000")
+            _example_address = str(getattr(_onboard_profile, "example_address", "") or "Central Area, Abuja")
+
             with st.form("corporate_onboarding_form"):
                 st.markdown(
-                    "<div class='section-hdr'>Step 1: Organizational Classification & "
-                    "Domain Setup</div>"
+                    f"<div class='section-hdr'>{_step1_title}</div>"
                     "<style>"
                     "[data-testid=\"stForm\"] [data-testid=\"stSelectbox\"]:has([aria-label*=\"Select Organization / Entity Category*\"]) label,"
                     "[data-testid=\"stForm\"] [data-testid=\"stSelectbox\"]:has([aria-label*=\"Select Organization / Entity Category*\"]) label p {"
@@ -6453,7 +6485,7 @@ def _render_home() -> None:
                     unsafe_allow_html=True,
                 )
                 entity_type = st.selectbox(
-                    "Select Organization / Entity Category*",
+                    _entity_cat_label,
                     _entity_options,
                     index=_entity_idx,
                     help=get_help_text("entity_type"),
@@ -6462,59 +6494,58 @@ def _render_home() -> None:
                 col_a, col_b = st.columns(2)
                 with col_a:
                     corp_name = st.text_input(
-                        "Organizational Entity Name*",
+                        _org_name_label,
                         value=str(_draft_seed.get("org") or ""),
-                        placeholder="e.g., Federal Ministry of Technology",
+                        placeholder=f"e.g., {_example_org}",
                         help=get_help_text("organization_name"),
                     )
                     corp_email = st.text_input(
-                        "Official Dispatch Email*",
+                        _dispatch_email_label,
                         value=str(_draft_seed.get("email") or ""),
-                        placeholder="contact@entity.gov.ng",
+                        placeholder=_example_email,
                         help=get_help_text("corporate_email"),
                     )
 
                 with col_b:
                     corp_phone = st.text_input(
-                        "Official Phone / SMS Gateway Contact*",
+                        _phone_contact_label,
                         value=str(_draft_seed.get("phone") or ""),
-                        placeholder="+234 803 000 0000",
+                        placeholder=_example_phone,
                         help=get_help_text("contact_phone"),
                     )
                     corp_address = st.text_input(
-                        "Institutional Headquarters Address*",
+                        _hq_address_label,
                         value=str(_draft_seed.get("address") or ""),
-                        placeholder="Central Area, Abuja",
+                        placeholder=_example_address,
                         help=get_help_text("organization_address"),
                     )
                     admin_email = st.text_input(
-                        "Executive Chief Notification Node (EG, Director, Perm Sec. etc.)",
+                        _admin_email_label,
                         value=str(_draft_seed.get("admin_email") or ""),
                         placeholder="executive-office@entity.org",
                         help=get_help_text("admin_email"),
                     )
 
                 st.markdown(
-                    "<div class='section-hdr'>Step 2: Branding & Custom Portal "
-                    "Heading</div>",
+                    f"<div class='section-hdr'>{_step2_title}</div>",
                     unsafe_allow_html=True,
                 )
                 col_c, col_d = st.columns(2)
                 with col_c:
                     custom_title_input = st.text_input(
-                        "Custom Portal Banner Title",
+                        _custom_title_label,
                         value=str(_draft_seed.get("custom_title") or st.session_state["custom_portal_heading"]),
                         help=get_help_text("custom_title"),
                     )
                     sub_package = st.selectbox(
-                        "SaaS Sovereign Tier*",
+                        _tier_label,
                         _tier_options,
                         index=_tier_idx,
                         help=get_help_text("subscription_tier"),
                     )
                 with col_d:
                     uploaded_logo = st.file_uploader(
-                        "Upload Official Institutional Branding Logo (PNG/JPG)",
+                        _logo_upload_label,
                         type=["png", "jpg", "jpeg"],
                         help=get_help_text("institutional_logo"),
                     )
