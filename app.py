@@ -5644,6 +5644,62 @@ def render_sovereign_tenant_header(tenant_data: Mapping[str, Any]) -> None:
     _render_tenant_audit_drawer(tenant_slug)
 
 
+# === AUTO_SANITIZE_STALE_FORM_STATE_START ===
+def _sanitize_stale_streamlit_form_state() -> None:
+    try:
+        from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
+        ctx = get_script_run_ctx()
+    except Exception:
+        ctx = None
+
+    if ctx is not None:
+        for attr in ("form_id_stack", "_form_id_stack", "current_form_id", "_current_form_id"):
+            val = getattr(ctx, attr, None)
+            if isinstance(val, list):
+                val.clear()
+            elif val is not None:
+                try:
+                    setattr(ctx, attr, "" if isinstance(val, str) else None)
+                except Exception:
+                    pass
+
+    visited = set()
+    queue = [st, getattr(st, "main", None), getattr(st, "_main", None), getattr(st, "sidebar", None), getattr(st, "_sidebar", None)]
+    while queue:
+        dg = queue.pop(0)
+        if dg is None or id(dg) in visited:
+            continue
+        visited.add(id(dg))
+
+        for attr in ("_form_id", "form_id"):
+            if hasattr(dg, attr):
+                try:
+                    if getattr(dg, attr):
+                        setattr(dg, attr, "")
+                except Exception:
+                    pass
+
+        if hasattr(dg, "_is_in_form"):
+            try:
+                setattr(dg, "_is_in_form", False)
+            except Exception:
+                pass
+
+        form_data = getattr(dg, "_form_data", None)
+        if form_data is not None and hasattr(form_data, "form_id"):
+            try:
+                if getattr(form_data, "form_id"):
+                    setattr(form_data, "form_id", "")
+            except Exception:
+                pass
+
+        for parent_attr in ("_parent", "_root_dg"):
+            parent_dg = getattr(dg, parent_attr, None)
+            if parent_dg is not None and id(parent_dg) not in visited:
+                queue.append(parent_dg)
+# === AUTO_SANITIZE_STALE_FORM_STATE_END ===
+
+
 def _render_home() -> None:
     inject_sovereign_workspace_css()
     st.session_state["_primary_workspace"] = "Onboarding Portal"
@@ -5872,6 +5928,12 @@ def _render_home() -> None:
             f'object-fit: contain; background: transparent; border: none; padding: 0; '
             f'filter: drop-shadow(0 2px 8px rgba(56, 189, 248, 0.22));" />'
         )
+    _hero_lang = str(st.session_state.get("active_language_code") or (getattr(_country_profile, "default_language", "en") if "_country_profile" in locals() and _country_profile is not None else "en")).lower()
+    try:
+        from src.i18n_staging import get_text as _hero_get_text
+        _hero_subtitle = _hero_get_text("hero_subtitle", _hero_lang)
+    except Exception:
+        _hero_subtitle = "Configure organizational scope and deploy a transparent, auditable proposal and KYC intake gateway."
     st.markdown(
         f"""
         <style>
@@ -5944,7 +6006,7 @@ def _render_home() -> None:
                     <p style="color: #cbd5e1 !important; margin: 0; font-size: 12.5px;
                               font-weight: 500; line-height: 1.4;
                               font-family: 'Plus Jakarta Sans', sans-serif;">
-                        Configure organizational scope and deploy a transparent, auditable proposal and KYC intake gateway.
+                        {html.escape(_hero_subtitle)}
                     </p>
                 </div>
                 <div style="display: flex; align-items: center;
@@ -6022,59 +6084,102 @@ def _render_home() -> None:
     def _close_onboarding_showcase() -> None:
         st.session_state["onboarding_showcase_tab"] = None
 
+    def _clear_stale_form_context() -> None:
+        try:
+            from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
+
+            ctx = get_script_run_ctx()
+        except Exception:
+            ctx = None
+
+        candidates = [st, getattr(st, "main", None), getattr(st, "sidebar", None)]
+        if ctx is not None:
+            for attr in ("form_id_stack", "_form_id_stack", "current_form_id", "_current_form_id"):
+                val = getattr(ctx, attr, None)
+                if isinstance(val, list):
+                    val.clear()
+                elif val is not None:
+                    try:
+                        setattr(ctx, attr, None if not isinstance(val, str) else "")
+                    except Exception:
+                        pass
+
+        for dg in candidates:
+            if dg is None:
+                continue
+            for attr in ("_form_id", "form_id", "_is_in_form"):
+                if hasattr(dg, attr):
+                    try:
+                        cur = getattr(dg, attr)
+                        if isinstance(cur, bool):
+                            setattr(dg, attr, False)
+                        elif cur is not None:
+                            setattr(dg, attr, None)
+                    except Exception:
+                        pass
+
+    _clear_stale_form_context()
+
+    _sanitize_stale_streamlit_form_state()
     _active_showcase = st.session_state.get("onboarding_showcase_tab")
+    _sc_lang = str(st.session_state.get("active_language_code") or "en").lower()
+    try:
+        from src.i18n_staging import get_text as _sc_get_text
+    except Exception:
+        _sc_get_text = globals().get("get_text") if callable(globals().get("get_text")) else None
+    _sc_txt = lambda k, fb: html.escape(str(_sc_get_text(k, _sc_lang))) if callable(_sc_get_text) else html.escape(fb)
+    _sc_raw = lambda k, fb: str(_sc_get_text(k, _sc_lang)) if callable(_sc_get_text) else fb
     _c_ben, _c_org, _c_clr = st.columns([2, 2, 1])
     with _c_ben:
-        st.button(
-            "Potential Institutional Benefits"
+        if st.button(
+            _sc_raw("benefits_button_label", "Potential Institutional Benefits")
             + (" [Active]" if _active_showcase == "benefits" else ""),
             key="btn_showcase_benefits",
             use_container_width=True,
-            on_click=_toggle_onboarding_showcase,
-            args=("benefits",),
-        )
+        ):
+            _toggle_onboarding_showcase("benefits")
+            _active_showcase = st.session_state.get("onboarding_showcase_tab")
     with _c_org:
-        st.button(
-            "About the Organisation"
+        if st.button(
+            _sc_raw("about_org_button_label", "About the Organisation")
             + (" [Active]" if _active_showcase == "about_org" else ""),
             key="btn_showcase_about_org",
             use_container_width=True,
-            on_click=_toggle_onboarding_showcase,
-            args=("about_org",),
-        )
+        ):
+            _toggle_onboarding_showcase("about_org")
+            _active_showcase = st.session_state.get("onboarding_showcase_tab")
     with _c_clr:
-        st.button(
-            "Hide Panel",
+        if st.button(
+            _sc_raw("hide_panel_label", "Hide Panel"),
             key="btn_showcase_close",
             use_container_width=True,
             disabled=_active_showcase is None,
-            on_click=_close_onboarding_showcase,
-        )
+        ):
+            _close_onboarding_showcase()
+            _active_showcase = st.session_state.get("onboarding_showcase_tab")
 
     if _active_showcase == "benefits":
         st.markdown(
-            textwrap.dedent(
-                """
-                <div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); border-left: 4px solid #38bdf8; border-radius: 12px; padding: 24px; color: #f8fafc; margin: 12px 0 20px 0;">
-                    <h3 style="color: #f8fafc; margin: 0 0 12px 0;">Potential Benefits of the NexusVault Platform to Institutions</h3>
-                    <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                        <strong>Expanded Vendor Volume &amp; Revenue Generation Potential:</strong> By simplifying digital submission and removing geographic barriers, heavy courier costs, and physical access hurdles, the portal enables broader vendor participation from anywhere-increasing bidding volume, competitive tension, and revenue generation potential for the institution.
-                    </p>
-                    <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
-                        <strong>Enhanced Organizational Reputation &amp; Digital Leadership:</strong> Launching an innovative, transparent digital bidding and proposal portal elevates institutional credibility, signals modern governance reform, and builds public and vendor trust.
-                    </p>
-                    <p style="color: #f8fafc; margin: 0; line-height: 1.7;">
-                        <strong>Streamlined Operations, Compliance &amp; Auditability:</strong> Automated statutory document checks, anti-tampering controls, and structured evaluation workflows cut manual paperwork delays while creating a defensible audit trail across every stage.
-                    </p>
-                </div>
-                """
-            ).strip(),
+            f"""
+            <div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); border-left: 4px solid #38bdf8; border-radius: 12px; padding: 24px; color: #f8fafc; margin: 12px 0 20px 0;">
+                <h3 style="color: #f8fafc; margin: 0 0 12px 0;">{_sc_txt("benefits_heading", "Potential Benefits of the NexusVault Platform to Institutions")}</h3>
+                <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
+                    <strong>{_sc_txt("benefit_volume_title", "Expanded Vendor Volume &amp; Revenue Generation Potential:")}</strong> {_sc_txt("benefit_volume_body", "By simplifying digital submission and removing geographic barriers, heavy courier costs, and physical access hurdles, the portal enables broader vendor participation from anywhere-increasing bidding volume, competitive tension, and revenue generation potential for the institution.")}
+                </p>
+                <p style="color: #f8fafc; margin: 0 0 12px 0; line-height: 1.7;">
+                    <strong>{_sc_txt("benefit_reputation_title", "Enhanced Organizational Reputation &amp; Digital Leadership:")}</strong> {_sc_txt("benefit_reputation_body", "Launching an innovative, transparent digital bidding and proposal portal elevates institutional credibility, signals modern governance reform, and builds public and vendor trust.")}
+                </p>
+                <p style="color: #f8fafc; margin: 0; line-height: 1.7;">
+                    <strong>{_sc_txt("benefit_governance_title", "Streamlined Operations, Compliance &amp; Auditability:")}</strong> {_sc_txt("benefit_governance_body", "Automated statutory document checks, anti-tampering controls, and structured evaluation workflows cut manual paperwork delays while creating a defensible audit trail across every stage.")}
+                </p>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
         _nav_left, _nav_right = st.columns(2)
         with _nav_left:
             st.button(
-                "Switch to: About the Organisation",
+                _sc_raw("switch_to_about_org", "Switch to: About the Organisation"),
                 key="nav_to_about_org",
                 use_container_width=True,
                 on_click=_toggle_onboarding_showcase,
@@ -6082,31 +6187,27 @@ def _render_home() -> None:
             )
         with _nav_right:
             st.button(
-                "Back to Onboarding View",
+                _sc_raw("back_to_onboarding", "Back to Onboarding View"),
                 key="nav_hide_from_benefits",
                 use_container_width=True,
                 on_click=_close_onboarding_showcase,
             )
     elif _active_showcase == "about_org":
         st.markdown(
-            textwrap.dedent(
-                """
-                <div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); border-left: 4px solid #38bdf8; border-radius: 12px; padding: 24px; color: #f8fafc; margin: 12px 0 20px 0;">
-                    <h3 style="color: #f8fafc; margin: 0 0 12px 0;">About NexusVault Digital Technology</h3>
-                    <p style="color: #f8fafc; margin: 0; line-height: 1.7;">
-                        <strong>NexusVault Digital Technology Company</strong> is a pioneering enterprise software and GovTech engineering firm, and the creator of the <strong>NexusVault Sovereign GovTech Portal</strong>-an Agentic AI Proposal Intake and Bid-Evaluation System. Purpose-built to modernize public-sector and institutional procurement lifecycles, the platform unifies solicited tender workflows and unsolicited proposal intake within a single, sovereign digital architecture governed by strict Bureau of Public Procurement (BPP) statutory compliance and end-to-end cryptographic auditability.<br><br>
-                        Across public institutions and large enterprises, procurement processes are frequently slowed by fragmented submissions, manual registry checks, and paper-heavy administrative bottlenecks. NexusVault solves this by standardizing how solicited bids and unsolicited proposals are received, structured, validated, and evaluated across every administrative tier-replacing ad-hoc workflows with institutional precision, transparency, and accountability.<br><br>
-                        At the core of the portal is an intelligent network of autonomous AI vetting agents engineered specifically for regulatory due diligence. The platform automatically ingests and parses critical vendor compliance credentials-including CAC, Tax Clearance, PENCOM, ITF, NSITF, and BPP IRR-while cross-referencing records and flagging statutory discrepancies in real time. Simultaneously, it synthesizes technical and commercial submissions into objective, audit-ready scoring matrices for evaluation committees. Complementing these workflows with deterministic bid-integrity controls, the system evaluates certificate expiry and documented exemptions, detects cross-bid beneficial ownership and director overlaps, and audits spreadsheet and presentation bill-of-quantities figures for arithmetic mismatches and unit-price outliers before any bid advances.
-                    </p>
-                </div>
-                """
-            ).strip(),
+            f"""
+            <div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); border-left: 4px solid #38bdf8; border-radius: 12px; padding: 24px; color: #f8fafc; margin: 12px 0 20px 0;">
+                <h3 style="color: #f8fafc; margin: 0 0 12px 0;">{_sc_txt("about_org_heading", "About NexusVault Digital Technology")}</h3>
+                <p style="color: #f8fafc; margin: 0; line-height: 1.7;">
+                    {_sc_raw("about_org_body", "<strong>NexusVault Digital Technology Company</strong> delivers sovereign proposal intake, compliance vetting, and bid-evaluation workflows with structured governance and auditability.")}
+                </p>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
         _nav_left, _nav_right = st.columns(2)
         with _nav_left:
             st.button(
-                "Switch to: Potential Institutional Benefits",
+                _sc_raw("switch_to_benefits", "Switch to: Potential Institutional Benefits"),
                 key="nav_to_benefits",
                 use_container_width=True,
                 on_click=_toggle_onboarding_showcase,
@@ -6114,7 +6215,7 @@ def _render_home() -> None:
             )
         with _nav_right:
             st.button(
-                "Back to Onboarding View",
+                _sc_raw("back_to_onboarding", "Back to Onboarding View"),
                 key="nav_hide_from_about",
                 use_container_width=True,
                 on_click=_close_onboarding_showcase,
@@ -6411,7 +6512,15 @@ def _render_home() -> None:
                 except Exception:
                     return fallback_en
 
-            _entity_options = list(getattr(_onboard_profile, "entity_categories", ()) or ())
+            _localized_cats = None
+            try:
+                from src.i18n_staging import TRANSLATIONS as _i18n_map
+                _cand_cats = _i18n_map.get(_onboard_lang, {}).get("entity_categories")
+                if isinstance(_cand_cats, (list, tuple)) and _cand_cats:
+                    _localized_cats = list(_cand_cats)
+            except Exception:
+                _localized_cats = None
+            _entity_options = _localized_cats if _localized_cats is not None else list(getattr(_onboard_profile, "entity_categories", ()) or ())
             if not _entity_options:
                 _entity_options = [
                     "Public University / Polytechnic / Research Institute (Academic Sector)",
@@ -7662,6 +7771,7 @@ if st.query_params.get("mode") == "dev" and _raw_portal is None:
     st.session_state.pop("dev_grant_input", None)
     st.session_state["_primary_workspace"] = "Developer Console"
     st.session_state["_primary_workspace_selection"] = "Developer Console"
+    _sanitize_stale_streamlit_form_state()
     st.sidebar.radio(
         "Application Workspace",
         ["Onboarding Portal", "Developer Console"],
