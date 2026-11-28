@@ -6754,15 +6754,17 @@ def _render_home() -> None:
                 except Exception:
                     return fallback_en
 
+            _profile_cats = list(getattr(_onboard_profile, "entity_categories", ()) or ())
             _localized_cats = None
-            try:
-                from src.i18n_staging import TRANSLATIONS as _i18n_map
-                _cand_cats = _i18n_map.get(_onboard_lang, {}).get("entity_categories")
-                if isinstance(_cand_cats, (list, tuple)) and _cand_cats:
-                    _localized_cats = list(_cand_cats)
-            except Exception:
-                _localized_cats = None
-            _entity_options = _localized_cats if _localized_cats is not None else list(getattr(_onboard_profile, "entity_categories", ()) or ())
+            if not (str(getattr(_onboard_profile, "code", "")).upper() == "NG" and _onboard_lang == "en" and _profile_cats):
+                try:
+                    from src.i18n_staging import TRANSLATIONS as _i18n_map
+                    _cand_cats = _i18n_map.get(_onboard_lang, {}).get("entity_categories")
+                    if isinstance(_cand_cats, (list, tuple)) and _cand_cats:
+                        _localized_cats = list(_cand_cats)
+                except Exception:
+                    _localized_cats = None
+            _entity_options = _profile_cats if (str(getattr(_onboard_profile, "code", "")).upper() == "NG" and _onboard_lang == "en" and _profile_cats) else (_localized_cats if _localized_cats is not None else _profile_cats)
             if not _entity_options:
                 _entity_options = [
                     "Public University / Polytechnic / Research Institute (Academic Sector)",

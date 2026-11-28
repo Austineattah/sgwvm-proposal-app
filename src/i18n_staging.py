@@ -42,7 +42,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "benefit_governance_body": 'Standardized intake stages, traceable records, and clear accountability reduce bottlenecks across review teams.',
         "benefit_compliance_title": 'KYC & Anti-Duplication Safeguards:',
         "benefit_compliance_body": 'Automated entity checks and structured documentation help prevent duplicate submissions and compliance gaps.',
-        "entity_categories": ['Government Ministry / Agency / Statutory Body', 'State-Owned Enterprise / Public Utility', 'Private Corporation / Enterprise', 'Non-Profit Foundation / Civil Society Organization'],
+        "entity_categories": ['Public University / Polytechnic / Research Institute (Academic Sector)', 'Multinational Funder / UN Agency / International NGO (Humanitarian Sector)', 'National Assembly / Parliament / Legislative Directorate', 'Federal Ministry, Department, or Agency (MDA)', 'State Ministry, Department, or Agency (MDA)', 'Private Limited Company / Enterprise (Commercial Sector)', 'Non-Profit Foundation / Civil Society Organization'],
         "hide_panel_label": 'Hide Panel',
         "switch_to_about_org": 'Switch to: About the Organisation',
         "switch_to_benefits": 'Switch to: Potential Institutional Benefits',
